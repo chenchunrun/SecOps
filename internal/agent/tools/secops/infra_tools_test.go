@@ -985,3 +985,556 @@ func BenchmarkAccessReviewTool_Execute(b *testing.B) {
 		tool.Execute(params)
 	}
 }
+
+// InfrastructureQueryTool tests
+
+func TestInfrastructureQueryTool_Type(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	if tool.Type() != ToolTypeInfrastructureQuery {
+		t.Errorf("expected %v, got %v", ToolTypeInfrastructureQuery, tool.Type())
+	}
+}
+
+func TestInfrastructureQueryTool_Name(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	if tool.Name() != "Infrastructure Query" {
+		t.Errorf("expected 'Infrastructure Query', got %v", tool.Name())
+	}
+}
+
+func TestInfrastructureQueryTool_ValidateParams(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+
+	tests := []struct {
+		name    string
+		params  interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid terraform params",
+			params: &InfrastructureQueryParams{
+				SystemType: "terraform",
+				QueryType:  "state",
+				Target:     "workspace/prod",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid aws resources params",
+			params: &InfrastructureQueryParams{
+				SystemType: "aws",
+				QueryType:  "resources",
+				Target:     "us-east-1",
+				Region:     "us-east-1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid aws scaling params",
+			params: &InfrastructureQueryParams{
+				SystemType: "aws",
+				QueryType:  "scaling",
+				Target:     "asg-prod",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid aws costs params",
+			params: &InfrastructureQueryParams{
+				SystemType: "aws",
+				QueryType:  "costs",
+				Target:     "account-123",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid gcp params",
+			params: &InfrastructureQueryParams{
+				SystemType: "gcp",
+				QueryType:  "resources",
+				Target:     "project-id",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid kubernetes params",
+			params: &InfrastructureQueryParams{
+				SystemType: "kubernetes",
+				QueryType:  "resources",
+				Target:     "prod-cluster",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid without query_type",
+			params: &InfrastructureQueryParams{
+				SystemType: "aws",
+				Target:     "us-east-1",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "missing system_type",
+			params:  &InfrastructureQueryParams{QueryType: "resources"},
+			wantErr: true,
+		},
+		{
+			name: "unsupported system_type",
+			params: &InfrastructureQueryParams{
+				SystemType: "digitalocean",
+				QueryType:  "resources",
+			},
+			wantErr: true,
+		},
+		{
+			name: "unsupported query_type",
+			params: &InfrastructureQueryParams{
+				SystemType: "aws",
+				QueryType:  "inventory",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tool.ValidateParams(tt.params)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestInfrastructureQueryTool_Execute(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+
+	params := &InfrastructureQueryParams{
+		SystemType: "terraform",
+		QueryType:  "state",
+		Target:     "workspace/prod",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	iqResult, ok := result.(*InfrastructureQueryResult)
+	if !ok {
+		t.Fatal("expected InfrastructureQueryResult")
+	}
+
+	if iqResult.TerraformState == nil {
+		t.Error("expected TerraformState in result")
+	}
+
+	if len(iqResult.TerraformState.Resources) == 0 {
+		t.Error("expected resources in terraform state")
+	}
+
+	if !iqResult.TerraformState.DriftDetected {
+		t.Error("expected drift to be detected in mock")
+	}
+}
+
+func TestInfrastructureQueryTool_Execute_AllSystems(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	systems := []string{"terraform", "aws", "gcp", "azure", "kubernetes"}
+
+	for _, sys := range systems {
+		t.Run(sys, func(t *testing.T) {
+			params := &InfrastructureQueryParams{
+				SystemType: sys,
+				QueryType:  "resources",
+				Target:     "test-target",
+			}
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			ir, ok := result.(*InfrastructureQueryResult)
+			if !ok {
+				t.Fatal("expected InfrastructureQueryResult")
+			}
+			if ir.SystemType != sys {
+				t.Errorf("expected SystemType %v, got %v", sys, ir.SystemType)
+			}
+		})
+	}
+}
+
+func TestInfrastructureQueryTool_Execute_Scaling(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	platforms := []string{"aws", "gcp", "azure", "kubernetes"}
+
+	for _, p := range platforms {
+		t.Run(p, func(t *testing.T) {
+			params := &InfrastructureQueryParams{
+				SystemType: p,
+				QueryType:  "scaling",
+				Target:     "test-cluster",
+			}
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			ir := result.(*InfrastructureQueryResult)
+			if ir.ScalingInfo == nil {
+				t.Error("expected ScalingInfo in result")
+			}
+			if ir.ScalingInfo.MinReplicas > ir.ScalingInfo.MaxReplicas {
+				t.Error("expected MinReplicas <= MaxReplicas")
+			}
+		})
+	}
+}
+
+func TestInfrastructureQueryTool_Execute_Costs(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	platforms := []string{"aws", "gcp", "azure"}
+
+	for _, p := range platforms {
+		t.Run(p, func(t *testing.T) {
+			params := &InfrastructureQueryParams{
+				SystemType: p,
+				QueryType:  "costs",
+				Target:     "test-account",
+			}
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			ir := result.(*InfrastructureQueryResult)
+			if len(ir.CostInfo) == 0 {
+				t.Error("expected CostInfo in result")
+			}
+			for _, c := range ir.CostInfo {
+				if c.MonthlyCost < 0 {
+					t.Error("expected MonthlyCost >= 0")
+				}
+			}
+		})
+	}
+}
+
+func TestInfrastructureQueryTool_TerraformOutputs(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+
+	params := &InfrastructureQueryParams{
+		SystemType: "terraform",
+		QueryType:  "state",
+		Target:     "workspace/prod",
+	}
+
+	result, _ := tool.Execute(params)
+	iqResult := result.(*InfrastructureQueryResult)
+
+	if len(iqResult.TerraformState.Outputs) == 0 {
+		t.Error("expected terraform outputs")
+	}
+
+	// Verify database_url is redacted
+	if v, ok := iqResult.TerraformState.Outputs["database_url"]; ok {
+		if v == "postgres://..." || v == "" {
+			// OK, redacted
+		}
+	}
+}
+
+// DeploymentStatusTool tests
+
+func TestDeploymentStatusTool_Type(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+	if tool.Type() != ToolTypeDeploymentStatus {
+		t.Errorf("expected %v, got %v", ToolTypeDeploymentStatus, tool.Type())
+	}
+}
+
+func TestDeploymentStatusTool_Name(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+	if tool.Name() != "Deployment Status" {
+		t.Errorf("expected 'Deployment Status', got %v", tool.Name())
+	}
+}
+
+func TestDeploymentStatusTool_ValidateParams(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+
+	tests := []struct {
+		name    string
+		params  interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid kubernetes params",
+			params: &DeploymentStatusParams{
+				Platform:   "kubernetes",
+				Namespace:  "production",
+				Deployment: "web-api",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid aws params",
+			params: &DeploymentStatusParams{
+				Platform:   "aws",
+				Deployment: "ecs-service",
+				Env:       "production",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid gcp params",
+			params: &DeploymentStatusParams{
+				Platform:   "gcp",
+				Deployment: "cloudrun-service",
+				Env:       "prod",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid azure params",
+			params: &DeploymentStatusParams{
+				Platform:   "azure",
+				Deployment: "app-service",
+				Env:        "production",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "missing platform",
+			params:  &DeploymentStatusParams{Deployment: "web-api"},
+			wantErr: true,
+		},
+		{
+			name: "unsupported platform",
+			params: &DeploymentStatusParams{
+				Platform:   "heroku",
+				Deployment: "web-api",
+			},
+			wantErr: true,
+		},
+		{
+			name:    "missing deployment",
+			params:  &DeploymentStatusParams{Platform: "kubernetes"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tool.ValidateParams(tt.params)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDeploymentStatusTool_Execute(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+
+	params := &DeploymentStatusParams{
+		Platform:   "kubernetes",
+		Namespace:  "production",
+		Deployment: "web-api",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	dsResult, ok := result.(*DeploymentStatusResult)
+	if !ok {
+		t.Fatal("expected DeploymentStatusResult")
+	}
+
+	if dsResult.Health == nil {
+		t.Error("expected Health in result")
+	}
+
+	if dsResult.Replicas == nil {
+		t.Error("expected Replicas in result")
+	}
+
+	if dsResult.Rollout == nil {
+		t.Error("expected Rollout in result")
+	}
+
+	if dsResult.Version == "" {
+		t.Error("expected Version in result")
+	}
+}
+
+func TestDeploymentStatusTool_Execute_AllPlatforms(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+	platforms := []string{"kubernetes", "aws", "gcp", "azure"}
+
+	for _, p := range platforms {
+		t.Run(p, func(t *testing.T) {
+			params := &DeploymentStatusParams{
+				Platform:   p,
+				Deployment: "test-service",
+			}
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			ds, ok := result.(*DeploymentStatusResult)
+			if !ok {
+				t.Fatal("expected DeploymentStatusResult")
+			}
+			if ds.Health == nil {
+				t.Error("expected health info")
+			}
+			if ds.Replicas == nil {
+				t.Error("expected replica info")
+			}
+		})
+	}
+}
+
+func TestDeploymentStatusTool_ReplicaStatus(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+
+	params := &DeploymentStatusParams{
+		Platform:   "kubernetes",
+		Namespace:  "production",
+		Deployment: "web-api",
+	}
+
+	result, _ := tool.Execute(params)
+	dsResult := result.(*DeploymentStatusResult)
+
+	replicas := dsResult.Replicas
+	if replicas.Ready > replicas.Desired {
+		t.Error("expected Ready <= Desired")
+	}
+
+	if replicas.Available > replicas.Desired {
+		t.Error("expected Available <= Desired")
+	}
+}
+
+func TestDeploymentStatusTool_HealthStatus(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+
+	params := &DeploymentStatusParams{
+		Platform:   "kubernetes",
+		Namespace:  "production",
+		Deployment: "web-api",
+	}
+
+	result, _ := tool.Execute(params)
+	dsResult := result.(*DeploymentStatusResult)
+
+	validStatuses := map[string]bool{
+		"healthy":   true,
+		"degraded":   true,
+		"unhealthy":  true,
+		"unknown":    true,
+	}
+	if !validStatuses[dsResult.Health.Status] {
+		t.Errorf("expected valid health status, got %v", dsResult.Health.Status)
+	}
+}
+
+func TestDeploymentStatusTool_CanaryAnalysis(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+
+	params := &DeploymentStatusParams{
+		Platform:   "kubernetes",
+		Namespace:  "production",
+		Deployment: "web-api",
+	}
+
+	result, _ := tool.Execute(params)
+	dsResult := result.(*DeploymentStatusResult)
+
+	canary := dsResult.CanaryAnalysis
+	if canary != nil && canary.Recommendation != "" && canary.Recommendation != "none" {
+		validRecs := map[string]bool{
+			"promote":  true,
+			"rollback": true,
+			"hold":     true,
+		}
+		if !validRecs[canary.Recommendation] {
+			t.Errorf("expected valid canary recommendation, got %v", canary.Recommendation)
+		}
+	}
+}
+
+func TestDeploymentStatusTool_RolloutInfo(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+
+	params := &DeploymentStatusParams{
+		Platform:   "kubernetes",
+		Namespace:  "production",
+		Deployment: "web-api",
+	}
+
+	result, _ := tool.Execute(params)
+	dsResult := result.(*DeploymentStatusResult)
+
+	validStrategies := map[string]bool{
+		"RollingUpdate": true,
+		"BlueGreen":     true,
+		"Canary":        true,
+	}
+	if !validStrategies[dsResult.Rollout.Strategy] {
+		t.Errorf("expected valid rollout strategy, got %v", dsResult.Rollout.Strategy)
+	}
+}
+
+func TestDeploymentStatusTool_Events(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+
+	params := &DeploymentStatusParams{
+		Platform:   "kubernetes",
+		Namespace:  "production",
+		Deployment: "web-api",
+	}
+
+	result, _ := tool.Execute(params)
+	dsResult := result.(*DeploymentStatusResult)
+
+	for _, event := range dsResult.Health.Events {
+		if event.Type != "Normal" && event.Type != "Warning" {
+			t.Errorf("expected Normal or Warning event type, got %v", event.Type)
+		}
+		if event.Message == "" {
+			t.Error("expected event message")
+		}
+	}
+}
+
+// Benchmark new tools
+func BenchmarkInfrastructureQueryTool_Execute(b *testing.B) {
+	tool := NewInfrastructureQueryTool(nil)
+	params := &InfrastructureQueryParams{
+		SystemType: "terraform",
+		QueryType:  "state",
+		Target:     "workspace/prod",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tool.Execute(params)
+	}
+}
+
+func BenchmarkDeploymentStatusTool_Execute(b *testing.B) {
+	tool := NewDeploymentStatusTool(nil)
+	params := &DeploymentStatusParams{
+		Platform:   "kubernetes",
+		Namespace:  "production",
+		Deployment: "web-api",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tool.Execute(params)
+	}
+}

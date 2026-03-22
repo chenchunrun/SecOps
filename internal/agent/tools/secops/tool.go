@@ -17,6 +17,8 @@ const (
 	ToolTypeSecretAudit          ToolType = "secret_audit"
 	ToolTypeRotationCheck        ToolType = "rotation_check"
 	ToolTypeAccessReview         ToolType = "access_review"
+	ToolTypeInfrastructureQuery  ToolType = "infrastructure_query"
+	ToolTypeDeploymentStatus     ToolType = "deployment_status"
 )
 
 // SecOpsTool 工具接口
