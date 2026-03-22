@@ -37,6 +37,7 @@ type PromptDat struct {
 	GitStatus     string
 	ContextFiles  []ContextFile
 	AvailSkillXML string
+	TraceID       string
 }
 
 type ContextFile struct {
@@ -187,6 +188,7 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		Platform:      platform,
 		Date:          p.now().Format("1/2/2006"),
 		AvailSkillXML: availSkillXML,
+		TraceID:       fmt.Sprintf("trace-%d", p.now().UnixNano()),
 	}
 	if isGit {
 		var err error
