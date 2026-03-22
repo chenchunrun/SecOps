@@ -21,6 +21,23 @@
 - **Works Everywhere:** first-class support in every terminal on macOS, Linux, Windows (PowerShell and WSL), Android, FreeBSD, OpenBSD, and NetBSD
 - **Industrial Grade:** built on the Charm ecosystem, powering 25k+ applications, from leading open source projects to business-critical infrastructure
 
+## SecOps Validation
+
+This fork includes SecOps runtime capabilities (18 tools, risk/capability gates,
+audit/SIEM, and persistence hardening).
+
+- Feature design and scope: [`SECOPS_FEATURES.md`](./SECOPS_FEATURES.md)
+- Definition of Done + test mapping: [`SECOPS_DOD_MATRIX.md`](./SECOPS_DOD_MATRIX.md)
+
+Recommended release verification commands:
+
+```bash
+go test ./internal/agent/tools/secops -count=1
+go test ./internal/integration -count=1
+go test ./internal/sandbox ./internal/audit -count=1
+go test ./... -count=1
+```
+
 ## Installation
 
 Use a package manager:
