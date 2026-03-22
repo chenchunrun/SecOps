@@ -55,3 +55,9 @@ completions/crush.*sh
 # Compiled binary
 SecOps
 crush
+
+# SecOps internal development docs (keep local only)
+/SECOPS_DOD_MATRIX.md
+/SECOPS_FEATURES.md
+/SECOPS_PROJECT_PLAN.md
+/SECURITY_HARDENING.md
