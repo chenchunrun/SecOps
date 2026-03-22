@@ -33,17 +33,19 @@ func Button(t *styles.Styles, opts ButtonOpts) string {
 	}
 
 	// the index is out of bound
-	if opts.UnderlineIndex > -1 && opts.UnderlineIndex > len(text)-1 {
+	runes := []rune(text)
+	if opts.UnderlineIndex > -1 && opts.UnderlineIndex > len(runes)-1 {
 		opts.UnderlineIndex = -1
 	}
 
-	text = style.Padding(0, opts.Padding).Render(text)
-
 	if opts.UnderlineIndex != -1 {
-		text = lipgloss.StyleRanges(text, lipgloss.NewRange(opts.Padding+opts.UnderlineIndex, opts.Padding+opts.UnderlineIndex+1, style.Underline(true)))
+		prefix := string(runes[:opts.UnderlineIndex])
+		target := string(runes[opts.UnderlineIndex])
+		suffix := string(runes[opts.UnderlineIndex+1:])
+		text = prefix + lipgloss.NewStyle().Underline(true).Render(target) + suffix
 	}
 
-	return text
+	return style.Padding(0, opts.Padding).Render(text)
 }
 
 // ButtonGroup creates a row of selectable buttons
