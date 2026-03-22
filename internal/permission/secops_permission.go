@@ -80,6 +80,9 @@ type DefaultService struct {
 	auditLog     []auditRecord
 }
 
+// maxAuditLogEntries caps the in-memory audit log to prevent unbounded memory growth.
+const maxAuditLogEntries = 10000
+
 // NewDefaultService 创建默认权限服务
 func NewDefaultService() *DefaultService {
 	return &DefaultService{
@@ -308,6 +311,11 @@ func (ds *DefaultService) AuditLog(req *PermissionRequest, decision PermissionDe
 		Decision:  decision,
 		Timestamp: time.Now(),
 	})
+
+	// Evict oldest entries when the cap is exceeded to prevent unbounded memory growth.
+	if len(ds.auditLog) > maxAuditLogEntries {
+		ds.auditLog = ds.auditLog[len(ds.auditLog)-maxAuditLogEntries:]
+	}
 
 	return nil
 }

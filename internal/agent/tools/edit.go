@@ -76,17 +76,29 @@ func NewEditTool(
 
 			params.FilePath = filepathext.SmartJoin(workingDir, params.FilePath)
 
+			// Resolve symlinks in both the file and working directory so the boundary
+			// check is consistent regardless of whether paths contain symlinks.
+			// Original paths are kept for filetracker lookups and file operations.
+			realFilePath := params.FilePath
+			if resolved, evalErr := filepath.EvalSymlinks(params.FilePath); evalErr == nil {
+				realFilePath = resolved
+			}
+			realWorkingDir := workingDir
+			if resolved, evalErr := filepath.EvalSymlinks(workingDir); evalErr == nil {
+				realWorkingDir = resolved
+			}
+
 			var response fantasy.ToolResponse
 			var err error
 
 			editCtx := editContext{ctx, permissions, files, filetracker, workingDir}
 
 			if params.OldString == "" {
-				response, err = createNewFile(editCtx, params.FilePath, params.NewString, call)
+				response, err = createNewFile(editCtx, params.FilePath, realFilePath, realWorkingDir, params.NewString, call)
 			} else if params.NewString == "" {
-				response, err = deleteContent(editCtx, params.FilePath, params.OldString, params.ReplaceAll, call)
+				response, err = deleteContent(editCtx, params.FilePath, realFilePath, realWorkingDir, params.OldString, params.ReplaceAll, call)
 			} else {
-				response, err = replaceContent(editCtx, params.FilePath, params.OldString, params.NewString, params.ReplaceAll, call)
+				response, err = replaceContent(editCtx, params.FilePath, realFilePath, realWorkingDir, params.OldString, params.NewString, params.ReplaceAll, call)
 			}
 
 			if err != nil {
@@ -107,7 +119,12 @@ func NewEditTool(
 		})
 }
 
-func createNewFile(edit editContext, filePath, content string, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func createNewFile(edit editContext, filePath, realFilePath, realWorkingDir, content string, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	// Security check: reject if real path (after symlink resolution) is outside working tree.
+	if !strings.HasPrefix(realFilePath, realWorkingDir) {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("path is outside working directory: %s", filePath)), nil
+	}
+
 	fileInfo, err := os.Stat(filePath)
 	if err == nil {
 		if fileInfo.IsDir() {
@@ -187,7 +204,12 @@ func createNewFile(edit editContext, filePath, content string, call fantasy.Tool
 	), nil
 }
 
-func deleteContent(edit editContext, filePath, oldString string, replaceAll bool, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func deleteContent(edit editContext, filePath, realFilePath, realWorkingDir, oldString string, replaceAll bool, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	// Security check: reject if real path (after symlink resolution) is outside working tree.
+	if !strings.HasPrefix(realFilePath, realWorkingDir) {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("path is outside working directory: %s", filePath)), nil
+	}
+
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -318,7 +340,12 @@ func deleteContent(edit editContext, filePath, oldString string, replaceAll bool
 	), nil
 }
 
-func replaceContent(edit editContext, filePath, oldString, newString string, replaceAll bool, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+func replaceContent(edit editContext, filePath, realFilePath, realWorkingDir, oldString, newString string, replaceAll bool, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	// Security check: reject if real path (after symlink resolution) is outside working tree.
+	if !strings.HasPrefix(realFilePath, realWorkingDir) {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("path is outside working directory: %s", filePath)), nil
+	}
+
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {

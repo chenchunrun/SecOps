@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -67,6 +68,16 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 				Query:     "up",
 				StartTime: now,
 				EndTime:   now.Add(-1 * time.Hour),
+			},
+			wantErr: true,
+		},
+		{
+			name: "query too long",
+			params: &MonitoringQueryParams{
+				System:    SystemPrometheus,
+				Query:     strings.Repeat("a", 2001),
+				StartTime: now.Add(-1 * time.Hour),
+				EndTime:   now,
 			},
 			wantErr: true,
 		},

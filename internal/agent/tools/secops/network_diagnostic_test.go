@@ -84,6 +84,15 @@ func TestNetworkDiagnosticTool_ValidateParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "too many ports",
+			params: &NetworkDiagnosticParams{
+				Type:   DiagnosticPortScan,
+				Target: "example.com",
+				Ports:  make([]int, 101),
+			},
+			wantErr: true,
+		},
+		{
 			name:    "invalid type",
 			params:  "invalid",
 			wantErr: true,

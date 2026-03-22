@@ -154,6 +154,10 @@ func (ndt *NetworkDiagnosticTool) ValidateParams(params interface{}) error {
 		return fmt.Errorf("ports are required for port scan")
 	}
 
+	if len(p.Ports) > 100 {
+		return fmt.Errorf("port list exceeds maximum of 100 ports")
+	}
+
 	return nil
 }
 

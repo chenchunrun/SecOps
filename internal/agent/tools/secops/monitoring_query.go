@@ -140,6 +140,12 @@ func (mqt *MonitoringQueryTool) ValidateParams(params interface{}) error {
 		return ErrInvalidDateRange
 	}
 
+	// Enforce query complexity limits to prevent ReDoS and large PromQL
+	// subqueries that could overwhelm the monitoring backend.
+	if len(p.Query) > 2000 {
+		return fmt.Errorf("query exceeds maximum length of 2000 characters")
+	}
+
 	return nil
 }
 

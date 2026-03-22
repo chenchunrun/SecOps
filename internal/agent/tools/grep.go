@@ -264,6 +264,13 @@ type ripgrepMatch struct {
 func searchFilesWithRegex(pattern, rootPath, include string) ([]grepMatch, error) {
 	matches := []grepMatch{}
 
+	// Resolve symlinks in rootPath before walking to prevent traversal via
+	// symlinks pointing outside the intended search boundary.
+	realRoot, err := filepath.EvalSymlinks(rootPath)
+	if err != nil {
+		realRoot = rootPath
+	}
+
 	// Use cached regex compilation
 	regex, err := searchRegexCache.get(pattern)
 	if err != nil {
@@ -285,6 +292,15 @@ func searchFilesWithRegex(pattern, rootPath, include string) ([]grepMatch, error
 	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
+		}
+
+		// Resolve symlinks for the current path to verify it stays within root.
+		realPath, evalErr := filepath.EvalSymlinks(path)
+		if evalErr != nil || !strings.HasPrefix(realPath, realRoot) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil // Skip symlinked files outside root
 		}
 
 		if info.IsDir() {
