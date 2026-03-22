@@ -19,6 +19,8 @@ const (
 	ToolTypeAccessReview         ToolType = "access_review"
 	ToolTypeInfrastructureQuery  ToolType = "infrastructure_query"
 	ToolTypeDeploymentStatus     ToolType = "deployment_status"
+	ToolTypeAlertCheck          ToolType = "alert_check"
+	ToolTypeIncidentTimeline    ToolType = "incident_timeline"
 )
 
 // SecOpsTool 工具接口

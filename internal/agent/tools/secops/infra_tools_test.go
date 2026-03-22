@@ -3,6 +3,7 @@ package secops
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDatabaseQueryTool_Type(t *testing.T) {
@@ -1535,6 +1536,472 @@ func BenchmarkDeploymentStatusTool_Execute(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		tool.Execute(params)
+	}
+}
+
+// AlertCheckTool tests
+
+func TestAlertCheckTool_Type(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+	if tool.Type() != ToolTypeAlertCheck {
+		t.Errorf("expected %v, got %v", ToolTypeAlertCheck, tool.Type())
+	}
+}
+
+func TestAlertCheckTool_Name(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+	if tool.Name() != "Alert Check" {
+		t.Errorf("expected 'Alert Check', got %v", tool.Name())
+	}
+}
+
+func TestAlertCheckTool_ValidateParams(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+
+	tests := []struct {
+		name    string
+		params  interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid prometheus params",
+			params: &AlertCheckParams{
+				System:    "prometheus",
+				Filter:    "namespace=production",
+				Status:    "firing",
+				TimeRange: "1h",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid grafana params",
+			params: &AlertCheckParams{
+				System: "grafana",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid datadog params",
+			params: &AlertCheckParams{
+				System: "datadog",
+				Status: "resolved",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid pagerduty params",
+			params: &AlertCheckParams{
+				System: "pagerduty",
+				Status: "acknowledged",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid without status",
+			params: &AlertCheckParams{
+				System: "prometheus",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "missing system",
+			params:  &AlertCheckParams{Status: "firing"},
+			wantErr: true,
+		},
+		{
+			name: "unsupported system",
+			params: &AlertCheckParams{
+				System: "newrelic",
+			},
+			wantErr: true,
+		},
+		{
+			name: "unsupported status",
+			params: &AlertCheckParams{
+				System: "prometheus",
+				Status: "unknown",
+			},
+			wantErr: true,
+		},
+		{
+			name:    "invalid type",
+			params:  "invalid",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tool.ValidateParams(tt.params)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAlertCheckTool_Execute(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+
+	params := &AlertCheckParams{
+		System: "prometheus",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	alertResult, ok := result.(*AlertCheckResult)
+	if !ok {
+		t.Fatal("expected AlertCheckResult")
+	}
+
+	if alertResult.System != "prometheus" {
+		t.Errorf("expected system prometheus, got %v", alertResult.System)
+	}
+
+	if alertResult.Total == 0 {
+		t.Error("expected alerts in result")
+	}
+
+	if alertResult.Firing < 0 || alertResult.Resolved < 0 || alertResult.Acknowledged < 0 {
+		t.Error("expected non-negative alert counts")
+	}
+}
+
+func TestAlertCheckTool_Execute_AllSystems(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+	systems := []string{"prometheus", "grafana", "datadog", "pagerduty"}
+
+	for _, sys := range systems {
+		t.Run(sys, func(t *testing.T) {
+			params := &AlertCheckParams{System: sys}
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			ar, ok := result.(*AlertCheckResult)
+			if !ok {
+				t.Fatal("expected AlertCheckResult")
+			}
+			if ar.System != sys {
+				t.Errorf("expected system %v, got %v", sys, ar.System)
+			}
+			if ar.Total == 0 {
+				t.Error("expected alerts")
+			}
+		})
+	}
+}
+
+func TestAlertCheckTool_FilterByStatus(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+	statuses := []string{"firing", "resolved", "acknowledged"}
+
+	for _, status := range statuses {
+		t.Run(status, func(t *testing.T) {
+			params := &AlertCheckParams{
+				System: "prometheus",
+				Status: status,
+			}
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			ar := result.(*AlertCheckResult)
+			for _, a := range ar.Alerts {
+				if a.Status != status {
+					t.Errorf("expected status %v, got %v", status, a.Status)
+				}
+			}
+		})
+	}
+}
+
+func TestAlertCheckTool_AlertCounts(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+
+	params := &AlertCheckParams{System: "prometheus"}
+	result, _ := tool.Execute(params)
+	ar := result.(*AlertCheckResult)
+
+	expectedTotal := ar.Firing + ar.Resolved + ar.Acknowledged
+	if ar.Total != expectedTotal {
+		t.Errorf("expected total %d to match sum of counts %d", ar.Total, expectedTotal)
+	}
+}
+
+func TestAlertCheckTool_AlertInfoFields(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+
+	params := &AlertCheckParams{System: "prometheus"}
+	result, _ := tool.Execute(params)
+	ar := result.(*AlertCheckResult)
+
+	for _, a := range ar.Alerts {
+		if a.ID == "" {
+			t.Error("expected alert ID")
+		}
+		if a.Name == "" {
+			t.Error("expected alert name")
+		}
+		if a.Status == "" {
+			t.Error("expected alert status")
+		}
+		if a.Severity == "" {
+			t.Error("expected alert severity")
+		}
+		if a.Message == "" {
+			t.Error("expected alert message")
+		}
+	}
+}
+
+// IncidentTimelineTool tests
+
+func TestIncidentTimelineTool_Type(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+	if tool.Type() != ToolTypeIncidentTimeline {
+		t.Errorf("expected %v, got %v", ToolTypeIncidentTimeline, tool.Type())
+	}
+}
+
+func TestIncidentTimelineTool_Name(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+	if tool.Name() != "Incident Timeline" {
+		t.Errorf("expected 'Incident Timeline', got %v", tool.Name())
+	}
+}
+
+func TestIncidentTimelineTool_ValidateParams(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	tests := []struct {
+		name    string
+		params  interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid incident ID",
+			params: &IncidentTimelineParams{
+				IncidentID: "INC-001",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid incident ID with events",
+			params: &IncidentTimelineParams{
+				IncidentID: "INC-100",
+				Events: []TimelineEvent{
+					{Timestamp: time.Now(), Type: "alert", Actor: "system", Description: "Test"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "missing incident ID",
+			params:  &IncidentTimelineParams{},
+			wantErr: true,
+		},
+		{
+			name:    "invalid type",
+			params:  "invalid",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tool.ValidateParams(tt.params)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIncidentTimelineTool_Execute(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	params := &IncidentTimelineParams{
+		IncidentID: "INC-001",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	tlResult, ok := result.(*IncidentTimelineResult)
+	if !ok {
+		t.Fatal("expected IncidentTimelineResult")
+	}
+
+	if tlResult.IncidentID != "INC-001" {
+		t.Errorf("expected incident ID INC-001, got %v", tlResult.IncidentID)
+	}
+
+	if len(tlResult.Events) == 0 {
+		t.Error("expected events in timeline")
+	}
+
+	if tlResult.Duration == 0 && tlResult.Status == "resolved" {
+		// Duration can be 0 for ongoing incidents
+	}
+}
+
+func TestIncidentTimelineTool_Execute_AllIncidentTypes(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+	incidentIDs := []string{"INC-001", "INC-002", "INC-003", "INC-004", "INC-005", "INC-006", "INC-999"}
+
+	for _, id := range incidentIDs {
+		t.Run(id, func(t *testing.T) {
+			params := &IncidentTimelineParams{IncidentID: id}
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			tl, ok := result.(*IncidentTimelineResult)
+			if !ok {
+				t.Fatal("expected IncidentTimelineResult")
+			}
+			if tl.IncidentID != id {
+				t.Errorf("expected incident ID %v, got %v", id, tl.IncidentID)
+			}
+			if len(tl.Events) == 0 {
+				t.Error("expected events")
+			}
+		})
+	}
+}
+
+func TestIncidentTimelineTool_EventTypes(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	params := &IncidentTimelineParams{IncidentID: "INC-001"}
+	result, _ := tool.Execute(params)
+	tl := result.(*IncidentTimelineResult)
+
+	validTypes := map[string]bool{
+		"alert":          true,
+		"action":         true,
+		"escalation":     true,
+		"resolution":     true,
+		"communication":  true,
+	}
+
+	for _, e := range tl.Events {
+		if e.Timestamp.IsZero() {
+			t.Error("expected event timestamp")
+		}
+		if e.Type == "" {
+			t.Error("expected event type")
+		}
+		if !validTypes[e.Type] {
+			t.Errorf("expected valid event type, got %v", e.Type)
+		}
+		if e.Actor == "" {
+			t.Error("expected event actor")
+		}
+		if e.Description == "" {
+			t.Error("expected event description")
+		}
+	}
+}
+
+func TestIncidentTimelineTool_IncidentFields(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	params := &IncidentTimelineParams{IncidentID: "INC-001"}
+	result, _ := tool.Execute(params)
+	tl := result.(*IncidentTimelineResult)
+
+	if tl.Title == "" {
+		t.Error("expected incident title")
+	}
+	if tl.Status == "" {
+		t.Error("expected incident status")
+	}
+	if tl.StartTime.IsZero() {
+		t.Error("expected start time")
+	}
+	if tl.Duration == 0 && tl.Status == "open" {
+		// OK for open incidents
+	}
+}
+
+func TestIncidentTimelineTool_Duration(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	params := &IncidentTimelineParams{IncidentID: "INC-001"}
+	result, _ := tool.Execute(params)
+	tl := result.(*IncidentTimelineResult)
+
+	if !tl.EndTime.IsZero() {
+		expected := tl.EndTime.Sub(tl.StartTime)
+		if expected != tl.Duration {
+			t.Errorf("expected duration %v, got %v", expected, tl.Duration)
+		}
+	}
+}
+
+func TestIncidentTimelineTool_RootCauseAndImpact(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	params := &IncidentTimelineParams{IncidentID: "INC-001"}
+	result, _ := tool.Execute(params)
+	tl := result.(*IncidentTimelineResult)
+
+	if tl.RootCause != "" {
+		if tl.RootCause == "N/A" {
+			t.Error("expected non-N/A root cause")
+		}
+	}
+}
+
+// Benchmarks
+
+func BenchmarkAlertCheckTool_Execute(b *testing.B) {
+	tool := NewAlertCheckTool(nil)
+	params := &AlertCheckParams{System: "prometheus"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tool.Execute(params)
+	}
+}
+
+func BenchmarkAlertCheckTool_Execute_AllSystems(b *testing.B) {
+	tool := NewAlertCheckTool(nil)
+	systems := []string{"prometheus", "grafana", "datadog", "pagerduty"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sys := systems[i%len(systems)]
+		params := &AlertCheckParams{System: sys}
+		tool.Execute(params)
+	}
+}
+
+func BenchmarkIncidentTimelineTool_Execute(b *testing.B) {
+	tool := NewIncidentTimelineTool(nil)
+	params := &IncidentTimelineParams{IncidentID: "INC-001"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tool.Execute(params)
+	}
+}
+
+func BenchmarkIncidentTimelineTool_Execute_AllTypes(b *testing.B) {
+	tool := NewIncidentTimelineTool(nil)
+	ids := []string{"INC-001", "INC-002", "INC-003", "INC-004", "INC-005", "INC-006", "INC-999"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		params := &IncidentTimelineParams{IncidentID: ids[i%len(ids)]}
 		tool.Execute(params)
 	}
 }
