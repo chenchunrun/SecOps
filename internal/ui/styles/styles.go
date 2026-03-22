@@ -57,6 +57,18 @@ const (
 	defaultListIndent = 2
 )
 
+// newStrPtr returns a *string pointer to the given string.
+// Used for ansi/chroma StyleConfig fields which expect *string.
+func newStrPtr(s string) *string { return &s }
+
+// Helper functions to return *string pointers for ansi/chroma StyleConfig fields
+// which expect *string (not color.Color). Uses the new(X).Hex() idiom:
+// new(charmtone.X) creates *charmtone.Key, then .Hex() returns the hex string.
+func newFgBaseHex() *string     { return newStrPtr(new(charmtone.Ash).Hex()) }
+func newFgMutedHex() *string    { return newStrPtr(new(charmtone.Squid).Hex()) }
+func newFgHalfMutedHex() *string { return newStrPtr(new(charmtone.Smoke).Hex()) }
+func newFgSubtleHex() *string   { return newStrPtr(new(charmtone.Oyster).Hex()) }
+
 type Styles struct {
 	WindowTooSmall lipgloss.Style
 
@@ -511,11 +523,13 @@ func DefaultStyles() Styles {
 		bgSubtle      = charmtone.Charcoal
 		bgOverlay     = charmtone.Iron
 
-		// Foregrounds
-		fgBase      = charmtone.Ash
-		fgMuted     = charmtone.Squid
-		fgHalfMuted = charmtone.Smoke
-		fgSubtle    = charmtone.Oyster
+		// Foregrounds — dark palette for strong contrast on any background.
+		// Ash/Squid/Smoke/Oyster are designed for dark backgrounds; these
+		// replacements work well on both light and dark terminal backgrounds.
+		fgBase      = lipgloss.Color("#1A1A1A")
+		fgMuted     = lipgloss.Color("#4A4A4A")
+		fgHalfMuted = lipgloss.Color("#6A6A6A")
+		fgSubtle    = lipgloss.Color("#8A8A8A")
 		// fgSelected  = charmtone.Salt
 
 		// Borders
@@ -636,7 +650,7 @@ func DefaultStyles() Styles {
 			StylePrimitive: ansi.StylePrimitive{
 				// BlockPrefix: "\n",
 				// BlockSuffix: "\n",
-				Color: new(charmtone.Smoke.Hex()),
+				Color: newFgMutedHex(),
 			},
 			// Margin: new(uint(defaultMargin)),
 		},
@@ -651,7 +665,7 @@ func DefaultStyles() Styles {
 		Heading: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				BlockSuffix: "\n",
-				Color:       new(charmtone.Malibu.Hex()),
+				Color: newStrPtr(new(charmtone.Malibu).Hex()),
 				Bold:        new(true),
 			},
 		},
@@ -748,7 +762,7 @@ func DefaultStyles() Styles {
 			},
 			Chroma: &ansi.Chroma{
 				Text: ansi.StylePrimitive{
-					Color: new(charmtone.Smoke.Hex()),
+					Color: newFgMutedHex(),
 				},
 				Error: ansi.StylePrimitive{
 					Color:           new(charmtone.Butter.Hex()),
@@ -779,7 +793,7 @@ func DefaultStyles() Styles {
 					Color: new(charmtone.Zest.Hex()),
 				},
 				Name: ansi.StylePrimitive{
-					Color: new(charmtone.Smoke.Hex()),
+					Color: newFgMutedHex(),
 				},
 				NameBuiltin: ansi.StylePrimitive{
 					Color: new(charmtone.Cheeky.Hex()),
@@ -842,7 +856,7 @@ func DefaultStyles() Styles {
 
 	// PlainMarkdown style - muted colors on subtle background for thinking content.
 	plainBg := new(bgBaseLighter.Hex())
-	plainFg := new(fgMuted.Hex())
+	plainFg := newFgMutedHex()
 	s.PlainMarkdown = ansi.StyleConfig{
 		Document: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
