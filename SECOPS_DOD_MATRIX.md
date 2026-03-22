@@ -40,10 +40,30 @@ Each capability must have code path, test mapping, and regression gate.
 
 ## Release DoD Checklist
 
-- [ ] 18 tools pass tool-level tests and integration tests.
-- [ ] No production fallback to hardcoded mock data on critical path.
-- [ ] Risk decisions are auditable with reasons.
-- [ ] SIEM exports redact secrets and enforce TLS.
-- [ ] Sandbox logs include command, mode, result, risk.
-- [ ] Config persistence and restart behavior validated by test.
-- [ ] Full gate `go test ./...` passes before release tag.
+- [x] 18 tools pass tool-level tests and integration tests.
+- [x] No production fallback to hardcoded mock data on critical path.
+- [x] Risk decisions are auditable with reasons.
+- [x] SIEM exports redact secrets and enforce TLS.
+- [x] Sandbox logs include command, mode, result, risk.
+- [x] Config persistence and restart behavior validated by test.
+- [x] Full gate `go test ./...` passes before release tag.
+
+## Verification Evidence
+
+- Tools/capabilities/risk chain:
+  - `internal/agent/secops_adapter_test.go`
+  - `internal/integration/secops_integration_test.go:551` (`TestPermissionRiskToolAuditSIEM_EndToEnd`)
+- Config key persistence + restart + SIEM reconciliation:
+  - `internal/config/load_test.go:82` (`TestConfigStore_SetProviderAPIKey_PersistsAcrossReload`)
+  - `internal/integration/secops_integration_test.go:666` (`TestConfigKeyPersistenceAndAuditSIEMReconcile_EndToEnd`)
+- SIEM TLS + redaction + retries:
+  - `internal/audit/siem_export_test.go`
+- Full regression gate:
+  - `go test ./... -count=1` (latest run passed)
+
+## Remaining Non-Blocking Debt
+
+- Some test comments still mention “mock” wording (historical text) in:
+  - `internal/agent/tools/secops/compliance_check_test.go`
+  - `internal/agent/tools/secops/infra_tools_test.go`
+- This is documentation/comment debt only and does not indicate runtime mock paths.
