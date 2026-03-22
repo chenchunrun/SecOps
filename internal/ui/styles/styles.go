@@ -1157,7 +1157,11 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Tool.DockerMCPActionDel = base.Foreground(red)
 
 	// Buttons: focused uses strong contrast on positive background.
-	s.ButtonFocus = lipgloss.NewStyle().Foreground(bgBase).Background(greenDark)
+	s.ButtonFocus = lipgloss.NewStyle().
+		Foreground(bgBase).
+		Background(greenDark).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(greenDark)
 	s.ButtonBlur = lipgloss.NewStyle().
 		Foreground(white).
 		Background(bgSubtle).

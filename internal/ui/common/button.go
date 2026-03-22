@@ -65,5 +65,15 @@ func ButtonGroup(t *styles.Styles, buttons []ButtonOpts, spacing string) string 
 		parts[i] = Button(t, button)
 	}
 
-	return strings.Join(parts, spacing)
+	// Vertical layout keeps simple string joining semantics.
+	if strings.Contains(spacing, "\n") {
+		return strings.Join(parts, spacing)
+	}
+
+	// Horizontal layout must join multiline button blocks line-by-line.
+	joined := parts[0]
+	for i := 1; i < len(parts); i++ {
+		joined = lipgloss.JoinHorizontal(lipgloss.Top, joined, spacing, parts[i])
+	}
+	return joined
 }
