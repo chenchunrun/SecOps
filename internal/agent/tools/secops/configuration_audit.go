@@ -1,7 +1,12 @@
 package secops
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -359,9 +364,151 @@ func (cat *ConfigurationAuditTool) getSysctlRules(params *ConfigAuditParams) []*
 
 // auditRule 审计单个规则
 func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *ConfigAuditParams) {
-	// 在实际实现中，这里会读取系统配置并与规则比较
-	// 目前使用模拟数据
 	_ = params
+
+	switch rule.ID {
+	case "SSH-001":
+		v, ok := readSSHDConfigValue("PermitRootLogin")
+		if !ok {
+			rule.Status = "warning"
+			rule.CurrentValue = "unknown"
+			rule.Remediation = "Ensure PermitRootLogin is set to no in sshd_config"
+			return
+		}
+		rule.CurrentValue = v
+		if strings.EqualFold(v, "no") {
+			rule.Status = "pass"
+		} else {
+			rule.Status = "fail"
+			rule.Remediation = "Set PermitRootLogin no in sshd_config"
+		}
+	case "SSH-002":
+		v, ok := readSSHDConfigValue("PasswordAuthentication")
+		if !ok {
+			rule.Status = "warning"
+			rule.CurrentValue = "unknown"
+			rule.Remediation = "Ensure PasswordAuthentication is set to no in sshd_config"
+			return
+		}
+		rule.CurrentValue = v
+		if strings.EqualFold(v, "no") {
+			rule.Status = "pass"
+		} else {
+			rule.Status = "fail"
+			rule.Remediation = "Set PasswordAuthentication no in sshd_config"
+		}
+	case "SSH-003":
+		v, ok := readSSHDConfigValue("KexAlgorithms")
+		if !ok || strings.TrimSpace(v) == "" {
+			rule.Status = "warning"
+			rule.CurrentValue = "unknown"
+			return
+		}
+		rule.CurrentValue = v
+		if strings.Contains(strings.ToLower(v), "diffie-hellman-group1-sha1") {
+			rule.Status = "warning"
+		} else {
+			rule.Status = "pass"
+		}
+	case "SUDO-001":
+		v, ok := hasSudoLogOutput()
+		if !ok {
+			rule.Status = "warning"
+			rule.CurrentValue = "unknown"
+			return
+		}
+		if v {
+			rule.Status = "pass"
+			rule.CurrentValue = "enabled"
+		} else {
+			rule.Status = "fail"
+			rule.CurrentValue = "disabled"
+			rule.Remediation = "Enable sudo log_output in sudoers or sudoers.d"
+		}
+	case "SUDO-002":
+		v, ok := hasSudoNoPassword()
+		if !ok {
+			rule.Status = "warning"
+			rule.CurrentValue = "unknown"
+			return
+		}
+		if v {
+			rule.Status = "fail"
+			rule.CurrentValue = "present"
+			rule.Remediation = "Remove NOPASSWD entries from sudoers policy"
+		} else {
+			rule.Status = "pass"
+			rule.CurrentValue = "none"
+		}
+	case "FW-001":
+		enabled, current := firewallEnabled()
+		rule.CurrentValue = current
+		if strings.EqualFold(current, "unknown") {
+			rule.Status = "warning"
+			return
+		}
+		if enabled {
+			rule.Status = "pass"
+		} else {
+			rule.Status = "fail"
+			rule.Remediation = "Enable host firewall (ufw/firewalld/iptables policy)"
+		}
+	case "FW-002":
+		ok, current := defaultInboundDrop()
+		rule.CurrentValue = current
+		if strings.EqualFold(current, "unknown") {
+			rule.Status = "warning"
+			return
+		}
+		if ok {
+			rule.Status = "pass"
+		} else {
+			rule.Status = "fail"
+			rule.Remediation = "Set default inbound policy to DROP/deny"
+		}
+	case "FP-001", "FP-002":
+		mode, ok := readFileMode(rule.Parameter)
+		if !ok {
+			rule.Status = "warning"
+			rule.CurrentValue = "missing"
+			return
+		}
+		rule.CurrentValue = mode
+		if mode == rule.RecommendedValue {
+			rule.Status = "pass"
+		} else {
+			rule.Status = "fail"
+			rule.Remediation = fmt.Sprintf("Set %s permissions to %s", rule.Parameter, rule.RecommendedValue)
+		}
+	case "KER-001":
+		v, ok := readSysctlValue("kernel.randomize_va_space")
+		if !ok {
+			rule.Status = "warning"
+			rule.CurrentValue = "unknown"
+			return
+		}
+		rule.CurrentValue = v
+		if strings.TrimSpace(v) == "2" {
+			rule.Status = "pass"
+		} else {
+			rule.Status = "fail"
+			rule.Remediation = "Set kernel.randomize_va_space=2"
+		}
+	case "SYS-001":
+		v, ok := readSysctlValue("net.ipv4.ip_forward")
+		if !ok {
+			rule.Status = "warning"
+			rule.CurrentValue = "unknown"
+			return
+		}
+		rule.CurrentValue = v
+		if strings.TrimSpace(v) == "0" {
+			rule.Status = "pass"
+		} else {
+			rule.Status = "fail"
+			rule.Remediation = "Set net.ipv4.ip_forward=0 unless routing is required"
+		}
+	}
 }
 
 // calculateScore 计算审计评分
@@ -421,4 +568,170 @@ func (cat *ConfigurationAuditTool) generateRecommendations(result *ConfigAuditRe
 	}
 
 	return recommendations
+}
+
+func readSSHDConfigValue(key string) (string, bool) {
+	paths := []string{
+		"/etc/ssh/sshd_config",
+		"/usr/local/etc/ssh/sshd_config",
+	}
+
+	lowerKey := strings.ToLower(key)
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			fields := strings.Fields(trimmed)
+			if len(fields) < 2 {
+				continue
+			}
+			if strings.ToLower(fields[0]) == lowerKey {
+				return strings.Join(fields[1:], " "), true
+			}
+		}
+	}
+	return "", false
+}
+
+func hasSudoLogOutput() (bool, bool) {
+	lines, ok := readSudoPolicyLines()
+	if !ok {
+		return false, false
+	}
+	for _, line := range lines {
+		if strings.Contains(strings.ToLower(line), "log_output") {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func hasSudoNoPassword() (bool, bool) {
+	lines, ok := readSudoPolicyLines()
+	if !ok {
+		return false, false
+	}
+	for _, line := range lines {
+		if strings.Contains(strings.ToUpper(line), "NOPASSWD") {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func readSudoPolicyLines() ([]string, bool) {
+	paths := []string{"/etc/sudoers"}
+	if entries, err := os.ReadDir("/etc/sudoers.d"); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			paths = append(paths, filepath.Join("/etc/sudoers.d", entry.Name()))
+		}
+	}
+
+	lines := make([]string, 0)
+	found := false
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		found = true
+		for _, line := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines, found
+}
+
+func firewallEnabled() (bool, string) {
+	if out, err := exec.Command("ufw", "status").CombinedOutput(); err == nil {
+		s := strings.ToLower(string(out))
+		if strings.Contains(s, "status: active") {
+			return true, "ufw:active"
+		}
+		if strings.Contains(s, "status: inactive") {
+			return false, "ufw:inactive"
+		}
+	}
+
+	if out, err := exec.Command("firewall-cmd", "--state").CombinedOutput(); err == nil {
+		s := strings.TrimSpace(strings.ToLower(string(out)))
+		if s == "running" {
+			return true, "firewalld:running"
+		}
+		return false, "firewalld:"+s
+	}
+
+	if out, err := exec.Command("iptables", "-S").CombinedOutput(); err == nil {
+		s := string(out)
+		if strings.Contains(s, "-P INPUT DROP") || strings.Contains(s, "-P INPUT REJECT") {
+			return true, "iptables:default_restrictive"
+		}
+		if strings.Contains(s, "-A INPUT") {
+			return true, "iptables:rules_present"
+		}
+		return false, "iptables:no_rules"
+	}
+
+	return false, "unknown"
+}
+
+func defaultInboundDrop() (bool, string) {
+	if out, err := exec.Command("ufw", "status", "verbose").CombinedOutput(); err == nil {
+		s := strings.ToLower(string(out))
+		if strings.Contains(s, "default: deny (incoming)") {
+			return true, "ufw:deny"
+		}
+		if strings.Contains(s, "default: allow (incoming)") {
+			return false, "ufw:allow"
+		}
+	}
+
+	if out, err := exec.Command("iptables", "-S").CombinedOutput(); err == nil {
+		s := string(out)
+		if strings.Contains(s, "-P INPUT DROP") || strings.Contains(s, "-P INPUT REJECT") {
+			return true, "iptables:drop"
+		}
+		if strings.Contains(s, "-P INPUT ACCEPT") {
+			return false, "iptables:accept"
+		}
+	}
+
+	return false, "unknown"
+}
+
+func readFileMode(path string) (string, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", false
+	}
+	mode := info.Mode().Perm()
+	return fmt.Sprintf("%04o", mode), true
+}
+
+func readSysctlValue(key string) (string, bool) {
+	procPath := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
+	if data, err := os.ReadFile(procPath); err == nil {
+		return strings.TrimSpace(string(data)), true
+	}
+
+	cmd := exec.Command("sysctl", "-n", key)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(bytes.TrimSpace(out))), true
 }

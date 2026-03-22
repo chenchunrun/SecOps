@@ -14,8 +14,8 @@ const MaxFileSize = 1 << 20
 
 // Directories excluded from scanning.
 var skipDirs = map[string]bool{
-	".git":            true,
-	"node_modules":    true,
+	".git":           true,
+	"node_modules":   true,
 	"vendor":         true,
 	".svn":           true,
 	"__pycache__":    true,
@@ -35,38 +35,38 @@ var skipDirs = map[string]bool{
 // skipSuffixes contains file extensions that are almost certainly binary
 // and should not be scanned for secrets.
 var skipSuffixes = map[string]bool{
-	".png":  true, ".jpg":  true, ".jpeg": true, ".gif":  true,
-	".ico":  true, ".svg":  true, ".webp": true, ".bmp":  true,
-	".pdf":  true, ".zip":  true, ".tar":  true, ".gz":   true,
-	".tgz":  true, ".bz2":  true, ".xz":   true, ".rar":  true,
-	".7z":   true, ".exe":  true, ".dll":  true, ".so":   true,
-	".dylib": true, ".a":    true, ".o":    true, ".obj":  true,
-	".class": true, ".jar":  true, ".war":  true, ".ear":  true,
-	".pyc":  true, ".pyo":  true, ".pyd":  true,
-	".doc":  true, ".docx": true, ".xls":  true, ".xlsx": true,
-	".ppt":  true, ".pptx": true,
-	".ttf":  true, ".otf":  true, ".woff": true, ".woff2": true,
-	".eot":  true,
-	".mp3":  true, ".mp4":  true, ".avi":  true, ".mov":  true,
-	".wmv":  true, ".flv":  true, ".mkv":  true,
-	".iso":  true, ".img":  true,
-	".lock": true, ".sum":  true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+	".ico": true, ".svg": true, ".webp": true, ".bmp": true,
+	".pdf": true, ".zip": true, ".tar": true, ".gz": true,
+	".tgz": true, ".bz2": true, ".xz": true, ".rar": true,
+	".7z": true, ".exe": true, ".dll": true, ".so": true,
+	".dylib": true, ".a": true, ".o": true, ".obj": true,
+	".class": true, ".jar": true, ".war": true, ".ear": true,
+	".pyc": true, ".pyo": true, ".pyd": true,
+	".doc": true, ".docx": true, ".xls": true, ".xlsx": true,
+	".ppt": true, ".pptx": true,
+	".ttf": true, ".otf": true, ".woff": true, ".woff2": true,
+	".eot": true,
+	".mp3": true, ".mp4": true, ".avi": true, ".mov": true,
+	".wmv": true, ".flv": true, ".mkv": true,
+	".iso": true, ".img": true,
+	".lock": true, ".sum": true,
 }
 
 // SecretAuditParams for scanning for leaked credentials
 type SecretAuditParams struct {
 	TargetPath string `json:"target_path"` // directory or repo to scan
-	ScanType   string `json:"scan_type"`  // "pattern", "entropy", "ai"
-	Severity   string `json:"severity"`   // filter: CRITICAL, HIGH, MEDIUM
+	ScanType   string `json:"scan_type"`   // "pattern", "entropy", "ai"
+	Severity   string `json:"severity"`    // filter: CRITICAL, HIGH, MEDIUM
 }
 
 // SecretFinding 密钥发现
 type SecretFinding struct {
 	File        string
 	Line        int
-	Type        string  // "api_key", "password", "private_key", "token"
-	Redacted    string  // e.g. "ghp_****"
-	Severity   string
+	Type        string // "api_key", "password", "private_key", "token"
+	Redacted    string // e.g. "ghp_****"
+	Severity    string
 	Description string
 }
 
@@ -114,19 +114,21 @@ func (sat *SecretAuditTool) ValidateParams(params interface{}) error {
 		return ErrInvalidParams
 	}
 
-	if p.TargetPath == "" {
+	if strings.TrimSpace(p.TargetPath) == "" {
 		return fmt.Errorf("target_path is required")
 	}
 
+	p.ScanType = strings.ToLower(strings.TrimSpace(p.ScanType))
 	validScanTypes := map[string]bool{
 		"pattern": true,
 		"entropy": true,
-		"ai":     true,
+		"ai":      true,
 	}
 	if p.ScanType != "" && !validScanTypes[p.ScanType] {
 		return fmt.Errorf("unsupported scan_type: %s", p.ScanType)
 	}
 
+	p.Severity = strings.ToUpper(strings.TrimSpace(p.Severity))
 	validSeverities := map[string]bool{
 		"CRITICAL": true,
 		"HIGH":     true,
@@ -176,7 +178,7 @@ var secretPatterns = []struct {
 	{
 		Type:        "aws_secret_key",
 		Severity:    "CRITICAL",
-		Pattern:     regexp.MustCompile(`(?i)aws_secret_access_key\s*[=:]\s*['"]?[A-Za-z0-9/+=]{40}['"]?`),
+		Pattern:     regexp.MustCompile(`(?i)(aws_secret_access_key|aws_secret_key)\s*[=:]\s*['"]?[A-Za-z0-9/+=]{40}['"]?`),
 		Description: "AWS Secret Access Key",
 	},
 	{
@@ -200,14 +202,14 @@ var secretPatterns = []struct {
 	{
 		Type:        "token",
 		Severity:    "HIGH",
-		Pattern:     regexp.MustCompile(`(?i)(bearer_token|auth_token|access_token)\s*[=:]\s*['"]?[A-Za-z0-9_\-\.]{20,}`),
+		Pattern:     regexp.MustCompile(`(?i)(authorization\s*:\s*bearer\s+[A-Za-z0-9_\-\.=+/]{20,}|(?:bearer_token|auth_token|access_token)\s*[=:]\s*['"]?[A-Za-z0-9_\-\.=+/]{20,})`),
 		Description: "Authentication token",
 	},
 	{
 		Type:        "database_password",
 		Severity:    "HIGH",
-		Pattern:     regexp.MustCompile(`(?i)(db_pass|mysql_pass|postgres_pass|pg_pass|redis_pass)\s*[=:]\s*['"]?[^\s'"]{6,}`),
-		Description: "Database password",
+		Pattern:     regexp.MustCompile(`(?i)((db_pass|mysql_pass|postgres_pass|pg_pass|redis_pass|db_password|database_password)\s*[=:]\s*['"]?[^\s'"]{6,}|(mysql|postgres(?:ql)?|mongodb|redis)://[^\s'"]+)`),
+		Description: "Database password or DSN",
 	},
 	{
 		Type:        "slack_token",
@@ -218,8 +220,26 @@ var secretPatterns = []struct {
 	{
 		Type:        "stripe_key",
 		Severity:    "HIGH",
-		Pattern:     regexp.MustCompile(`(?i)sk_live_[0-9a-zA-Z]{24,}`),
+		Pattern:     regexp.MustCompile(`(?i)sk_(live|test)_[0-9a-zA-Z]{24,}`),
 		Description: "Stripe secret key",
+	},
+	{
+		Type:        "url_password",
+		Severity:    "HIGH",
+		Pattern:     regexp.MustCompile(`(?i)[?&](password|pass|pwd)=[^&\s'"]+`),
+		Description: "Password embedded in URL",
+	},
+	{
+		Type:        "gcp_credential",
+		Severity:    "CRITICAL",
+		Pattern:     regexp.MustCompile(`(?i)(gcp_[A-Za-z0-9_\-]{20,}|GOOGLE_[A-Z0-9_]{8,}|\"type\"\s*:\s*\"service_account\")`),
+		Description: "GCP credential material",
+	},
+	{
+		Type:        "jwt_token",
+		Severity:    "HIGH",
+		Pattern:     regexp.MustCompile(`(?i)eyJ[a-zA-Z0-9_\-]+=*\.[a-zA-Z0-9_\-]+=*\.[a-zA-Z0-9_\-]+=*`),
+		Description: "JWT token",
 	},
 }
 
@@ -238,6 +258,15 @@ func redacted(original string, secretType string) string {
 		return "********"
 	case "private_key":
 		return "-----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----"
+	case "stripe_key":
+		if len(original) >= 12 {
+			return original[:8] + "****" + original[len(original)-4:]
+		}
+	case "url_password":
+		if idx := strings.Index(original, "="); idx >= 0 {
+			return original[:idx+1] + "********"
+		}
+		return "********"
 	default:
 		if len(original) >= 8 {
 			return original[:4] + "****" + original[len(original)-4:]
@@ -368,9 +397,15 @@ func (sat *SecretAuditTool) scanFile(
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Bytes()
+		lowerLine := strings.ToLower(string(line))
 		for _, pat := range secretPatterns {
 			idx := pat.Pattern.FindIndex(line)
 			if idx == nil {
+				continue
+			}
+			// Avoid duplicate findings for database-specific password keys
+			// that are also matched by the generic password pattern.
+			if pat.Type == "password" && isDatabasePasswordLine(lowerLine) {
 				continue
 			}
 			match := string(line[idx[0]:idx[1]])
@@ -390,6 +425,28 @@ func (sat *SecretAuditTool) scanFile(
 
 	result.TotalScanned++
 	return nil
+}
+
+func isDatabasePasswordLine(line string) bool {
+	dbKeys := []string{
+		"db_pass",
+		"db_password",
+		"database_password",
+		"mysql_pass",
+		"postgres_pass",
+		"pg_pass",
+		"redis_pass",
+	}
+	for _, key := range dbKeys {
+		if strings.Contains(line, key) {
+			return true
+		}
+	}
+	return strings.Contains(line, "mysql://") ||
+		strings.Contains(line, "postgres://") ||
+		strings.Contains(line, "postgresql://") ||
+		strings.Contains(line, "mongodb://") ||
+		strings.Contains(line, "redis://")
 }
 
 // containsNonText reports whether b contains a null byte or has a high density

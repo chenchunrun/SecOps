@@ -49,6 +49,9 @@ import (
 // Coordinator errors.
 var (
 	errCoderAgentNotConfigured         = errors.New("coder agent not configured")
+	errAgentNotConfigured              = errors.New("agent not configured")
+	errAgentModelNotSelected           = errors.New("agent model not selected")
+	errAgentModelNotFound              = errors.New("agent model not found in provider config")
 	errModelProviderNotConfigured      = errors.New("model provider not configured")
 	errLargeModelNotSelected           = errors.New("large model not selected")
 	errSmallModelNotSelected           = errors.New("small model not selected")
@@ -86,6 +89,7 @@ type coordinator struct {
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
+	mainAgentID  string
 
 	readyWg errgroup.Group
 }
@@ -113,23 +117,35 @@ func NewCoordinator(
 		agents:      make(map[string]SessionAgent),
 	}
 
-	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
+	agentID := c.activeAgentID()
+	agentCfg, ok := cfg.Config().Agents[agentID]
 	if !ok {
-		return nil, errCoderAgentNotConfigured
+		return nil, fmt.Errorf("%w: %s", errAgentNotConfigured, agentID)
 	}
 
-	// TODO: make this dynamic when we support multiple agents
-	prompt, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	var agentPrompt *prompt.Prompt
+	var err error
+	switch agentCfg.ID {
+	case config.AgentTask:
+		agentPrompt, err = taskPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	case config.AgentOpsAgent:
+		agentPrompt, err = opsAgentPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	case config.AgentSecurityExpertAgent:
+		agentPrompt, err = securityExpertAgentPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	default:
+		agentPrompt, err = coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	agent, err := c.buildAgent(ctx, prompt, agentCfg, false)
+	agent, err := c.buildAgent(ctx, agentPrompt, agentCfg, false)
 	if err != nil {
 		return nil, err
 	}
 	c.currentAgent = agent
-	c.agents[config.AgentCoder] = agent
+	c.mainAgentID = agentID
+	c.agents[agentID] = agent
 	return c, nil
 }
 
@@ -399,14 +415,16 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Notify:               c.notify,
 	})
 
-	c.readyWg.Go(func() error {
-		systemPrompt, err := prompt.Build(ctx, large.Model.Provider(), large.Model.Model(), c.cfg)
-		if err != nil {
-			return err
-		}
-		result.SetSystemPrompt(systemPrompt)
-		return nil
-	})
+	if prompt != nil {
+		c.readyWg.Go(func() error {
+			systemPrompt, err := prompt.Build(ctx, large.Model.Provider(), large.Model.Model(), c.cfg)
+			if err != nil {
+				return err
+			}
+			result.SetSystemPrompt(systemPrompt)
+			return nil
+		})
+	}
 
 	c.readyWg.Go(func() error {
 		tools, err := c.buildTools(ctx, agent)
@@ -418,6 +436,33 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	})
 
 	return result, nil
+}
+
+func (c *coordinator) activeAgentID() string {
+	if c.cfg == nil || c.cfg.Config() == nil || c.cfg.Config().Options == nil {
+		return config.AgentCoder
+	}
+	if agentID := strings.TrimSpace(c.cfg.Config().Options.ActiveAgent); agentID != "" {
+		return agentID
+	}
+	return config.AgentCoder
+}
+
+func (c *coordinator) buildRuntimeAgentModel(agent config.Agent) (Model, error) {
+	modelCfg, ok := c.cfg.Config().Models[agent.Model]
+	if !ok {
+		return Model{}, errAgentModelNotSelected
+	}
+
+	catwalkModel := c.cfg.Config().GetModel(modelCfg.Provider, modelCfg.Model)
+	if catwalkModel == nil {
+		return Model{}, fmt.Errorf("%w: %s/%s", errAgentModelNotFound, modelCfg.Provider, modelCfg.Model)
+	}
+
+	return Model{
+		CatwalkCfg: *catwalkModel,
+		ModelCfg:   modelCfg,
+	}, nil
 }
 
 func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fantasy.AgentTool, error) {
@@ -911,6 +956,11 @@ func (c *coordinator) Model() Model {
 }
 
 func (c *coordinator) UpdateModels(ctx context.Context) error {
+	agentCfg, ok := c.selectedAgentConfig()
+	if !ok {
+		return errAgentNotConfigured
+	}
+
 	// build the models again so we make sure we get the latest config
 	large, small, err := c.buildAgentModels(ctx, false)
 	if err != nil {
@@ -918,17 +968,24 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 	}
 	c.currentAgent.SetModels(large, small)
 
-	agentCfg, ok := c.cfg.Config().Agents[config.AgentCoder]
-	if !ok {
-		return errCoderAgentNotConfigured
-	}
-
 	tools, err := c.buildTools(ctx, agentCfg)
 	if err != nil {
 		return err
 	}
 	c.currentAgent.SetTools(tools)
 	return nil
+}
+
+func (c *coordinator) selectedAgentConfig() (config.Agent, bool) {
+	agentID := c.mainAgentID
+	if agentID == "" {
+		agentID = c.activeAgentID()
+	}
+	agentCfg, ok := c.cfg.Config().Agents[agentID]
+	if !ok {
+		return config.Agent{}, false
+	}
+	return agentCfg, true
 }
 
 func (c *coordinator) QueuedPrompts(sessionID string) int {

@@ -1,6 +1,8 @@
 package secops
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +29,7 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 			name: "valid params with query",
 			params: &MonitoringQueryParams{
 				System:    SystemPrometheus,
+				Endpoint:  "http://localhost:9090",
 				Query:     "up",
 				StartTime: now.Add(-1 * time.Hour),
 				EndTime:   now,
@@ -37,7 +40,21 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 			name: "valid params with metric",
 			params: &MonitoringQueryParams{
 				System:    SystemPrometheus,
+				Endpoint:  "http://localhost:9090",
 				Metric:    "cpu_usage",
+				StartTime: now.Add(-1 * time.Hour),
+				EndTime:   now,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid influxdb params with metric",
+			params: &MonitoringQueryParams{
+				System:    SystemInfluxDB,
+				Endpoint:  "http://localhost:8086",
+				Database:  "metrics",
+				Metric:    "cpu_usage",
+				Field:     "usage",
 				StartTime: now.Add(-1 * time.Hour),
 				EndTime:   now,
 			},
@@ -46,6 +63,7 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 		{
 			name: "missing system",
 			params: &MonitoringQueryParams{
+				Endpoint:  "http://localhost:9090",
 				Query:     "up",
 				StartTime: now.Add(-1 * time.Hour),
 				EndTime:   now,
@@ -56,6 +74,7 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 			name: "missing query and metric",
 			params: &MonitoringQueryParams{
 				System:    SystemPrometheus,
+				Endpoint:  "http://localhost:9090",
 				StartTime: now.Add(-1 * time.Hour),
 				EndTime:   now,
 			},
@@ -65,6 +84,7 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 			name: "invalid time range",
 			params: &MonitoringQueryParams{
 				System:    SystemPrometheus,
+				Endpoint:  "http://localhost:9090",
 				Query:     "up",
 				StartTime: now,
 				EndTime:   now.Add(-1 * time.Hour),
@@ -75,7 +95,19 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 			name: "query too long",
 			params: &MonitoringQueryParams{
 				System:    SystemPrometheus,
+				Endpoint:  "http://localhost:9090",
 				Query:     strings.Repeat("a", 2001),
+				StartTime: now.Add(-1 * time.Hour),
+				EndTime:   now,
+			},
+			wantErr: true,
+		},
+		{
+			name: "influxdb missing database",
+			params: &MonitoringQueryParams{
+				System:    SystemInfluxDB,
+				Endpoint:  "http://localhost:8086",
+				Metric:    "cpu_usage",
 				StartTime: now.Add(-1 * time.Hour),
 				EndTime:   now,
 			},
@@ -94,11 +126,21 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 }
 
 func TestMonitoringQueryTool_Execute(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/api/v1/query_range") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{"__name__":"cpu_usage","instance":"local"},"values":[[1700000000,"0.95"],[1700000600,"0.98"]]}]}}`))
+	}))
+	defer ts.Close()
+
 	tool := NewMonitoringQueryTool(nil)
 
 	now := time.Now()
 	params := &MonitoringQueryParams{
 		System:    SystemPrometheus,
+		Endpoint:  ts.URL,
 		Metric:    "cpu_usage",
 		StartTime: now.Add(-1 * time.Hour),
 		EndTime:   now,
@@ -120,6 +162,70 @@ func TestMonitoringQueryTool_Execute(t *testing.T) {
 
 	if len(queryResult.Series) == 0 {
 		t.Error("expected non-empty series")
+	}
+	if len(queryResult.Series[0].Points) == 0 {
+		t.Error("expected non-empty points")
+	}
+}
+
+func TestMonitoringQueryTool_ExecuteInfluxDB(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/query" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if got := q.Get("db"); got != "metrics" {
+			t.Fatalf("expected db=metrics, got %s", got)
+		}
+		if got := q.Get("epoch"); got != "ms" {
+			t.Fatalf("expected epoch=ms, got %s", got)
+		}
+		if !strings.Contains(q.Get("q"), `SELECT mean("usage") FROM "cpu_usage"`) {
+			t.Fatalf("unexpected query: %s", q.Get("q"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"series":[{"name":"cpu_usage","tags":{"host":"local"},"columns":["time","mean"],"values":[[1700000000000,0.95],[1700000600000,0.98]]}]}]}`))
+	}))
+	defer ts.Close()
+
+	tool := NewMonitoringQueryTool(nil)
+
+	now := time.Now()
+	params := &MonitoringQueryParams{
+		System:    SystemInfluxDB,
+		Endpoint:  ts.URL,
+		Database:  "metrics",
+		Metric:    "cpu_usage",
+		Field:     "usage",
+		Aggregation: "mean",
+		StartTime: now.Add(-1 * time.Hour),
+		EndTime:   now,
+		Step:      30 * time.Second,
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	queryResult, ok := result.(*MonitoringQueryResult)
+	if !ok {
+		t.Fatal("expected MonitoringQueryResult")
+	}
+	if queryResult.System != SystemInfluxDB {
+		t.Fatalf("expected system %v, got %v", SystemInfluxDB, queryResult.System)
+	}
+	if len(queryResult.Series) != 1 {
+		t.Fatalf("expected 1 series, got %d", len(queryResult.Series))
+	}
+	if got := len(queryResult.Series[0].Points); got != 2 {
+		t.Fatalf("expected 2 points, got %d", got)
+	}
+	if queryResult.Series[0].Labels["host"] != "local" {
+		t.Fatalf("expected host label local, got %v", queryResult.Series[0].Labels)
+	}
+	if queryResult.Stats == nil || queryResult.Stats.Count != 2 {
+		t.Fatalf("expected stats with 2 points, got %+v", queryResult.Stats)
 	}
 }
 
@@ -198,6 +304,7 @@ func TestMonitoringQueryTool_ExecuteUnsupportedSystem(t *testing.T) {
 	now := time.Now()
 	params := &MonitoringQueryParams{
 		System:    MetricsSystem("unsupported"),
+		Endpoint:  "http://localhost:9090",
 		Metric:    "cpu_usage",
 		StartTime: now.Add(-1 * time.Hour),
 		EndTime:   now,
@@ -210,11 +317,18 @@ func TestMonitoringQueryTool_ExecuteUnsupportedSystem(t *testing.T) {
 }
 
 func BenchmarkMonitoringQueryTool_Execute(b *testing.B) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{"__name__":"cpu_usage"},"values":[[1700000000,"0.95"],[1700000600,"0.98"]]}]}}`))
+	}))
+	defer ts.Close()
+
 	tool := NewMonitoringQueryTool(nil)
 
 	now := time.Now()
 	params := &MonitoringQueryParams{
 		System:    SystemPrometheus,
+		Endpoint:  ts.URL,
 		Metric:    "cpu_usage",
 		StartTime: now.Add(-1 * time.Hour),
 		EndTime:   now,

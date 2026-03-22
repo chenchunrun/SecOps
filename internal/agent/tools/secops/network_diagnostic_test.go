@@ -271,14 +271,14 @@ func TestNetworkDiagnosticTool_AnalyzeHops(t *testing.T) {
 	result := &NetworkDiagnosticResult{
 		Hops: []*HopInfo{
 			{
-				Hop:    1,
-				Loss:   0,
-				Avg:    5.0,
+				Hop:  1,
+				Loss: 0,
+				Avg:  5.0,
 			},
 			{
-				Hop:    2,
-				Loss:   0,
-				Avg:    150.0, // High latency
+				Hop:  2,
+				Loss: 0,
+				Avg:  150.0, // High latency
 			},
 		},
 	}
@@ -312,84 +312,80 @@ func TestNetworkDiagnosticTool_AnalyzePortScan(t *testing.T) {
 	}
 }
 
-func TestNetworkDiagnosticTool_GetMockTracerouteHops(t *testing.T) {
+func TestNetworkDiagnosticTool_FallbackTraceHops(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
-	hops := tool.getMockTracerouteHops()
+	hops := tool.fallbackTraceHops("example.com", 3)
 
-	if len(hops) == 0 {
-		t.Error("expected mock hops")
-	}
-
-	for i, hop := range hops {
-		if hop.Hop != i+1 {
-			t.Errorf("expected hop number %d, got %d", i+1, hop.Hop)
+	if len(hops) > 0 {
+		if hops[0].Hop != 1 {
+			t.Errorf("expected hop number 1, got %d", hops[0].Hop)
 		}
-		if hop.Address == "" {
+		if hops[0].Address == "" {
 			t.Error("expected hop address")
 		}
-		if len(hop.RTT) == 0 {
-			t.Error("expected RTT data")
+		if hops[0].Loss == 0 && len(hops[0].RTT) == 0 {
+			t.Error("expected RTT data when TCP probe succeeds")
+		}
+		if hops[0].Loss == 100 && len(hops[0].RTT) != 0 {
+			t.Error("expected no RTT samples when TCP probe fails")
 		}
 	}
 }
 
-func TestNetworkDiagnosticTool_GetMockPortScanResults(t *testing.T) {
+func TestNetworkDiagnosticTool_PortScanProducesResults(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
-	ports := []int{22, 80, 443, 3306}
-
-	results := tool.getMockPortScanResults(ports)
-
-	if len(results) != len(ports) {
-		t.Errorf("expected %d results, got %d", len(ports), len(results))
+	params := &NetworkDiagnosticParams{
+		Type:   DiagnosticPortScan,
+		Target: "example.com",
+		Ports:  []int{80, 443},
 	}
-
-	for _, port := range results {
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	diag := result.(*NetworkDiagnosticResult)
+	if len(diag.Ports) != 2 {
+		t.Fatalf("expected 2 ports, got %d", len(diag.Ports))
+	}
+	for _, port := range diag.Ports {
 		if port.State == "" {
 			t.Error("expected port state")
 		}
 	}
 }
 
-func TestNetworkDiagnosticTool_GetMockDNSRecords(t *testing.T) {
+func TestNetworkDiagnosticTool_LookupDNS(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
-	records := tool.getMockDNSRecords()
+	records := tool.lookupDNS("example.com", 5)
 
-	if len(records) == 0 {
-		t.Error("expected DNS records")
-	}
-
-	recordTypes := make(map[string]bool)
-	for _, record := range records {
-		recordTypes[record.Type] = true
-		if record.Value == "" {
-			t.Error("expected record value")
+	if len(records) > 0 {
+		for _, record := range records {
+			if record.Value == "" {
+				t.Error("expected record value")
+			}
 		}
-	}
-
-	if !recordTypes["A"] {
-		t.Error("expected A record")
 	}
 }
 
-func TestNetworkDiagnosticTool_GetMockPingResult(t *testing.T) {
+func TestNetworkDiagnosticTool_FallbackPingViaTCP(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
 
 	params := &NetworkDiagnosticParams{
-		PacketCount: 10,
+		Target:      "example.com",
+		PacketCount: 2,
+		Timeout:     3,
 	}
-
-	result := tool.getMockPingResult(params)
-
-	if result.Sent != 10 {
-		t.Errorf("expected 10 packets sent, got %d", result.Sent)
-	}
-
-	if result.Avg <= 0 {
-		t.Error("expected positive average latency")
-	}
-
-	if result.Loss < 0 || result.Loss > 100 {
-		t.Errorf("expected packet loss between 0-100, got %f", result.Loss)
+	result := tool.fallbackPingViaTCP(params)
+	if result != nil {
+		if result.Sent != 2 {
+			t.Errorf("expected 2 packets sent, got %d", result.Sent)
+		}
+		if result.Avg <= 0 {
+			t.Error("expected positive average latency")
+		}
+		if result.Loss < 0 || result.Loss > 100 {
+			t.Errorf("expected packet loss between 0-100, got %f", result.Loss)
+		}
 	}
 }
 

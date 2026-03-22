@@ -1,6 +1,8 @@
 package secops
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -66,6 +68,16 @@ func TestComplianceCheckTool_ValidateParams(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "valid ISO27001",
+			params:  &ComplianceCheckParams{Framework: FrameworkISO27001},
+			wantErr: false,
+		},
+		{
+			name:    "valid Docker Bench",
+			params:  &ComplianceCheckParams{Framework: FrameworkDockerBench},
+			wantErr: false,
+		},
+		{
 			name: "valid with categories",
 			params: &ComplianceCheckParams{
 				Framework:  FrameworkCIS,
@@ -112,6 +124,14 @@ func TestComplianceCheckTool_ValidateParams(t *testing.T) {
 				FixIssues: true,
 			},
 			wantErr: false,
+		},
+		{
+			name: "invalid negative timeout",
+			params: &ComplianceCheckParams{
+				Framework: FrameworkCIS,
+				Timeout:   -1,
+			},
+			wantErr: true,
 		},
 		{
 			name:    "missing framework",
@@ -186,6 +206,8 @@ func TestComplianceCheckTool_Execute_AllFrameworks(t *testing.T) {
 		FrameworkPCIDSS,
 		FrameworkSOC2,
 		FrameworkHIPAA,
+		FrameworkISO27001,
+		FrameworkDockerBench,
 	}
 
 	for _, fw := range frameworks {
@@ -213,13 +235,15 @@ func TestComplianceCheckTool_GetRulesForFramework(t *testing.T) {
 	tool := NewComplianceCheckTool(nil)
 
 	tests := []struct {
-		framework  ComplianceFramework
-		wantLenGt int
+		framework ComplianceFramework
+		wantLenGt  int
 	}{
 		{FrameworkCIS, 0},
 		{FrameworkPCIDSS, 0},
 		{FrameworkSOC2, 0},
 		{FrameworkHIPAA, 0},
+		{FrameworkISO27001, 0},
+		{FrameworkDockerBench, 0},
 	}
 
 	for _, tt := range tests {
@@ -257,6 +281,10 @@ func TestComplianceCheckTool_GetRulesForFramework_CategoryFilter(t *testing.T) {
 		{"PCI-DSS auth", FrameworkPCIDSS, []string{"authentication"}},
 		{"SOC2 access", FrameworkSOC2, []string{"access_control"}},
 		{"HIPAA data", FrameworkHIPAA, []string{"data_protection"}},
+		{"ISO27001 governance", FrameworkISO27001, []string{"governance"}},
+		{"ISO27001 logging", FrameworkISO27001, []string{"logging"}},
+		{"Docker Bench daemon", FrameworkDockerBench, []string{"daemon"}},
+		{"Docker Bench filesystem", FrameworkDockerBench, []string{"filesystem"}},
 		{"CIS multiple", FrameworkCIS, []string{"network", "filesystem"}},
 	}
 
@@ -346,6 +374,142 @@ func TestComplianceCheckTool_GetHIPAARules(t *testing.T) {
 		if rule.Framework != FrameworkHIPAA {
 			t.Errorf("expected framework %v, got %v", FrameworkHIPAA, rule.Framework)
 		}
+	}
+}
+
+func TestComplianceCheckTool_GetISO27001Rules(t *testing.T) {
+	tool := NewComplianceCheckTool(nil)
+	rules := tool.getISO27001Rules()
+
+	if len(rules) == 0 {
+		t.Fatal("expected ISO27001 rules")
+	}
+
+	for _, rule := range rules {
+		if rule.Framework != FrameworkISO27001 {
+			t.Errorf("expected framework %v, got %v", FrameworkISO27001, rule.Framework)
+		}
+		if rule.ID == "" || rule.Title == "" {
+			t.Errorf("expected populated rule metadata: %+v", rule)
+		}
+	}
+}
+
+func TestComplianceCheckTool_GetDockerBenchRules(t *testing.T) {
+	tool := NewComplianceCheckTool(nil)
+	rules := tool.getDockerBenchRules()
+
+	if len(rules) == 0 {
+		t.Fatal("expected Docker Bench rules")
+	}
+
+	for _, rule := range rules {
+		if rule.Framework != FrameworkDockerBench {
+			t.Errorf("expected framework %v, got %v", FrameworkDockerBench, rule.Framework)
+		}
+		if rule.ID == "" || rule.Title == "" {
+			t.Errorf("expected populated rule metadata: %+v", rule)
+		}
+	}
+}
+
+func TestComplianceCheckTool_Execute_ISO27001(t *testing.T) {
+	oldPolicyPaths := iso27001PolicyPaths
+	oldAuditPaths := iso27001AuditLogPaths
+	oldAccessPath := iso27001AccessControlPath
+	defer func() {
+		iso27001PolicyPaths = oldPolicyPaths
+		iso27001AuditLogPaths = oldAuditPaths
+		iso27001AccessControlPath = oldAccessPath
+	}()
+
+	tmpDir := t.TempDir()
+	policyFile := filepath.Join(tmpDir, "policy.md")
+	auditFile := filepath.Join(tmpDir, "audit.log")
+	shadowFile := filepath.Join(tmpDir, "shadow")
+
+	if err := os.WriteFile(policyFile, []byte("Information security policy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(auditFile, []byte("audit event"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shadowFile, []byte("root:*:..."), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	iso27001PolicyPaths = []string{policyFile}
+	iso27001AuditLogPaths = []string{auditFile}
+	iso27001AccessControlPath = shadowFile
+
+	tool := NewComplianceCheckTool(nil)
+	result, err := tool.Execute(&ComplianceCheckParams{Framework: FrameworkISO27001})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	checkResult, ok := result.(*ComplianceCheckResult)
+	if !ok {
+		t.Fatal("expected ComplianceCheckResult")
+	}
+	if checkResult.TotalRules != 3 {
+		t.Fatalf("expected 3 rules, got %d", checkResult.TotalRules)
+	}
+	if checkResult.PassedRules != 3 {
+		t.Fatalf("expected 3 passed rules, got %d", checkResult.PassedRules)
+	}
+	if checkResult.Status != StatusPassed {
+		t.Fatalf("expected passed status, got %s", checkResult.Status)
+	}
+}
+
+func TestComplianceCheckTool_Execute_DockerBench(t *testing.T) {
+	oldDaemonPath := dockerBenchDaemonConfigPath
+	oldSocketPath := dockerBenchSocketPath
+	oldIPForwardPath := dockerBenchIPForwardPath
+	defer func() {
+		dockerBenchDaemonConfigPath = oldDaemonPath
+		dockerBenchSocketPath = oldSocketPath
+		dockerBenchIPForwardPath = oldIPForwardPath
+	}()
+
+	tmpDir := t.TempDir()
+	daemonFile := filepath.Join(tmpDir, "daemon.json")
+	socketFile := filepath.Join(tmpDir, "docker.sock")
+	ipForwardFile := filepath.Join(tmpDir, "ip_forward")
+
+	if err := os.WriteFile(daemonFile, []byte(`{"userns-remap":"default","live-restore":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(socketFile, []byte("socket"), 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ipForwardFile, []byte("0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dockerBenchDaemonConfigPath = daemonFile
+	dockerBenchSocketPath = socketFile
+	dockerBenchIPForwardPath = ipForwardFile
+
+	tool := NewComplianceCheckTool(nil)
+	result, err := tool.Execute(&ComplianceCheckParams{Framework: FrameworkDockerBench})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	checkResult, ok := result.(*ComplianceCheckResult)
+	if !ok {
+		t.Fatal("expected ComplianceCheckResult")
+	}
+	if checkResult.TotalRules != 3 {
+		t.Fatalf("expected 3 rules, got %d", checkResult.TotalRules)
+	}
+	if checkResult.PassedRules != 3 {
+		t.Fatalf("expected 3 passed rules, got %d", checkResult.PassedRules)
+	}
+	if checkResult.Status != StatusPassed {
+		t.Fatalf("expected passed status, got %s", checkResult.Status)
 	}
 }
 

@@ -1,7 +1,13 @@
 package secops
 
 import (
+	"context"
 	"fmt"
+	"net"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,14 +24,14 @@ const (
 
 // NetworkDiagnosticParams 网络诊断参数
 type NetworkDiagnosticParams struct {
-	Type          NetworkDiagnosticType `json:"type"`
-	Target        string                `json:"target"`          // IP 或域名
-	Ports         []int                 `json:"ports,omitempty"` // 端口列表（用于端口扫描）
-	Timeout       int                   `json:"timeout,omitempty"`
-	PacketCount   int                   `json:"packet_count,omitempty"`  // ping 包数
-	PacketSize    int                   `json:"packet_size,omitempty"`   // 包大小
-	CheckLatency  bool                  `json:"check_latency,omitempty"` // 检查延迟
-	CheckPacketLoss bool                `json:"check_packet_loss,omitempty"`
+	Type            NetworkDiagnosticType `json:"type"`
+	Target          string                `json:"target"`          // IP 或域名
+	Ports           []int                 `json:"ports,omitempty"` // 端口列表（用于端口扫描）
+	Timeout         int                   `json:"timeout,omitempty"`
+	PacketCount     int                   `json:"packet_count,omitempty"`  // ping 包数
+	PacketSize      int                   `json:"packet_size,omitempty"`   // 包大小
+	CheckLatency    bool                  `json:"check_latency,omitempty"` // 检查延迟
+	CheckPacketLoss bool                  `json:"check_packet_loss,omitempty"`
 }
 
 // HopInfo 路由跳转信息
@@ -52,11 +58,11 @@ type PortInfo struct {
 
 // DNSRecord DNS 记录
 type DNSRecord struct {
-	Type  string   `json:"type"` // A, AAAA, MX, NS, CNAME, TXT
-	Name  string   `json:"name"`
-	Value string   `json:"value"`
-	TTL   uint32   `json:"ttl,omitempty"`
-	Class string   `json:"class,omitempty"`
+	Type  string `json:"type"` // A, AAAA, MX, NS, CNAME, TXT
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	TTL   uint32 `json:"ttl,omitempty"`
+	Class string `json:"class,omitempty"`
 }
 
 // PingResult Ping 结果
@@ -72,19 +78,19 @@ type PingResult struct {
 
 // NetworkDiagnosticResult 网络诊断结果
 type NetworkDiagnosticResult struct {
-	Timestamp      time.Time      `json:"timestamp"`
-	Type           NetworkDiagnosticType `json:"type"`
-	Target         string         `json:"target"`
-	Status         string         `json:"status"` // success, timeout, error
-	Duration       int            `json:"duration"` // 诊断耗时（毫秒）
-	Hops           []*HopInfo     `json:"hops,omitempty"`
-	Ports          []*PortInfo    `json:"ports,omitempty"`
-	DNSRecords     []*DNSRecord   `json:"dns_records,omitempty"`
-	PingResult     *PingResult    `json:"ping_result,omitempty"`
-	LatencyHealth  string         `json:"latency_health,omitempty"` // good, fair, poor
-	PacketLoss     float64        `json:"packet_loss,omitempty"`
-	Issues         []string       `json:"issues,omitempty"`
-	Recommendations []string      `json:"recommendations,omitempty"`
+	Timestamp       time.Time             `json:"timestamp"`
+	Type            NetworkDiagnosticType `json:"type"`
+	Target          string                `json:"target"`
+	Status          string                `json:"status"`   // success, timeout, error
+	Duration        int                   `json:"duration"` // 诊断耗时（毫秒）
+	Hops            []*HopInfo            `json:"hops,omitempty"`
+	Ports           []*PortInfo           `json:"ports,omitempty"`
+	DNSRecords      []*DNSRecord          `json:"dns_records,omitempty"`
+	PingResult      *PingResult           `json:"ping_result,omitempty"`
+	LatencyHealth   string                `json:"latency_health,omitempty"` // good, fair, poor
+	PacketLoss      float64               `json:"packet_loss,omitempty"`
+	Issues          []string              `json:"issues,omitempty"`
+	Recommendations []string              `json:"recommendations,omitempty"`
 }
 
 // NetworkDiagnosticTool 网络诊断工具
@@ -215,133 +221,49 @@ func (ndt *NetworkDiagnosticTool) isValidType(t NetworkDiagnosticType) bool {
 
 // performTraceroute 执行 traceroute
 func (ndt *NetworkDiagnosticTool) performTraceroute(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
-	result.Hops = ndt.getMockTracerouteHops()
-	result.Duration = 2500
+	start := time.Now()
+	hops := ndt.runTracerouteCommand(params.Target, params.Timeout)
+	if len(hops) == 0 {
+		hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+	}
+	result.Hops = hops
+	result.Duration = int(time.Since(start).Milliseconds())
 }
 
 // performMTR 执行 MTR
 func (ndt *NetworkDiagnosticTool) performMTR(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
-	result.Hops = ndt.getMockMTRHops()
-	result.PacketLoss = 0.5
-	result.Duration = 5000
+	start := time.Now()
+	hops := ndt.runMTRCommand(params.Target, params.Timeout)
+	if len(hops) == 0 {
+		hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+	}
+	result.Hops = hops
+	result.PacketLoss = ndt.averageLoss(hops)
+	result.Duration = int(time.Since(start).Milliseconds())
 }
 
 // performPortScan 执行端口扫描
 func (ndt *NetworkDiagnosticTool) performPortScan(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
-	result.Ports = ndt.getMockPortScanResults(params.Ports)
-	result.Duration = 3000
-}
-
-// performDNSLookup 执行 DNS 查询
-func (ndt *NetworkDiagnosticTool) performDNSLookup(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
-	result.DNSRecords = ndt.getMockDNSRecords()
-	result.Duration = 500
-}
-
-// performPing 执行 ping
-func (ndt *NetworkDiagnosticTool) performPing(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
-	result.PingResult = ndt.getMockPingResult(params)
-	result.Duration = 1000
-}
-
-// getMockTracerouteHops 获取模拟的 traceroute 跳转
-func (ndt *NetworkDiagnosticTool) getMockTracerouteHops() []*HopInfo {
-	return []*HopInfo{
-		{
-			Hop:     1,
-			Address: "192.168.1.1",
-			Host:    "gateway.local",
-			RTT:     []float64{1.5, 1.6, 1.4},
-			Loss:    0,
-			Last:    1.5,
-			Avg:     1.5,
-			Best:    1.4,
-			Worst:   1.6,
-			StdDev:  0.1,
-		},
-		{
-			Hop:     2,
-			Address: "10.0.0.1",
-			Host:    "isp-router.net",
-			RTT:     []float64{5.2, 5.3, 5.1},
-			Loss:    0,
-			Last:    5.2,
-			Avg:     5.2,
-			Best:    5.1,
-			Worst:   5.3,
-			StdDev:  0.1,
-		},
-		{
-			Hop:     3,
-			Address: "8.8.8.8",
-			Host:    "google-dns.com",
-			RTT:     []float64{15.2, 15.4, 15.1},
-			Loss:    0,
-			Last:    15.2,
-			Avg:     15.2,
-			Best:    15.1,
-			Worst:   15.4,
-			StdDev:  0.15,
-		},
-	}
-}
-
-// getMockMTRHops 获取模拟的 MTR 跳转
-func (ndt *NetworkDiagnosticTool) getMockMTRHops() []*HopInfo {
-	return []*HopInfo{
-		{
-			Hop:     1,
-			Address: "192.168.1.1",
-			Host:    "gateway.local",
-			RTT:     []float64{1.5, 1.6, 1.4, 1.5, 1.6},
-			Loss:    0,
-			Last:    1.5,
-			Avg:     1.52,
-			Best:    1.4,
-			Worst:   1.6,
-			StdDev:  0.08,
-		},
-		{
-			Hop:     2,
-			Address: "10.0.0.1",
-			Host:    "isp-router.net",
-			RTT:     []float64{5.2, 5.3, 5.1, 5.2, 5.4},
-			Loss:    0,
-			Last:    5.4,
-			Avg:     5.24,
-			Best:    5.1,
-			Worst:   5.4,
-			StdDev:  0.12,
-		},
-	}
-}
-
-// getMockPortScanResults 获取模拟的端口扫描结果
-func (ndt *NetworkDiagnosticTool) getMockPortScanResults(ports []int) []*PortInfo {
-	portStates := map[int]string{
-		22:   "open",
-		80:   "open",
-		443:  "open",
-		3306: "closed",
-		5432: "filtered",
+	start := time.Now()
+	results := make([]*PortInfo, 0, len(params.Ports))
+	timeout := time.Duration(params.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 2 * time.Second
 	}
 
-	portServices := map[int]string{
-		22:   "ssh",
-		80:   "http",
-		443:  "https",
-		3306: "mysql",
-		5432: "postgresql",
-	}
-
-	results := make([]*PortInfo, 0)
-	for _, port := range ports {
-		state, ok := portStates[port]
-		if !ok {
-			state = "closed"
+	for _, port := range params.Ports {
+		address := net.JoinHostPort(params.Target, strconv.Itoa(port))
+		conn, err := net.DialTimeout("tcp", address, timeout)
+		state := "closed"
+		if err == nil {
+			state = "open"
+			_ = conn.Close()
 		}
 
-		service, _ := portServices[port]
+		service := ""
+		if svc := portToService(port); svc != "" {
+			service = svc
+		}
 
 		results = append(results, &PortInfo{
 			Port:    port,
@@ -350,59 +272,35 @@ func (ndt *NetworkDiagnosticTool) getMockPortScanResults(ports []int) []*PortInf
 		})
 	}
 
-	return results
+	result.Ports = results
+	result.Duration = int(time.Since(start).Milliseconds())
 }
 
-// getMockDNSRecords 获取模拟的 DNS 记录
-func (ndt *NetworkDiagnosticTool) getMockDNSRecords() []*DNSRecord {
-	return []*DNSRecord{
-		{
-			Type:  "A",
-			Name:  "example.com",
-			Value: "93.184.216.34",
-			TTL:   3600,
-			Class: "IN",
-		},
-		{
-			Type:  "AAAA",
-			Name:  "example.com",
-			Value: "2606:2800:220:1:248:1893:25c8:1946",
-			TTL:   3600,
-			Class: "IN",
-		},
-		{
-			Type:  "MX",
-			Name:  "example.com",
-			Value: "10 mail.example.com",
-			TTL:   3600,
-			Class: "IN",
-		},
-		{
-			Type:  "NS",
-			Name:  "example.com",
-			Value: "ns1.example.com",
-			TTL:   3600,
-			Class: "IN",
-		},
+// performDNSLookup 执行 DNS 查询
+func (ndt *NetworkDiagnosticTool) performDNSLookup(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
+	start := time.Now()
+	records := ndt.lookupDNS(params.Target, params.Timeout)
+	result.DNSRecords = records
+	if len(records) == 0 {
+		result.Status = "error"
+		result.Issues = append(result.Issues, "DNS lookup returned no records")
 	}
+	result.Duration = int(time.Since(start).Milliseconds())
 }
 
-// getMockPingResult 获取模拟的 ping 结果
-func (ndt *NetworkDiagnosticTool) getMockPingResult(params *NetworkDiagnosticParams) *PingResult {
-	count := params.PacketCount
-	if count == 0 {
-		count = 4
+// performPing 执行 ping
+func (ndt *NetworkDiagnosticTool) performPing(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
+	start := time.Now()
+	pingResult := ndt.runPing(params)
+	if pingResult == nil {
+		pingResult = ndt.fallbackPingViaTCP(params)
 	}
-
-	return &PingResult{
-		Sent:     count,
-		Received: count,
-		Loss:     0,
-		Min:      15.1,
-		Avg:      15.25,
-		Max:      15.5,
-		StdDev:   0.15,
+	result.PingResult = pingResult
+	if pingResult == nil {
+		result.Status = "error"
+		result.Issues = append(result.Issues, "Ping failed")
 	}
+	result.Duration = int(time.Since(start).Milliseconds())
 }
 
 // analyzeResults 分析诊断结果
@@ -497,5 +395,316 @@ func (ndt *NetworkDiagnosticTool) analyzePing(result *NetworkDiagnosticResult) {
 		result.LatencyHealth = "fair"
 	} else {
 		result.LatencyHealth = "good"
+	}
+}
+
+func (ndt *NetworkDiagnosticTool) runTracerouteCommand(target string, timeoutSec int) []*HopInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "traceroute", "-n", "-q", "1", target)
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+
+	lines := strings.Split(string(out), "\n")
+	re := regexp.MustCompile(`^\s*(\d+)\s+([0-9a-fA-F\.:]+)\s+([0-9.]+)\s*ms`)
+	hops := make([]*HopInfo, 0, len(lines))
+	for _, line := range lines {
+		m := re.FindStringSubmatch(line)
+		if len(m) != 4 {
+			continue
+		}
+		hop, _ := strconv.Atoi(m[1])
+		rtt, _ := strconv.ParseFloat(m[3], 64)
+		hops = append(hops, &HopInfo{
+			Hop:     hop,
+			Address: m[2],
+			RTT:     []float64{rtt},
+			Last:    rtt,
+			Avg:     rtt,
+			Best:    rtt,
+			Worst:   rtt,
+			StdDev:  0,
+		})
+	}
+	return hops
+}
+
+func (ndt *NetworkDiagnosticTool) runMTRCommand(target string, timeoutSec int) []*HopInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "mtr", "--report", "--report-cycles", "3", "--no-dns", target)
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+
+	lines := strings.Split(string(out), "\n")
+	re := regexp.MustCompile(`^\s*(\d+)\.\|\-\-\s+([0-9a-fA-F\.:]+)\s+([0-9.]+)%\s+\d+\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)`)
+	hops := make([]*HopInfo, 0, len(lines))
+	for _, line := range lines {
+		m := re.FindStringSubmatch(line)
+		if len(m) != 9 {
+			continue
+		}
+		hop, _ := strconv.Atoi(m[1])
+		loss, _ := strconv.ParseFloat(m[3], 64)
+		last, _ := strconv.ParseFloat(m[4], 64)
+		avg, _ := strconv.ParseFloat(m[5], 64)
+		best, _ := strconv.ParseFloat(m[6], 64)
+		worst, _ := strconv.ParseFloat(m[7], 64)
+		stddev, _ := strconv.ParseFloat(m[8], 64)
+		hops = append(hops, &HopInfo{
+			Hop:     hop,
+			Address: m[2],
+			RTT:     []float64{last, avg, best, worst},
+			Loss:    loss,
+			Last:    last,
+			Avg:     avg,
+			Best:    best,
+			Worst:   worst,
+			StdDev:  stddev,
+		})
+	}
+	return hops
+}
+
+func (ndt *NetworkDiagnosticTool) runPing(params *NetworkDiagnosticParams) *PingResult {
+	count := params.PacketCount
+	if count <= 0 {
+		count = 4
+	}
+
+	timeout := params.Timeout
+	if timeout <= 0 {
+		timeout = 30
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ping", "-c", strconv.Itoa(count), params.Target)
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+
+	output := string(out)
+	lossRe := regexp.MustCompile(`(\d+(?:\.\d+)?)%\s+packet loss`)
+	rttRe := regexp.MustCompile(`(?:round-trip|rtt) min/avg/max/(?:stddev|mdev) = ([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+)`)
+
+	loss := 0.0
+	min := 0.0
+	avg := 0.0
+	max := 0.0
+	stddev := 0.0
+
+	if m := lossRe.FindStringSubmatch(output); len(m) == 2 {
+		loss, _ = strconv.ParseFloat(m[1], 64)
+	}
+	if m := rttRe.FindStringSubmatch(output); len(m) == 5 {
+		min, _ = strconv.ParseFloat(m[1], 64)
+		avg, _ = strconv.ParseFloat(m[2], 64)
+		max, _ = strconv.ParseFloat(m[3], 64)
+		stddev, _ = strconv.ParseFloat(m[4], 64)
+	}
+
+	received := int(float64(count) * (100 - loss) / 100)
+	if received < 0 {
+		received = 0
+	}
+	if avg <= 0 {
+		return nil
+	}
+	return &PingResult{
+		Sent:     count,
+		Received: received,
+		Loss:     loss,
+		Min:      min,
+		Avg:      avg,
+		Max:      max,
+		StdDev:   stddev,
+	}
+}
+
+func (ndt *NetworkDiagnosticTool) lookupDNS(target string, timeoutSec int) []*DNSRecord {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	records := make([]*DNSRecord, 0)
+	resolver := net.DefaultResolver
+
+	if ips, err := resolver.LookupIP(ctx, "ip", target); err == nil {
+		for _, ip := range ips {
+			rt := "A"
+			if ip.To4() == nil {
+				rt = "AAAA"
+			}
+			records = append(records, &DNSRecord{Type: rt, Name: target, Value: ip.String(), Class: "IN"})
+		}
+	}
+	if mxs, err := resolver.LookupMX(ctx, target); err == nil {
+		for _, mx := range mxs {
+			records = append(records, &DNSRecord{Type: "MX", Name: target, Value: fmt.Sprintf("%d %s", mx.Pref, strings.TrimSuffix(mx.Host, ".")), Class: "IN"})
+		}
+	}
+	if nss, err := resolver.LookupNS(ctx, target); err == nil {
+		for _, ns := range nss {
+			records = append(records, &DNSRecord{Type: "NS", Name: target, Value: strings.TrimSuffix(ns.Host, "."), Class: "IN"})
+		}
+	}
+	if txts, err := resolver.LookupTXT(ctx, target); err == nil {
+		for _, txt := range txts {
+			records = append(records, &DNSRecord{Type: "TXT", Name: target, Value: txt, Class: "IN"})
+		}
+	}
+	if cname, err := resolver.LookupCNAME(ctx, target); err == nil && cname != "" {
+		records = append(records, &DNSRecord{Type: "CNAME", Name: target, Value: strings.TrimSuffix(cname, "."), Class: "IN"})
+	}
+
+	return records
+}
+
+func (ndt *NetworkDiagnosticTool) averageLoss(hops []*HopInfo) float64 {
+	if len(hops) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, hop := range hops {
+		total += hop.Loss
+	}
+	return total / float64(len(hops))
+}
+
+func (ndt *NetworkDiagnosticTool) fallbackTraceHops(target string, timeoutSec int) []*HopInfo {
+	timeout := time.Duration(timeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+
+	address := target
+	if ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", target); err == nil && len(ips) > 0 {
+		address = ips[0].String()
+	}
+
+	if rtt, ok := measureTCPRTT(target, timeout, []int{443, 80}); ok {
+		return []*HopInfo{
+			{
+				Hop:     1,
+				Address: address,
+				RTT:     []float64{rtt},
+				Loss:    0,
+				Last:    rtt,
+				Avg:     rtt,
+				Best:    rtt,
+				Worst:   rtt,
+			},
+		}
+	}
+
+	return []*HopInfo{
+		{
+			Hop:     1,
+			Address: address,
+			RTT:     nil,
+			Loss:    100,
+			Last:    0,
+			Avg:     0,
+			Best:    0,
+			Worst:   0,
+		},
+	}
+}
+
+func (ndt *NetworkDiagnosticTool) fallbackPingViaTCP(params *NetworkDiagnosticParams) *PingResult {
+	count := params.PacketCount
+	if count <= 0 {
+		count = 4
+	}
+	timeout := time.Duration(params.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+
+	samples := make([]float64, 0, count)
+	received := 0
+	for i := 0; i < count; i++ {
+		start := time.Now()
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(params.Target, "443"), timeout)
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		received++
+		lat := float64(time.Since(start).Microseconds()) / 1000
+		if lat <= 0 {
+			lat = 1
+		}
+		samples = append(samples, lat)
+	}
+	if received == 0 {
+		return nil
+	}
+
+	min, max, sum := samples[0], samples[0], 0.0
+	for _, s := range samples {
+		if s < min {
+			min = s
+		}
+		if s > max {
+			max = s
+		}
+		sum += s
+	}
+	avg := sum / float64(len(samples))
+	loss := (float64(count-received) / float64(count)) * 100
+
+	return &PingResult{
+		Sent:     count,
+		Received: received,
+		Loss:     loss,
+		Min:      min,
+		Avg:      avg,
+		Max:      max,
+		StdDev:   0,
+	}
+}
+
+func measureTCPRTT(target string, timeout time.Duration, ports []int) (float64, bool) {
+	for _, port := range ports {
+		start := time.Now()
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(target, strconv.Itoa(port)), timeout)
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		rtt := float64(time.Since(start).Milliseconds())
+		if rtt <= 0 {
+			rtt = 1
+		}
+		return rtt, true
+	}
+	return 0, false
+}
+
+func portToService(port int) string {
+	switch port {
+	case 22:
+		return "ssh"
+	case 53:
+		return "dns"
+	case 80:
+		return "http"
+	case 443:
+		return "https"
+	case 3306:
+		return "mysql"
+	case 5432:
+		return "postgresql"
+	default:
+		return ""
 	}
 }

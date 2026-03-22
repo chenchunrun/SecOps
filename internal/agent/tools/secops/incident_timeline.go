@@ -1,7 +1,12 @@
 package secops
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"os"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -43,11 +48,11 @@ func (itt *IncidentTimelineTool) RequiredCapabilities() []string {
 
 // TimelineEvent 时间线事件
 type TimelineEvent struct {
-	Timestamp   time.Time `json:"timestamp"`
-	Type        string    `json:"type"`         // "alert", "action", "escalation", "resolution", "communication"
-	Actor       string    `json:"actor"`        // user or system
-	Description string    `json:"description"`
-	Severity    string    `json:"severity,omitempty"` // for alert events
+	Timestamp   time.Time         `json:"timestamp"`
+	Type        string            `json:"type"`  // "alert", "action", "escalation", "resolution", "communication"
+	Actor       string            `json:"actor"` // user or system
+	Description string            `json:"description"`
+	Severity    string            `json:"severity,omitempty"` // for alert events
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
@@ -94,6 +99,17 @@ func (itt *IncidentTimelineTool) Execute(params interface{}) (interface{}, error
 
 // performTimeline 生成事件时间线
 func (itt *IncidentTimelineTool) performTimeline(params *IncidentTimelineParams) *IncidentTimelineResult {
+	if len(params.Events) > 0 {
+		return itt.buildTimelineFromEvents(params)
+	}
+
+	if events := itt.loadExternalIncidentEvents(params.IncidentID); len(events) > 0 {
+		return itt.buildTimelineFromEvents(&IncidentTimelineParams{
+			IncidentID: params.IncidentID,
+			Events:     events,
+		})
+	}
+
 	result := &IncidentTimelineResult{
 		IncidentID: params.IncidentID,
 		Events:     make([]TimelineEvent, 0),
@@ -109,6 +125,155 @@ func (itt *IncidentTimelineTool) performTimeline(params *IncidentTimelineParams)
 		result = itt.getSecurityIncidentTimeline(params.IncidentID)
 	default:
 		result = itt.getGenericIncidentTimeline(params.IncidentID)
+	}
+
+	return result
+}
+
+type timelineEventRecord struct {
+	IncidentID  string            `json:"incident_id"`
+	Timestamp   string            `json:"timestamp"`
+	Type        string            `json:"type"`
+	Actor       string            `json:"actor"`
+	Description string            `json:"description"`
+	Severity    string            `json:"severity,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+func (itt *IncidentTimelineTool) loadExternalIncidentEvents(incidentID string) []TimelineEvent {
+	path := strings.TrimSpace(os.Getenv("SECOPS_INCIDENT_EVENTS_FILE"))
+	if path == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+
+	events := make([]TimelineEvent, 0)
+	if parsed, ok := parseIncidentEventArray(data, incidentID); ok {
+		events = append(events, parsed...)
+	} else {
+		events = append(events, parseIncidentEventJSONL(data, incidentID)...)
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp.Before(events[j].Timestamp)
+	})
+	return events
+}
+
+func parseIncidentEventArray(data []byte, incidentID string) ([]TimelineEvent, bool) {
+	var records []timelineEventRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, false
+	}
+	events := make([]TimelineEvent, 0, len(records))
+	for _, r := range records {
+		if strings.TrimSpace(r.IncidentID) != incidentID {
+			continue
+		}
+		events = append(events, toTimelineEvent(r))
+	}
+	return events, true
+}
+
+func parseIncidentEventJSONL(data []byte, incidentID string) []TimelineEvent {
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	events := make([]TimelineEvent, 0)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var r timelineEventRecord
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			continue
+		}
+		if strings.TrimSpace(r.IncidentID) != incidentID {
+			continue
+		}
+		events = append(events, toTimelineEvent(r))
+	}
+	return events
+}
+
+func toTimelineEvent(r timelineEventRecord) TimelineEvent {
+	ts := time.Now()
+	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(r.Timestamp)); err == nil {
+		ts = t
+	}
+	return TimelineEvent{
+		Timestamp:   ts,
+		Type:        defaultIfEmpty(strings.TrimSpace(r.Type), "action"),
+		Actor:       defaultIfEmpty(strings.TrimSpace(r.Actor), "external"),
+		Description: defaultIfEmpty(strings.TrimSpace(r.Description), "incident event"),
+		Severity:    strings.TrimSpace(r.Severity),
+		Metadata:    r.Metadata,
+	}
+}
+
+func (itt *IncidentTimelineTool) buildTimelineFromEvents(params *IncidentTimelineParams) *IncidentTimelineResult {
+	events := make([]TimelineEvent, 0, len(params.Events))
+	for _, e := range params.Events {
+		if e.Timestamp.IsZero() {
+			e.Timestamp = time.Now()
+		}
+		events = append(events, e)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp.Before(events[j].Timestamp)
+	})
+
+	start := events[0].Timestamp
+	end := events[len(events)-1].Timestamp
+
+	status := "open"
+	rootCause := ""
+	impact := ""
+	title := "Incident Timeline"
+
+	for _, e := range events {
+		lt := strings.ToLower(strings.TrimSpace(e.Type))
+		desc := strings.TrimSpace(e.Description)
+		switch lt {
+		case "resolution":
+			status = "resolved"
+		case "action":
+			if status != "resolved" {
+				status = "mitigated"
+			}
+		case "escalation":
+			if status == "open" {
+				status = "mitigated"
+			}
+		}
+
+		if title == "Incident Timeline" && (lt == "alert" || lt == "communication") && desc != "" {
+			title = desc
+		}
+		if rootCause == "" && (strings.Contains(strings.ToLower(desc), "root cause") ||
+			strings.Contains(strings.ToLower(desc), "identified")) {
+			rootCause = desc
+		}
+		if impact == "" && strings.Contains(strings.ToLower(desc), "impact") {
+			impact = desc
+		}
+	}
+
+	result := &IncidentTimelineResult{
+		IncidentID: params.IncidentID,
+		Title:      title,
+		StartTime:  start,
+		EndTime:    end,
+		Duration:   end.Sub(start),
+		Events:     events,
+		RootCause:  rootCause,
+		Impact:     impact,
+		Status:     status,
 	}
 
 	return result
@@ -194,8 +359,8 @@ func (itt *IncidentTimelineTool) getDatabaseIncidentTimeline(incidentID string) 
 			},
 		},
 		RootCause: "Missing index on frequently queried column causing full table scans and lock contention",
-		Impact:     "Database latency increased by 500%, affected 12% of user requests",
-		Status:     "resolved",
+		Impact:    "Database latency increased by 500%, affected 12% of user requests",
+		Status:    "resolved",
 	}
 
 	result.EndTime = start.Add(50 * time.Minute)
@@ -254,8 +419,8 @@ func (itt *IncidentTimelineTool) getNetworkIncidentTimeline(incidentID string) *
 			},
 		},
 		RootCause: "Firewall rule change during maintenance window incorrectly blocked production traffic",
-		Impact:     "Approximately 8% of requests failed with 503 errors for 25 minutes",
-		Status:     "resolved",
+		Impact:    "Approximately 8% of requests failed with 503 errors for 25 minutes",
+		Status:    "resolved",
 	}
 
 	result.EndTime = start.Add(25 * time.Minute)
@@ -325,9 +490,9 @@ func (itt *IncidentTimelineTool) getSecurityIncidentTimeline(incidentID string) 
 				Description: "Incident mitigated - attack blocked, no compromise detected",
 			},
 		},
-		RootCause:  "Automated brute force attack targeting admin endpoints from Tor exit node",
-		Impact:     "No unauthorized access confirmed. 3 accounts had failed login attempts.",
-		Status:     "mitigated",
+		RootCause: "Automated brute force attack targeting admin endpoints from Tor exit node",
+		Impact:    "No unauthorized access confirmed. 3 accounts had failed login attempts.",
+		Status:    "mitigated",
 	}
 
 	result.Duration = time.Since(start)

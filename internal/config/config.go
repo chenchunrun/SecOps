@@ -61,6 +61,8 @@ const (
 const (
 	AgentCoder string = "coder"
 	AgentTask  string = "task"
+	AgentOpsAgent string = "ops_agent"
+	AgentSecurityExpertAgent string = "security_expert_agent"
 )
 
 type SelectedModel struct {
@@ -243,6 +245,7 @@ type Options struct {
 	ContextPaths              []string     `json:"context_paths,omitempty" jsonschema:"description=Paths to files containing context information for the AI,example=.cursorrules,example=CRUSH.md"`
 	SkillsPaths               []string     `json:"skills_paths,omitempty" jsonschema:"description=Paths to directories containing Agent Skills (folders with SKILL.md files),example=~/.config/crush/skills,example=./skills"`
 	TUI                       *TUIOptions  `json:"tui,omitempty" jsonschema:"description=Terminal user interface options"`
+	ActiveAgent               string       `json:"active_agent,omitempty" jsonschema:"description=Default runtime agent to use,enum=coder,enum=task,enum=ops_agent,enum=security_expert_agent,default=coder"`
 	Debug                     bool         `json:"debug,omitempty" jsonschema:"description=Enable debug logging,default=false"`
 	DebugLSP                  bool         `json:"debug_lsp,omitempty" jsonschema:"description=Enable debug logging for LSP servers,default=false"`
 	DisableAutoSummarize      bool         `json:"disable_auto_summarize,omitempty" jsonschema:"description=Disable automatic conversation summarization,default=false"`
@@ -480,6 +483,25 @@ func allToolNames() []string {
 		"write",
 		"list_mcp_resources",
 		"read_mcp_resource",
+		// SecOps tools
+		"log_analyze",
+		"monitoring_query",
+		"compliance_check",
+		"certificate_audit",
+		"security_scan",
+		"configuration_audit",
+		"network_diagnostic",
+		"database_query",
+		"backup_check",
+		"replication_status",
+		"secret_audit",
+		"rotation_check",
+		"access_review",
+		"infrastructure_query",
+		"deployment_status",
+		"alert_check",
+		"incident_timeline",
+		"resource_monitor",
 	}
 }
 
@@ -510,6 +532,10 @@ func filterSlice(data []string, mask []string, include bool) []string {
 }
 
 func (c *Config) SetupAgents() {
+	if c.Options == nil {
+		c.Options = &Options{}
+	}
+
 	allowedTools := resolveAllowedTools(allToolNames(), c.Options.DisabledTools)
 
 	agents := map[string]Agent{
@@ -531,6 +557,24 @@ func (c *Config) SetupAgents() {
 			AllowedTools: resolveReadOnlyTools(allowedTools),
 			// NO MCPs or LSPs by default
 			AllowedMCP: map[string][]string{},
+		},
+		AgentOpsAgent: {
+			ID:           AgentOpsAgent,
+			Name:         "OpsAgent",
+			Description:  "An agent focused on operational incidents, diagnostics, monitoring, and compliance.",
+			Model:        SelectedModelTypeLarge,
+			ContextPaths: c.Options.ContextPaths,
+			AllowedTools: []string{},
+			AllowedMCP:   map[string][]string{},
+		},
+		AgentSecurityExpertAgent: {
+			ID:           AgentSecurityExpertAgent,
+			Name:         "SecurityExpertAgent",
+			Description:  "An agent focused on vulnerability response, security audits, threat assessment, and incident response.",
+			Model:        SelectedModelTypeLarge,
+			ContextPaths: c.Options.ContextPaths,
+			AllowedTools: []string{},
+			AllowedMCP:   map[string][]string{},
 		},
 	}
 	c.Agents = agents

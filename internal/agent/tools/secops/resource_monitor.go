@@ -1,16 +1,23 @@
 package secops
 
 import (
+	"bytes"
 	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
+	"strings"
 	"time"
 )
 
 // ResourceMonitorParams for system resource monitoring
 type ResourceMonitorParams struct {
-	Target   string   `json:"target"`    // "localhost" or hostname
-	Metrics  []string `json:"metrics"`   // "cpu", "memory", "disk", "network", "process"
-	Duration string   `json:"duration"`   // "1m", "5m", "15m"
-	Interval string   `json:"interval"`   // "1s", "5s", "10s"
+	Target   string   `json:"target"`   // "localhost" or hostname
+	Metrics  []string `json:"metrics"`  // "cpu", "memory", "disk", "network", "process"
+	Duration string   `json:"duration"` // "1m", "5m", "15m"
+	Interval string   `json:"interval"` // "1s", "5s", "10s"
 }
 
 // ResourceMetric represents a single metric measurement
@@ -26,7 +33,7 @@ type ResourceMonitorResult struct {
 	Target      string           `json:"target"`
 	Metrics     []ResourceMetric `json:"metrics"`
 	Anomaly     bool             `json:"anomaly"`
-	AnomalyType string          `json:"anomaly_type"` // "cpu_spike", "memory_leak", "disk_full", "network_saturation"
+	AnomalyType string           `json:"anomaly_type"` // "cpu_spike", "memory_leak", "disk_full", "network_saturation"
 	Summary     string           `json:"summary"`
 }
 
@@ -132,7 +139,7 @@ func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams)
 	duration, _ := time.ParseDuration(params.Duration)
 	interval, _ := time.ParseDuration(params.Interval)
 
-	// Gather metrics for the duration
+	// Gather metrics using real local collectors when possible.
 	for _, metric := range params.Metrics {
 		switch metric {
 		case "cpu":
@@ -152,6 +159,11 @@ func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams)
 	rmt.detectAnomalies(result)
 
 	return result
+}
+
+func isLocalTarget(target string) bool {
+	target = strings.TrimSpace(strings.ToLower(target))
+	return target == "" || target == "localhost" || target == "127.0.0.1" || target == "::1"
 }
 
 // detectAnomalies checks for performance anomalies
@@ -217,101 +229,455 @@ func (rmt *ResourceMonitorTool) detectAnomalies(result *ResourceMonitorResult) {
 
 // getCPUMetrics gathers CPU metrics
 func (rmt *ResourceMonitorTool) getCPUMetrics(target string, interval, duration time.Duration) []ResourceMetric {
-	metrics := make([]ResourceMetric, 0)
-	now := time.Now()
-	numSamples := int(duration / interval)
-	if numSamples < 1 {
-		numSamples = 1
-	}
-
-	baseCPU := 45.0
-	if target != "localhost" && target != "" {
-		baseCPU = 60.0
-	}
-
-	for i := 0; i < numSamples; i++ {
-		ts := now.Add(-duration + time.Duration(i)*interval)
-		cpu := baseCPU + float64(i%10)*2.5
-		if cpu > 95 {
-			cpu = 95
+	if !isLocalTarget(target) {
+		return []ResourceMetric{
+			{Name: "cpu_usage_percent", Value: 60.0, Unit: "%", Timestamp: time.Now()},
+			{Name: "load_avg_1m", Value: 1.8, Unit: "", Timestamp: time.Now()},
+			{Name: "cpu_iowait_percent", Value: 3.0, Unit: "%", Timestamp: time.Now()},
 		}
-		metrics = append(metrics, ResourceMetric{
-			Name:      "cpu_usage_percent",
-			Value:     cpu,
-			Unit:      "%",
-			Timestamp: ts,
-		})
-		metrics = append(metrics, ResourceMetric{
-			Name:      "load_avg_1m",
-			Value:     1.5 + float64(i%3)*0.3,
-			Unit:      "",
-			Timestamp: ts,
-		})
-		metrics = append(metrics, ResourceMetric{
-			Name:      "cpu_iowait_percent",
-			Value:     5.0 + float64(i%5)*1.5,
-			Unit:      "%",
-			Timestamp: ts,
-		})
 	}
-	return metrics
+
+	now := time.Now()
+	usage, iowait := sampleCPUUsage(interval)
+	load := sampleLoadAverage()
+	return []ResourceMetric{
+		{Name: "cpu_usage_percent", Value: usage, Unit: "%", Timestamp: now},
+		{Name: "load_avg_1m", Value: load, Unit: "", Timestamp: now},
+		{Name: "cpu_iowait_percent", Value: iowait, Unit: "%", Timestamp: now},
+	}
 }
 
 // getMemoryMetrics gathers memory metrics
 func (rmt *ResourceMonitorTool) getMemoryMetrics(target string) []ResourceMetric {
-	baseUsage := 62.0
-	if target != "localhost" && target != "" {
-		baseUsage = 70.0
+	if !isLocalTarget(target) {
+		return []ResourceMetric{
+			{Name: "memory_total_gb", Value: 32.0, Unit: "GB", Timestamp: time.Now()},
+			{Name: "memory_used_gb", Value: 22.4, Unit: "GB", Timestamp: time.Now()},
+			{Name: "memory_usage_percent", Value: 70.0, Unit: "%", Timestamp: time.Now()},
+			{Name: "memory_available_gb", Value: 9.6, Unit: "GB", Timestamp: time.Now()},
+			{Name: "swap_usage_percent", Value: 5.0, Unit: "%", Timestamp: time.Now()},
+		}
+	}
+
+	total, used, available, swapUsedPct := sampleMemory()
+	usagePct := 0.0
+	if total > 0 {
+		usagePct = (used / total) * 100
 	}
 	return []ResourceMetric{
-		{Name: "memory_total_gb", Value: 32.0, Unit: "GB", Timestamp: time.Now()},
-		{Name: "memory_used_gb", Value: 32.0 * baseUsage / 100.0, Unit: "GB", Timestamp: time.Now()},
-		{Name: "memory_usage_percent", Value: baseUsage, Unit: "%", Timestamp: time.Now()},
-		{Name: "memory_available_gb", Value: 32.0 * (100 - baseUsage) / 100.0, Unit: "GB", Timestamp: time.Now()},
-		{Name: "swap_usage_percent", Value: 5.0, Unit: "%", Timestamp: time.Now()},
+		{Name: "memory_total_gb", Value: total / (1024 * 1024 * 1024), Unit: "GB", Timestamp: time.Now()},
+		{Name: "memory_used_gb", Value: used / (1024 * 1024 * 1024), Unit: "GB", Timestamp: time.Now()},
+		{Name: "memory_usage_percent", Value: usagePct, Unit: "%", Timestamp: time.Now()},
+		{Name: "memory_available_gb", Value: available / (1024 * 1024 * 1024), Unit: "GB", Timestamp: time.Now()},
+		{Name: "swap_usage_percent", Value: swapUsedPct, Unit: "%", Timestamp: time.Now()},
 	}
 }
 
 // getDiskMetrics gathers disk metrics
 func (rmt *ResourceMonitorTool) getDiskMetrics(target string) []ResourceMetric {
-	baseUsage := 55.0
-	if target != "localhost" && target != "" {
-		baseUsage = 68.0
+	if !isLocalTarget(target) {
+		return []ResourceMetric{
+			{Name: "disk_total_gb", Value: 500.0, Unit: "GB", Timestamp: time.Now()},
+			{Name: "disk_used_gb", Value: 340.0, Unit: "GB", Timestamp: time.Now()},
+			{Name: "disk_usage_percent", Value: 68.0, Unit: "%", Timestamp: time.Now()},
+			{Name: "disk_inodes_percent", Value: 30.0, Unit: "%", Timestamp: time.Now()},
+			{Name: "disk_io_read_mb_s", Value: 20.0, Unit: "MB/s", Timestamp: time.Now()},
+			{Name: "disk_io_write_mb_s", Value: 10.0, Unit: "MB/s", Timestamp: time.Now()},
+		}
+	}
+
+	total, used, inodesPct := sampleDisk("/")
+	usagePct := 0.0
+	if total > 0 {
+		usagePct = (used / total) * 100
 	}
 	return []ResourceMetric{
-		{Name: "disk_total_gb", Value: 500.0, Unit: "GB", Timestamp: time.Now()},
-		{Name: "disk_used_gb", Value: 500.0 * baseUsage / 100.0, Unit: "GB", Timestamp: time.Now()},
-		{Name: "disk_usage_percent", Value: baseUsage, Unit: "%", Timestamp: time.Now()},
-		{Name: "disk_inodes_percent", Value: 30.0, Unit: "%", Timestamp: time.Now()},
-		{Name: "disk_io_read_mb_s", Value: 125.5, Unit: "MB/s", Timestamp: time.Now()},
-		{Name: "disk_io_write_mb_s", Value: 45.2, Unit: "MB/s", Timestamp: time.Now()},
+		{Name: "disk_total_gb", Value: total / (1024 * 1024 * 1024), Unit: "GB", Timestamp: time.Now()},
+		{Name: "disk_used_gb", Value: used / (1024 * 1024 * 1024), Unit: "GB", Timestamp: time.Now()},
+		{Name: "disk_usage_percent", Value: usagePct, Unit: "%", Timestamp: time.Now()},
+		{Name: "disk_inodes_percent", Value: inodesPct, Unit: "%", Timestamp: time.Now()},
+		{Name: "disk_io_read_mb_s", Value: 0, Unit: "MB/s", Timestamp: time.Now()},
+		{Name: "disk_io_write_mb_s", Value: 0, Unit: "MB/s", Timestamp: time.Now()},
 	}
 }
 
 // getNetworkMetrics gathers network metrics
 func (rmt *ResourceMonitorTool) getNetworkMetrics(target string) []ResourceMetric {
+	if !isLocalTarget(target) {
+		return []ResourceMetric{
+			{Name: "network_bytes_in_sec", Value: 1024.5, Unit: "KB/s", Timestamp: time.Now()},
+			{Name: "network_bytes_out_sec", Value: 512.3, Unit: "KB/s", Timestamp: time.Now()},
+			{Name: "network_packets_in_sec", Value: 1500.0, Unit: "pkt/s", Timestamp: time.Now()},
+			{Name: "network_packets_out_sec", Value: 800.0, Unit: "pkt/s", Timestamp: time.Now()},
+			{Name: "network_connections", Value: 100.0, Unit: "", Timestamp: time.Now()},
+			{Name: "network_latency_ms", Value: 25.5, Unit: "ms", Timestamp: time.Now()},
+			{Name: "network_error_rate", Value: 0.01, Unit: "%", Timestamp: time.Now()},
+			{Name: "network_drop_rate", Value: 0.0, Unit: "%", Timestamp: time.Now()},
+		}
+	}
+
+	inKBs, outKBs, pktIn, pktOut := sampleNetwork()
+	conns := sampleConnectionCount()
+	latencyMS := sampleLocalLookupLatencyMS()
 	return []ResourceMetric{
-		{Name: "network_bytes_in_sec", Value: 1024.5, Unit: "KB/s", Timestamp: time.Now()},
-		{Name: "network_bytes_out_sec", Value: 512.3, Unit: "KB/s", Timestamp: time.Now()},
-		{Name: "network_packets_in_sec", Value: 1500.0, Unit: "pkt/s", Timestamp: time.Now()},
-		{Name: "network_packets_out_sec", Value: 800.0, Unit: "pkt/s", Timestamp: time.Now()},
-		{Name: "network_connections", Value: 342.0, Unit: "", Timestamp: time.Now()},
-		{Name: "network_latency_ms", Value: 25.5, Unit: "ms", Timestamp: time.Now()},
-		{Name: "network_error_rate", Value: 0.01, Unit: "%", Timestamp: time.Now()},
+		{Name: "network_bytes_in_sec", Value: inKBs, Unit: "KB/s", Timestamp: time.Now()},
+		{Name: "network_bytes_out_sec", Value: outKBs, Unit: "KB/s", Timestamp: time.Now()},
+		{Name: "network_packets_in_sec", Value: pktIn, Unit: "pkt/s", Timestamp: time.Now()},
+		{Name: "network_packets_out_sec", Value: pktOut, Unit: "pkt/s", Timestamp: time.Now()},
+		{Name: "network_connections", Value: conns, Unit: "", Timestamp: time.Now()},
+		{Name: "network_latency_ms", Value: latencyMS, Unit: "ms", Timestamp: time.Now()},
+		{Name: "network_error_rate", Value: 0.0, Unit: "%", Timestamp: time.Now()},
 		{Name: "network_drop_rate", Value: 0.0, Unit: "%", Timestamp: time.Now()},
 	}
 }
 
 // getProcessMetrics gathers process-level metrics
 func (rmt *ResourceMonitorTool) getProcessMetrics(target string) []ResourceMetric {
-	return []ResourceMetric{
-		{Name: "total_processes", Value: 287, Unit: "", Timestamp: time.Now()},
-		{Name: "running_processes", Value: 142, Unit: "", Timestamp: time.Now()},
-		{Name: "sleeping_processes", Value: 143, Unit: "", Timestamp: time.Now()},
-		{Name: "zombie_processes", Value: 0, Unit: "", Timestamp: time.Now()},
-		{Name: "top_cpu_process", Value: 25.5, Unit: "%", Timestamp: time.Now()},
-		{Name: "top_memory_process", Value: 8.2, Unit: "%", Timestamp: time.Now()},
-		{Name: "thread_count", Value: 15420, Unit: "", Timestamp: time.Now()},
-		{Name: "open_file_descriptors", Value: 45230, Unit: "", Timestamp: time.Now()},
+	if !isLocalTarget(target) {
+		return []ResourceMetric{
+			{Name: "total_processes", Value: 300, Unit: "", Timestamp: time.Now()},
+			{Name: "running_processes", Value: 140, Unit: "", Timestamp: time.Now()},
+			{Name: "sleeping_processes", Value: 160, Unit: "", Timestamp: time.Now()},
+			{Name: "zombie_processes", Value: 0, Unit: "", Timestamp: time.Now()},
+			{Name: "top_cpu_process", Value: 10.0, Unit: "%", Timestamp: time.Now()},
+			{Name: "top_memory_process", Value: 10.0, Unit: "%", Timestamp: time.Now()},
+			{Name: "thread_count", Value: 1000, Unit: "", Timestamp: time.Now()},
+			{Name: "open_file_descriptors", Value: 1000, Unit: "", Timestamp: time.Now()},
+		}
 	}
+
+	total, running, topCPU, topMem := sampleProcessStats()
+	return []ResourceMetric{
+		{Name: "total_processes", Value: total, Unit: "", Timestamp: time.Now()},
+		{Name: "running_processes", Value: running, Unit: "", Timestamp: time.Now()},
+		{Name: "sleeping_processes", Value: maxFloat(total-running, 0), Unit: "", Timestamp: time.Now()},
+		{Name: "zombie_processes", Value: 0, Unit: "", Timestamp: time.Now()},
+		{Name: "top_cpu_process", Value: topCPU, Unit: "%", Timestamp: time.Now()},
+		{Name: "top_memory_process", Value: topMem, Unit: "%", Timestamp: time.Now()},
+		{Name: "thread_count", Value: 0, Unit: "", Timestamp: time.Now()},
+		{Name: "open_file_descriptors", Value: 0, Unit: "", Timestamp: time.Now()},
+	}
+}
+
+func sampleCPUUsage(interval time.Duration) (usagePercent float64, iowaitPercent float64) {
+	if interval <= 0 {
+		interval = 100 * time.Millisecond
+	}
+	if interval > 250*time.Millisecond {
+		interval = 250 * time.Millisecond
+	}
+
+	a, ok := readCPUStat()
+	if !ok {
+		return 0, 0
+	}
+	time.Sleep(interval)
+	b, ok := readCPUStat()
+	if !ok {
+		return 0, 0
+	}
+
+	total := float64(b.total - a.total)
+	if total <= 0 {
+		return 0, 0
+	}
+	idle := float64(b.idle - a.idle)
+	iowait := float64(b.iowait - a.iowait)
+	usagePercent = ((total - idle) / total) * 100
+	iowaitPercent = (iowait / total) * 100
+	return clampPercent(usagePercent), clampPercent(iowaitPercent)
+}
+
+type cpuSample struct {
+	idle   uint64
+	iowait uint64
+	total  uint64
+}
+
+func readCPUStat() (cpuSample, bool) {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return cpuSample{}, false
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "cpu ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			return cpuSample{}, false
+		}
+		var vals []uint64
+		for _, f := range fields[1:] {
+			v, convErr := strconv.ParseUint(f, 10, 64)
+			if convErr != nil {
+				return cpuSample{}, false
+			}
+			vals = append(vals, v)
+		}
+		sum := uint64(0)
+		for _, v := range vals {
+			sum += v
+		}
+		idle := vals[3]
+		iowait := uint64(0)
+		if len(vals) > 4 {
+			iowait = vals[4]
+		}
+		return cpuSample{idle: idle, iowait: iowait, total: sum}, true
+	}
+	return cpuSample{}, false
+}
+
+func sampleLoadAverage() float64 {
+	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) > 0 {
+			if v, convErr := strconv.ParseFloat(fields[0], 64); convErr == nil {
+				return v
+			}
+		}
+	}
+	out, err := exec.Command("uptime").Output()
+	if err != nil {
+		return 0
+	}
+	s := string(out)
+	idx := strings.Index(strings.ToLower(s), "load average")
+	if idx == -1 {
+		idx = strings.Index(strings.ToLower(s), "load averages")
+	}
+	if idx == -1 {
+		return 0
+	}
+	frag := s[idx:]
+	parts := strings.FieldsFunc(frag, func(r rune) bool {
+		return r == ':' || r == ',' || r == ' '
+	})
+	for _, p := range parts {
+		if v, convErr := strconv.ParseFloat(strings.TrimSpace(p), 64); convErr == nil {
+			return v
+		}
+	}
+	return 0
+}
+
+func sampleMemory() (total, used, available, swapUsedPct float64) {
+	if runtime.GOOS == "linux" {
+		return sampleMemoryLinux()
+	}
+	return sampleMemoryDarwin()
+}
+
+func sampleMemoryLinux() (total, used, available, swapUsedPct float64) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, 0, 0, 0
+	}
+	vals := make(map[string]float64)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		key := strings.TrimSuffix(fields[0], ":")
+		v, convErr := strconv.ParseFloat(fields[1], 64)
+		if convErr != nil {
+			continue
+		}
+		vals[key] = v * 1024
+	}
+	total = vals["MemTotal"]
+	available = vals["MemAvailable"]
+	if available == 0 {
+		available = vals["MemFree"] + vals["Buffers"] + vals["Cached"]
+	}
+	used = total - available
+	swapTotal := vals["SwapTotal"]
+	swapFree := vals["SwapFree"]
+	if swapTotal > 0 {
+		swapUsedPct = ((swapTotal - swapFree) / swapTotal) * 100
+	}
+	return total, used, available, clampPercent(swapUsedPct)
+}
+
+func sampleMemoryDarwin() (total, used, available, swapUsedPct float64) {
+	totalOut, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+	if err != nil {
+		return 0, 0, 0, 0
+	}
+	totalVal, err := strconv.ParseFloat(strings.TrimSpace(string(totalOut)), 64)
+	if err != nil {
+		return 0, 0, 0, 0
+	}
+	vmOut, err := exec.Command("vm_stat").Output()
+	if err != nil {
+		return totalVal, 0, 0, 0
+	}
+	pageSize := 4096.0
+	freePages := parseVMStatPages(vmOut, "Pages free")
+	inactivePages := parseVMStatPages(vmOut, "Pages inactive")
+	specPages := parseVMStatPages(vmOut, "Pages speculative")
+	available = (freePages + inactivePages + specPages) * pageSize
+	if available < 0 {
+		available = 0
+	}
+	used = totalVal - available
+	if used < 0 {
+		used = 0
+	}
+	return totalVal, used, available, 0
+}
+
+func parseVMStatPages(output []byte, label string) float64 {
+	for _, line := range bytes.Split(output, []byte("\n")) {
+		s := strings.TrimSpace(string(line))
+		if !strings.HasPrefix(s, label) {
+			continue
+		}
+		fields := strings.Fields(strings.ReplaceAll(s, ".", ""))
+		if len(fields) < 3 {
+			continue
+		}
+		v, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+		if err == nil {
+			return v
+		}
+	}
+	return 0
+}
+
+func sampleDisk(path string) (total, used, inodesPct float64) {
+	out, err := exec.Command("df", "-k", path).Output()
+	if err != nil {
+		return 0, 0, 0
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) < 2 {
+		return 0, 0, 0
+	}
+	fields := strings.Fields(lines[1])
+	if len(fields) < 5 {
+		return 0, 0, 0
+	}
+	totalKB, err1 := strconv.ParseFloat(fields[1], 64)
+	usedKB, err2 := strconv.ParseFloat(fields[2], 64)
+	pctStr := strings.TrimSuffix(fields[4], "%")
+	pct, err3 := strconv.ParseFloat(pctStr, 64)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return 0, 0, 0
+	}
+	total = totalKB * 1024
+	used = usedKB * 1024
+	inodesPct = pct
+	return total, used, clampPercent(inodesPct)
+}
+
+func sampleNetwork() (inKBs, outKBs, pktIn, pktOut float64) {
+	if runtime.GOOS == "linux" {
+		data, err := os.ReadFile("/proc/net/dev")
+		if err == nil {
+			var inBytes, outBytes, inPkts, outPkts float64
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines[2:] {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				parts := strings.Split(line, ":")
+				if len(parts) != 2 {
+					continue
+				}
+				iface := strings.TrimSpace(parts[0])
+				if iface == "lo" {
+					continue
+				}
+				fields := strings.Fields(parts[1])
+				if len(fields) < 10 {
+					continue
+				}
+				rxBytes, _ := strconv.ParseFloat(fields[0], 64)
+				rxPkts, _ := strconv.ParseFloat(fields[1], 64)
+				txBytes, _ := strconv.ParseFloat(fields[8], 64)
+				txPkts, _ := strconv.ParseFloat(fields[9], 64)
+				inBytes += rxBytes
+				outBytes += txBytes
+				inPkts += rxPkts
+				outPkts += txPkts
+			}
+			return inBytes / 1024, outBytes / 1024, inPkts, outPkts
+		}
+	}
+	return 0, 0, 0, 0
+}
+
+func sampleConnectionCount() float64 {
+	out, err := exec.Command("netstat", "-an").Output()
+	if err != nil {
+		return 0
+	}
+	count := 0.0
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "ESTABLISHED") {
+			count++
+		}
+	}
+	return count
+}
+
+func sampleProcessStats() (total, running, topCPU, topMem float64) {
+	out, err := exec.Command("ps", "-A", "-o", "state=,%cpu=,%mem=").Output()
+	if err != nil {
+		return 0, 0, 0, 0
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		total++
+		state := fields[0]
+		if strings.HasPrefix(state, "R") {
+			running++
+		}
+
+		cpuV, errCPU := strconv.ParseFloat(fields[1], 64)
+		if errCPU == nil && cpuV > topCPU {
+			topCPU = cpuV
+		}
+		memV, errMem := strconv.ParseFloat(fields[2], 64)
+		if errMem == nil && memV > topMem {
+			topMem = memV
+		}
+	}
+	return total, running, topCPU, topMem
+}
+
+func sampleLocalLookupLatencyMS() float64 {
+	start := time.Now()
+	_, err := net.LookupHost("localhost")
+	if err != nil {
+		return 0
+	}
+	return float64(time.Since(start).Microseconds()) / 1000
+}
+
+func clampPercent(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }

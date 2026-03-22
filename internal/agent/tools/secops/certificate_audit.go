@@ -1,9 +1,17 @@
 package secops
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -188,21 +196,45 @@ func (cat *CertificateAuditTool) Execute(params interface{}) (interface{}, error
 // collectCertificates 收集证书
 func (cat *CertificateAuditTool) collectCertificates(params *CertificateAuditParams) []*CertificateInfo {
 	certs := make([]*CertificateInfo, 0)
+	seen := make(map[string]struct{})
+
+	appendCert := func(cert *CertificateInfo) {
+		if cert == nil {
+			return
+		}
+		key := cert.Path + "|" + cert.SerialNumber
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		certs = append(certs, cert)
+	}
 
 	// 从指定路径收集
 	for _, path := range params.Paths {
 		cert := cat.parseCertificateFile(path)
-		if cert != nil {
-			certs = append(certs, cert)
-		}
+		appendCert(cert)
 	}
 
-	// TODO: 从搜索目录收集
-	// TODO: 从服务端口收集
+	// 从搜索目录收集
+	for _, dir := range params.SearchDirs {
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d == nil || d.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".crt" && ext != ".pem" && ext != ".cer" {
+				return nil
+			}
+			appendCert(cat.parseCertificateFile(path))
+			return nil
+		})
+	}
 
-	// 模拟证书
-	if len(certs) == 0 {
-		certs = cat.getMockCertificates()
+	// 从服务端口收集
+	for _, service := range params.ServicePorts {
+		cert := cat.fetchCertificateFromService(service)
+		appendCert(cert)
 	}
 
 	return certs
@@ -210,83 +242,39 @@ func (cat *CertificateAuditTool) collectCertificates(params *CertificateAuditPar
 
 // parseCertificateFile 解析证书文件
 func (cat *CertificateAuditTool) parseCertificateFile(path string) *CertificateInfo {
-	// TODO: 实现真实的证书解析
-	return nil
-}
-
-// getMockCertificates 获取模拟证书用于测试
-func (cat *CertificateAuditTool) getMockCertificates() []*CertificateInfo {
-	now := time.Now()
-	return []*CertificateInfo{
-		{
-			Path:             "/etc/ssl/certs/valid.crt",
-			Subject:          "CN=example.com,O=Example Inc",
-			Issuer:           "CN=Example CA",
-			NotBefore:        now.AddDate(0, -6, 0),
-			NotAfter:         now.AddDate(1, 0, 0),
-			SerialNumber:     "1234567890",
-			KeyType:          "RSA",
-			KeyLength:        2048,
-			SignatureAlg:     "SHA256-RSA",
-			IsSelfSigned:     false,
-			SANs:             []string{"example.com", "www.example.com"},
-			Status:           "valid",
-			DaysUntilExpiry:  365,
-			Issues:           make([]*CertIssue, 0),
-		},
-		{
-			Path:             "/etc/ssl/certs/expiring.crt",
-			Subject:          "CN=old.example.com",
-			Issuer:           "CN=Example CA",
-			NotBefore:        now.AddDate(-2, 0, 0),
-			NotAfter:         now.AddDate(0, 0, 15),
-			SerialNumber:     "0987654321",
-			KeyType:          "RSA",
-			KeyLength:        2048,
-			SignatureAlg:     "SHA256-RSA",
-			IsSelfSigned:     false,
-			SANs:             []string{"old.example.com"},
-			Status:           "expiring_soon",
-			DaysUntilExpiry:  15,
-			Issues: []*CertIssue{
-				{
-					Type:        "expiry",
-					Severity:    "warning",
-					Description: "Certificate expires in 15 days",
-					Remediation: "Renew the certificate before expiration",
-				},
-			},
-		},
-		{
-			Path:             "/etc/ssl/certs/weak.crt",
-			Subject:          "CN=weak.example.com",
-			Issuer:           "CN=Self",
-			NotBefore:        now.AddDate(-1, 0, 0),
-			NotAfter:         now.AddDate(1, 0, 0),
-			SerialNumber:     "1111111111",
-			KeyType:          "RSA",
-			KeyLength:        1024,
-			SignatureAlg:     "SHA1-RSA",
-			IsSelfSigned:     true,
-			SANs:             []string{},
-			Status:           "valid",
-			DaysUntilExpiry:  365,
-			Issues: []*CertIssue{
-				{
-					Type:        "weak_key",
-					Severity:    "critical",
-					Description: "RSA key length 1024 is too weak",
-					Remediation: "Regenerate certificate with at least 2048-bit RSA key",
-				},
-				{
-					Type:        "self_signed",
-					Severity:    "warning",
-					Description: "Certificate is self-signed",
-					Remediation: "Use a proper CA-signed certificate in production",
-				},
-			},
-		},
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
 	}
+
+	var cert *x509.Certificate
+	rest := data
+	for len(rest) > 0 {
+		block, remaining := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = remaining
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		parsed, parseErr := x509.ParseCertificate(block.Bytes)
+		if parseErr != nil {
+			continue
+		}
+		cert = parsed
+		break
+	}
+
+	if cert == nil {
+		parsed, parseErr := x509.ParseCertificate(data)
+		if parseErr != nil {
+			return nil
+		}
+		cert = parsed
+	}
+
+	return cat.certificateToInfo(path, cert)
 }
 
 // auditCertificate 审计单个证书
@@ -341,7 +329,28 @@ func (cat *CertificateAuditTool) generateIssues(result *CertificateAuditResult, 
 
 // CheckCertificateChain 检查证书链
 func (cat *CertificateAuditTool) CheckCertificateChain(cert *x509.Certificate) (bool, error) {
-	// TODO: 实现证书链验证
+	if cert == nil {
+		return false, fmt.Errorf("certificate is nil")
+	}
+
+	roots, err := x509.SystemCertPool()
+	if err != nil || roots == nil {
+		roots = x509.NewCertPool()
+	}
+
+	intermediates := x509.NewCertPool()
+	opts := x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		CurrentTime:   time.Now(),
+	}
+
+	if _, err := cert.Verify(opts); err != nil {
+		if cert.IsCA && cert.CheckSignatureFrom(cert) == nil {
+			return true, nil
+		}
+		return false, err
+	}
 	return true, nil
 }
 
@@ -349,4 +358,75 @@ func (cat *CertificateAuditTool) CheckCertificateChain(cert *x509.Certificate) (
 func (cat *CertificateAuditTool) CheckRSAKeyStrength(key *rsa.PublicKey) bool {
 	// RSA 密钥强度应该至少为 2048 位
 	return key.N.BitLen() >= 2048
+}
+
+func (cat *CertificateAuditTool) fetchCertificateFromService(service string) *CertificateInfo {
+	target := strings.TrimSpace(service)
+	if target == "" {
+		return nil
+	}
+
+	if !strings.Contains(target, ":") {
+		target = net.JoinHostPort("127.0.0.1", target)
+	}
+
+	dialer := &net.Dialer{Timeout: 2 * time.Second}
+	conn, err := tls.DialWithDialer(dialer, "tcp", target, &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	state := conn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return nil
+	}
+
+	return cat.certificateToInfo(target, state.PeerCertificates[0])
+}
+
+func (cat *CertificateAuditTool) certificateToInfo(path string, cert *x509.Certificate) *CertificateInfo {
+	keyType := "Unknown"
+	keyLength := 0
+
+	switch pub := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		keyType = "RSA"
+		keyLength = pub.N.BitLen()
+	case *ecdsa.PublicKey:
+		keyType = "ECDSA"
+		keyLength = pub.Params().BitSize
+	case ed25519.PublicKey:
+		keyType = "Ed25519"
+		keyLength = len(pub) * 8
+	}
+
+	sans := make([]string, 0, len(cert.DNSNames)+len(cert.IPAddresses)+len(cert.EmailAddresses)+len(cert.URIs))
+	sans = append(sans, cert.DNSNames...)
+	for _, ip := range cert.IPAddresses {
+		sans = append(sans, ip.String())
+	}
+	sans = append(sans, cert.EmailAddresses...)
+	for _, uri := range cert.URIs {
+		sans = append(sans, uri.String())
+	}
+
+	return &CertificateInfo{
+		Path:            path,
+		Subject:         cert.Subject.String(),
+		Issuer:          cert.Issuer.String(),
+		NotBefore:       cert.NotBefore,
+		NotAfter:        cert.NotAfter,
+		SerialNumber:    cert.SerialNumber.String(),
+		KeyType:         keyType,
+		KeyLength:       keyLength,
+		SignatureAlg:    cert.SignatureAlgorithm.String(),
+		IsSelfSigned:    cert.Subject.String() == cert.Issuer.String() && cert.CheckSignatureFrom(cert) == nil,
+		SANs:            sans,
+		DaysUntilExpiry: int(time.Until(cert.NotAfter).Hours() / 24),
+		Issues:          make([]*CertIssue, 0),
+	}
 }

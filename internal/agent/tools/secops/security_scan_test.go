@@ -1,6 +1,8 @@
 package secops
 
 import (
+	"context"
+	"fmt"
 	"testing"
 )
 
@@ -57,6 +59,10 @@ func TestSecurityScanTool_ValidateParams(t *testing.T) {
 
 func TestSecurityScanTool_Execute(t *testing.T) {
 	tool := NewSecurityScanTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		const trivyOut = `{"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2024-1000","Title":"RCE","Description":"desc","Severity":"CRITICAL","PkgName":"openssl","InstalledVersion":"3.0.0","FixedVersion":"3.0.5","PrimaryURL":"https://example.com/cve"}]}]}`
+		return []byte(trivyOut), nil, nil
+	}
 
 	params := &SecurityScanParams{
 		Scanner:    ScannerTrivy,
@@ -79,8 +85,26 @@ func TestSecurityScanTool_Execute(t *testing.T) {
 		t.Errorf("expected scanner %v, got %v", ScannerTrivy, scanResult.Scanner)
 	}
 
-	if scanResult.TotalVulnerabilities == 0 {
-		t.Error("expected vulnerabilities in result")
+	if scanResult.TotalVulnerabilities != 1 {
+		t.Errorf("expected 1 vulnerability in result, got %d", scanResult.TotalVulnerabilities)
+	}
+}
+
+func TestSecurityScanTool_Execute_CommandFailure(t *testing.T) {
+	tool := NewSecurityScanTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		return nil, []byte("binary not found"), fmt.Errorf("exec failed")
+	}
+
+	params := &SecurityScanParams{
+		Scanner:    ScannerTrivy,
+		Target:     TargetImage,
+		TargetPath: "ubuntu:latest",
+	}
+
+	_, err := tool.Execute(params)
+	if err == nil {
+		t.Fatal("expected error when scanner command fails")
 	}
 }
 
@@ -123,9 +147,9 @@ func TestSecurityScanTool_GenerateRecommendations(t *testing.T) {
 	tool := NewSecurityScanTool(nil)
 
 	result := &ScanResult{
-		CriticalCount: 2,
-		HighCount:     3,
-		MediumCount:   5,
+		CriticalCount:        2,
+		HighCount:            3,
+		MediumCount:          5,
 		TotalVulnerabilities: 10,
 	}
 
@@ -138,6 +162,10 @@ func TestSecurityScanTool_GenerateRecommendations(t *testing.T) {
 
 func BenchmarkSecurityScanTool_Execute(b *testing.B) {
 	tool := NewSecurityScanTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		const trivyOut = `{"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2024-1000","Title":"RCE","Description":"desc","Severity":"CRITICAL","PkgName":"openssl","InstalledVersion":"3.0.0","FixedVersion":"3.0.5","PrimaryURL":"https://example.com/cve"}]}]}`
+		return []byte(trivyOut), nil, nil
+	}
 	params := &SecurityScanParams{
 		Scanner:    ScannerTrivy,
 		Target:     TargetImage,

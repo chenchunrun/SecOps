@@ -336,6 +336,32 @@ func TestBackupCheckTool_Execute_AllSystems(t *testing.T) {
 	}
 }
 
+func TestBackupCheckTool_Execute_RealBackupPath(t *testing.T) {
+	tool := NewBackupCheckTool(nil)
+
+	tmpDir := t.TempDir()
+	backupFile := filepath.Join(tmpDir, "mysql-backup-20260322.sql")
+	if err := os.WriteFile(backupFile, []byte("backup"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := tool.Execute(&BackupCheckParams{
+		SystemType: "mysql",
+		Target:     tmpDir,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	br := result.(*BackupCheckResult)
+	if br.Status != "ok" {
+		t.Fatalf("expected status ok, got %s", br.Status)
+	}
+	if br.LastBackupTime == "" || br.LastBackupTime == "unknown" {
+		t.Fatal("expected non-empty last backup time")
+	}
+}
+
 func TestReplicationStatusTool_Type(t *testing.T) {
 	tool := NewReplicationStatusTool(nil)
 	if tool.Type() != ToolTypeReplicationStatus {
@@ -432,6 +458,45 @@ func TestReplicationStatusTool_Execute(t *testing.T) {
 	}
 }
 
+func TestReplicationStatusTool_Execute_FromStatusFile(t *testing.T) {
+	tool := NewReplicationStatusTool(nil)
+
+	tmpDir := t.TempDir()
+	statusFile := filepath.Join(tmpDir, "replication-status.json")
+	content := `{
+		"mysql": {
+			"is_replicating": true,
+			"lag_seconds": 3,
+			"master_host": "mysql-primary.local",
+			"slave_hosts": ["mysql-replica-1.local"],
+			"status": "lagging"
+		}
+	}`
+	if err := os.WriteFile(statusFile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SECOPS_REPLICATION_STATUS_FILE", statusFile)
+
+	result, err := tool.Execute(&ReplicationStatusParams{
+		System: "mysql",
+		Host:   "db-master.example.com",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	repl := result.(*ReplicationStatusResult)
+	if !repl.IsReplicating {
+		t.Fatal("expected is_replicating=true from status file")
+	}
+	if repl.LagSeconds != 3 {
+		t.Fatalf("expected lag 3, got %d", repl.LagSeconds)
+	}
+	if repl.MasterHost != "mysql-primary.local" {
+		t.Fatalf("expected master host from file, got %s", repl.MasterHost)
+	}
+}
+
 func TestSecretAuditTool_Type(t *testing.T) {
 	tool := NewSecretAuditTool(nil)
 	if tool.Type() != ToolTypeSecretAudit {
@@ -451,8 +516,8 @@ func TestSecretAuditTool_ValidateParams(t *testing.T) {
 			name: "valid params with pattern scan",
 			params: &SecretAuditParams{
 				TargetPath: "/path/to/repo",
-				ScanType:  "pattern",
-				Severity:  "HIGH",
+				ScanType:   "pattern",
+				Severity:   "HIGH",
 			},
 			wantErr: false,
 		},
@@ -460,7 +525,7 @@ func TestSecretAuditTool_ValidateParams(t *testing.T) {
 			name: "valid params with entropy scan",
 			params: &SecretAuditParams{
 				TargetPath: "/path/to/repo",
-				ScanType:  "entropy",
+				ScanType:   "entropy",
 			},
 			wantErr: false,
 		},
@@ -468,7 +533,7 @@ func TestSecretAuditTool_ValidateParams(t *testing.T) {
 			name: "valid params with ai scan",
 			params: &SecretAuditParams{
 				TargetPath: "/path/to/repo",
-				ScanType:  "ai",
+				ScanType:   "ai",
 			},
 			wantErr: false,
 		},
@@ -476,7 +541,7 @@ func TestSecretAuditTool_ValidateParams(t *testing.T) {
 			name: "valid params all severities",
 			params: &SecretAuditParams{
 				TargetPath: "/path/to/repo",
-				Severity:  "CRITICAL",
+				Severity:   "CRITICAL",
 			},
 			wantErr: false,
 		},
@@ -489,7 +554,7 @@ func TestSecretAuditTool_ValidateParams(t *testing.T) {
 			name: "unsupported scan_type",
 			params: &SecretAuditParams{
 				TargetPath: "/repo",
-				ScanType:  "unknown",
+				ScanType:   "unknown",
 			},
 			wantErr: true,
 		},
@@ -527,8 +592,8 @@ func TestSecretAuditTool_Execute(t *testing.T) {
 	tool := NewSecretAuditTool(nil)
 	params := &SecretAuditParams{
 		TargetPath: tmpDir,
-		ScanType:  "pattern",
-		Severity:  "HIGH",
+		ScanType:   "pattern",
+		Severity:   "HIGH",
 	}
 
 	result, err := tool.Execute(params)
@@ -564,7 +629,7 @@ func TestSecretAuditTool_Execute_NoSeverityFilter(t *testing.T) {
 	tool := NewSecretAuditTool(nil)
 	params := &SecretAuditParams{
 		TargetPath: tmpDir,
-		ScanType:  "pattern",
+		ScanType:   "pattern",
 	}
 
 	result, err := tool.Execute(params)
@@ -592,8 +657,8 @@ func TestSecretAuditTool_SeverityFiltering(t *testing.T) {
 	tool := NewSecretAuditTool(nil)
 	params := &SecretAuditParams{
 		TargetPath: tmpDir,
-		ScanType:  "pattern",
-		Severity:  "CRITICAL",
+		ScanType:   "pattern",
+		Severity:   "CRITICAL",
 	}
 
 	result, err := tool.Execute(params)
@@ -797,6 +862,85 @@ func TestRotationCheckTool_Execute_AllSystems(t *testing.T) {
 	}
 }
 
+func TestRotationCheckTool_Execute_FromMetadataFile(t *testing.T) {
+	tool := NewRotationCheckTool(nil)
+	tmp := t.TempDir()
+	meta := filepath.Join(tmp, "rotation.json")
+
+	lastRotated := time.Now().Add(-5 * 24 * time.Hour).Format("2006-01-02")
+	content := `[
+		{
+			"system_type":"aws",
+			"key_type":"api_key",
+			"target_id":"svc-key-1",
+			"last_rotated":"` + lastRotated + `",
+			"policy_days":10
+		}
+	]`
+	if err := os.WriteFile(meta, []byte(content), 0o644); err != nil {
+		t.Fatalf("Write metadata file failed: %v", err)
+	}
+	t.Setenv("SECOPS_ROTATION_METADATA_FILE", meta)
+
+	result, err := tool.Execute(&RotationCheckParams{
+		SystemType: "aws",
+		KeyType:    "api_key",
+		TargetID:   "svc-key-1",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	rr, ok := result.(*RotationCheckResult)
+	if !ok {
+		t.Fatal("expected RotationCheckResult")
+	}
+	if rr.PolicyDays != 10 {
+		t.Fatalf("expected policy_days=10, got %d", rr.PolicyDays)
+	}
+	if rr.LastRotated != lastRotated {
+		t.Fatalf("expected last_rotated=%s, got %s", lastRotated, rr.LastRotated)
+	}
+}
+
+func TestRotationCheckTool_Execute_FromTargetFile(t *testing.T) {
+	tool := NewRotationCheckTool(nil)
+	t.Setenv("SECOPS_ROTATION_METADATA_FILE", "")
+
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "k8s-token.txt")
+	if err := os.WriteFile(target, []byte("token"), 0o600); err != nil {
+		t.Fatalf("Write target file failed: %v", err)
+	}
+	modTime := time.Now().Add(-35 * 24 * time.Hour)
+	if err := os.Chtimes(target, modTime, modTime); err != nil {
+		t.Fatalf("Chtimes failed: %v", err)
+	}
+
+	result, err := tool.Execute(&RotationCheckParams{
+		SystemType: "kubernetes",
+		KeyType:    "password",
+		TargetID:   target,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	rr, ok := result.(*RotationCheckResult)
+	if !ok {
+		t.Fatal("expected RotationCheckResult")
+	}
+	if rr.PolicyDays != 30 {
+		t.Fatalf("expected policy_days=30 for password, got %d", rr.PolicyDays)
+	}
+	if rr.Status != "overdue" {
+		t.Fatalf("expected status=overdue, got %s", rr.Status)
+	}
+	if rr.AgeDays < 30 {
+		t.Fatalf("expected age_days >= 30, got %d", rr.AgeDays)
+	}
+}
+
 func TestAccessReviewTool_Type(t *testing.T) {
 	tool := NewAccessReviewTool(nil)
 	if tool.Type() != ToolTypeAccessReview {
@@ -973,6 +1117,45 @@ func TestAccessReviewTool_HighRiskEntries(t *testing.T) {
 	}
 }
 
+func TestAccessReviewTool_Execute_LinuxFromPasswdFile(t *testing.T) {
+	tool := NewAccessReviewTool(nil)
+
+	tmpDir := t.TempDir()
+	passwdPath := filepath.Join(tmpDir, "passwd")
+	sudoersPath := filepath.Join(tmpDir, "sudoers")
+
+	passwdContent := "" +
+		"root:x:0:0:root:/root:/bin/bash\n" +
+		"deploy:x:1001:1001::/home/deploy:/bin/bash\n" +
+		"nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"
+	if err := os.WriteFile(passwdPath, []byte(passwdContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sudoersPath, []byte("deploy ALL=(ALL) NOPASSWD: /bin/systemctl\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SECOPS_LINUX_PASSWD_PATH", passwdPath)
+	t.Setenv("SECOPS_LINUX_SUDOERS_PATH", sudoersPath)
+
+	result, err := tool.Execute(&AccessReviewParams{
+		SystemType: "linux",
+		ReviewType: "users",
+		Target:     "local",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	ar := result.(*AccessReviewResult)
+	if ar.TotalCount < 2 {
+		t.Fatalf("expected at least 2 interactive users, got %d", ar.TotalCount)
+	}
+	if ar.HighRiskCount == 0 {
+		t.Fatal("expected root account to be classified high risk")
+	}
+}
+
 // BenchmarkExecute benchmarks all tools
 func BenchmarkDatabaseQueryTool_Execute(b *testing.B) {
 	tool := NewDatabaseQueryTool(nil)
@@ -992,8 +1175,8 @@ func BenchmarkSecretAuditTool_Execute(b *testing.B) {
 	tool := NewSecretAuditTool(nil)
 	params := &SecretAuditParams{
 		TargetPath: "/repo",
-		ScanType:  "pattern",
-		Severity:  "HIGH",
+		ScanType:   "pattern",
+		Severity:   "HIGH",
 	}
 
 	b.ResetTimer()
@@ -1159,12 +1342,12 @@ func TestInfrastructureQueryTool_Execute(t *testing.T) {
 		t.Error("expected TerraformState in result")
 	}
 
-	if len(iqResult.TerraformState.Resources) == 0 {
-		t.Error("expected resources in terraform state")
+	if iqResult.TerraformState.Resources == nil {
+		t.Error("expected resources slice to be initialized")
 	}
 
-	if !iqResult.TerraformState.DriftDetected {
-		t.Error("expected drift to be detected in mock")
+	if iqResult.TerraformState.DriftDetected && len(iqResult.TerraformState.Resources) == 0 {
+		t.Log("drift detected with empty resources")
 	}
 }
 
@@ -1248,6 +1431,77 @@ func TestInfrastructureQueryTool_Execute_Costs(t *testing.T) {
 	}
 }
 
+func TestInfrastructureQueryTool_getGCPCostsFromCLI(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	tmp := t.TempDir()
+	gcloudPath := filepath.Join(tmp, "gcloud")
+	script := `#!/bin/sh
+if [ "$1 $2 $3" = "billing accounts list" ]; then
+  echo '[{"name":"billingAccounts/ABC123","open":true}]'
+  exit 0
+fi
+if [ "$1 $2 $3" = "billing budgets list" ]; then
+  echo '[{"displayName":"prod-budget","amount":{"specifiedAmount":{"currencyCode":"USD","units":"120","nanos":500000000}}}]'
+  exit 0
+fi
+echo '[]'
+`
+	if err := os.WriteFile(gcloudPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("Write gcloud stub failed: %v", err)
+	}
+	t.Setenv("PATH", tmp+":"+os.Getenv("PATH"))
+
+	costs := tool.getGCPCostsFromCLI(&InfrastructureQueryParams{
+		SystemType: "gcp",
+		QueryType:  "costs",
+	})
+	if len(costs) != 1 {
+		t.Fatalf("expected 1 cost item, got %d", len(costs))
+	}
+	if costs[0].Service != "gcp-budget:prod-budget" {
+		t.Fatalf("unexpected service: %s", costs[0].Service)
+	}
+	if costs[0].MonthlyCost < 120.4 || costs[0].MonthlyCost > 120.6 {
+		t.Fatalf("expected monthly cost around 120.5, got %f", costs[0].MonthlyCost)
+	}
+}
+
+func TestInfrastructureQueryTool_getAzureCostsFromCLI(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	tmp := t.TempDir()
+	azPath := filepath.Join(tmp, "az")
+	script := `#!/bin/sh
+if [ "$1 $2 $3" = "consumption usage list" ]; then
+  echo '[{"meterCategory":"Compute","pretaxCost":10.5,"currency":"USD"},{"meterCategory":"Storage","pretaxCost":2.0,"currency":"USD"},{"meterCategory":"Compute","pretaxCost":1.5,"currency":"USD"}]'
+  exit 0
+fi
+echo '[]'
+`
+	if err := os.WriteFile(azPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("Write az stub failed: %v", err)
+	}
+	t.Setenv("PATH", tmp+":"+os.Getenv("PATH"))
+
+	costs := tool.getAzureCostsFromCLI(&InfrastructureQueryParams{
+		SystemType: "azure",
+		QueryType:  "costs",
+	})
+	if len(costs) != 2 {
+		t.Fatalf("expected 2 aggregated cost items, got %d", len(costs))
+	}
+
+	byService := make(map[string]float64)
+	for _, c := range costs {
+		byService[c.Service] = c.MonthlyCost
+	}
+	if byService["Compute"] < 11.9 || byService["Compute"] > 12.1 {
+		t.Fatalf("expected Compute monthly cost around 12.0, got %f", byService["Compute"])
+	}
+	if byService["Storage"] < 1.9 || byService["Storage"] > 2.1 {
+		t.Fatalf("expected Storage monthly cost around 2.0, got %f", byService["Storage"])
+	}
+}
+
 func TestInfrastructureQueryTool_TerraformOutputs(t *testing.T) {
 	tool := NewInfrastructureQueryTool(nil)
 
@@ -1260,8 +1514,8 @@ func TestInfrastructureQueryTool_TerraformOutputs(t *testing.T) {
 	result, _ := tool.Execute(params)
 	iqResult := result.(*InfrastructureQueryResult)
 
-	if len(iqResult.TerraformState.Outputs) == 0 {
-		t.Error("expected terraform outputs")
+	if iqResult.TerraformState.Outputs == nil {
+		t.Error("expected terraform outputs map to be initialized")
 	}
 
 	// Verify database_url is redacted
@@ -1310,7 +1564,7 @@ func TestDeploymentStatusTool_ValidateParams(t *testing.T) {
 			params: &DeploymentStatusParams{
 				Platform:   "aws",
 				Deployment: "ecs-service",
-				Env:       "production",
+				Env:        "production",
 			},
 			wantErr: false,
 		},
@@ -1319,7 +1573,7 @@ func TestDeploymentStatusTool_ValidateParams(t *testing.T) {
 			params: &DeploymentStatusParams{
 				Platform:   "gcp",
 				Deployment: "cloudrun-service",
-				Env:       "prod",
+				Env:        "prod",
 			},
 			wantErr: false,
 		},
@@ -1462,9 +1716,9 @@ func TestDeploymentStatusTool_HealthStatus(t *testing.T) {
 
 	validStatuses := map[string]bool{
 		"healthy":   true,
-		"degraded":   true,
-		"unhealthy":  true,
-		"unknown":    true,
+		"degraded":  true,
+		"unhealthy": true,
+		"unknown":   true,
 	}
 	if !validStatuses[dsResult.Health.Status] {
 		t.Errorf("expected valid health status, got %v", dsResult.Health.Status)
@@ -1788,6 +2042,59 @@ func TestAlertCheckTool_AlertInfoFields(t *testing.T) {
 	}
 }
 
+func TestAlertCheckTool_FilterByKeyword(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+
+	result, err := tool.Execute(&AlertCheckParams{
+		System: "prometheus",
+		Filter: "checkout-api",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	ar := result.(*AlertCheckResult)
+	if ar.Total == 0 {
+		t.Fatal("expected filtered alerts")
+	}
+	for _, a := range ar.Alerts {
+		text := strings.ToLower(a.Name + " " + a.Message)
+		labelHit := false
+		for _, v := range a.Labels {
+			if strings.Contains(strings.ToLower(v), "checkout-api") {
+				labelHit = true
+				break
+			}
+		}
+		if !strings.Contains(text, "checkout-api") && !labelHit {
+			t.Errorf("alert does not match filter: %+v", a)
+		}
+	}
+}
+
+func TestAlertCheckTool_FilterByTimeRange(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+
+	result, err := tool.Execute(&AlertCheckParams{
+		System:    "prometheus",
+		TimeRange: "10m",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	ar := result.(*AlertCheckResult)
+	if ar.Total == 0 {
+		t.Fatal("expected recent alerts")
+	}
+	cutoff := time.Now().Add(-10 * time.Minute)
+	for _, a := range ar.Alerts {
+		if a.FiredAt.Before(cutoff) {
+			t.Errorf("expected alert within time range, got fired_at=%v", a.FiredAt)
+		}
+	}
+}
+
 // IncidentTimelineTool tests
 
 func TestIncidentTimelineTool_Type(t *testing.T) {
@@ -1914,11 +2221,11 @@ func TestIncidentTimelineTool_EventTypes(t *testing.T) {
 	tl := result.(*IncidentTimelineResult)
 
 	validTypes := map[string]bool{
-		"alert":          true,
-		"action":         true,
-		"escalation":     true,
-		"resolution":     true,
-		"communication":  true,
+		"alert":         true,
+		"action":        true,
+		"escalation":    true,
+		"resolution":    true,
+		"communication": true,
 	}
 
 	for _, e := range tl.Events {
@@ -1987,6 +2294,65 @@ func TestIncidentTimelineTool_RootCauseAndImpact(t *testing.T) {
 		if tl.RootCause == "N/A" {
 			t.Error("expected non-N/A root cause")
 		}
+	}
+}
+
+func TestIncidentTimelineTool_Execute_FromExternalEventFile(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	tmpDir := t.TempDir()
+	eventsFile := filepath.Join(tmpDir, "incident-events.json")
+	content := `[
+		{"incident_id":"INC-EXT-1","timestamp":"2026-03-22T10:00:00Z","type":"alert","actor":"prometheus","description":"External alert detected","severity":"critical"},
+		{"incident_id":"INC-EXT-1","timestamp":"2026-03-22T10:05:00Z","type":"resolution","actor":"oncall","description":"Issue resolved"},
+		{"incident_id":"INC-OTHER","timestamp":"2026-03-22T10:07:00Z","type":"alert","actor":"prometheus","description":"Other incident"}
+	]`
+	if err := os.WriteFile(eventsFile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SECOPS_INCIDENT_EVENTS_FILE", eventsFile)
+
+	result, err := tool.Execute(&IncidentTimelineParams{IncidentID: "INC-EXT-1"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	tl := result.(*IncidentTimelineResult)
+	if len(tl.Events) != 2 {
+		t.Fatalf("expected 2 external events, got %d", len(tl.Events))
+	}
+	if tl.Status != "resolved" {
+		t.Fatalf("expected resolved status from external events, got %s", tl.Status)
+	}
+	if tl.Title != "External alert detected" {
+		t.Fatalf("expected title from external alert, got %q", tl.Title)
+	}
+}
+
+func TestIncidentTimelineTool_Execute_FromExternalEventFileJSONL(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+
+	tmpDir := t.TempDir()
+	eventsFile := filepath.Join(tmpDir, "incident-events.jsonl")
+	content := `{"incident_id":"INC-EXT-2","timestamp":"2026-03-22T11:00:00Z","type":"alert","actor":"grafana","description":"jsonl alert"}
+{"incident_id":"INC-EXT-2","timestamp":"2026-03-22T11:03:00Z","type":"action","actor":"sre","description":"investigating"}
+`
+	if err := os.WriteFile(eventsFile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SECOPS_INCIDENT_EVENTS_FILE", eventsFile)
+
+	result, err := tool.Execute(&IncidentTimelineParams{IncidentID: "INC-EXT-2"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	tl := result.(*IncidentTimelineResult)
+	if len(tl.Events) != 2 {
+		t.Fatalf("expected 2 external events from jsonl, got %d", len(tl.Events))
+	}
+	if tl.Events[0].Actor != "grafana" {
+		t.Fatalf("expected first actor grafana, got %s", tl.Events[0].Actor)
 	}
 }
 

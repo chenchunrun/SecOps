@@ -2,19 +2,22 @@ package secops
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
 // BackupCheckParams for checking backup status
 type BackupCheckParams struct {
 	SystemType string `json:"system_type"` // mysql, postgresql, k8s, files
-	Target     string `json:"target"`       // host or cluster name
+	Target     string `json:"target"`      // host or cluster name
 }
 
 // BackupCheckResult 备份检查结果
 type BackupCheckResult struct {
 	LastBackupTime string
-	Status         string  // "ok", "stale", "missing"
+	Status         string // "ok", "stale", "missing"
 	AgeHours       int
 	NextBackup     string
 	SizeGB         float64
@@ -96,41 +99,135 @@ func (bct *BackupCheckTool) Execute(params interface{}) (interface{}, error) {
 // performCheck 执行备份检查
 func (bct *BackupCheckTool) performCheck(params *BackupCheckParams) *BackupCheckResult {
 	now := time.Now()
-	result := &BackupCheckResult{}
+	result := &BackupCheckResult{
+		Status:     "missing",
+		NextBackup: "unknown",
+		Issues:     []string{},
+	}
+
+	latest, sizeGB, found := bct.findLatestBackup(params)
+	if !found {
+		result.LastBackupTime = "unknown"
+		result.AgeHours = 0
+		result.Issues = []string{"No backup artifacts found at configured path"}
+		return result
+	}
+
+	ageHours := int(now.Sub(latest).Hours())
+	result.LastBackupTime = latest.Format("2006-01-02 15:04:05")
+	result.AgeHours = ageHours
+	result.SizeGB = sizeGB
+	result.NextBackup = latest.Add(24 * time.Hour).Format("2006-01-02 15:04:05")
+
+	staleThreshold := 24
+	if params.SystemType == "files" {
+		staleThreshold = 48
+	}
+
+	if ageHours <= staleThreshold {
+		result.Status = "ok"
+		return result
+	}
+
+	result.Status = "stale"
+	result.Issues = []string{
+		fmt.Sprintf("Backup age %dh exceeds threshold %dh", ageHours, staleThreshold),
+		"Investigate backup scheduler/retention policy",
+	}
+	return result
+}
+
+func (bct *BackupCheckTool) findLatestBackup(params *BackupCheckParams) (time.Time, float64, bool) {
+	candidates := backupPathCandidates(params)
+	latest := time.Time{}
+	var latestSize int64
+	found := false
+
+	for _, p := range candidates {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+
+		if info.Mode().IsRegular() {
+			if !isBackupFile(p) {
+				continue
+			}
+			if !found || info.ModTime().After(latest) {
+				found = true
+				latest = info.ModTime()
+				latestSize = info.Size()
+			}
+			continue
+		}
+
+		if !info.IsDir() {
+			continue
+		}
+
+		_ = filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if !isBackupFile(path) {
+				return nil
+			}
+			fi, statErr := d.Info()
+			if statErr != nil {
+				return nil
+			}
+			if !found || fi.ModTime().After(latest) {
+				found = true
+				latest = fi.ModTime()
+				latestSize = fi.Size()
+			}
+			return nil
+		})
+	}
+
+	if !found {
+		return time.Time{}, 0, false
+	}
+	return latest, float64(latestSize) / (1024 * 1024 * 1024), true
+}
+
+func backupPathCandidates(params *BackupCheckParams) []string {
+	candidates := make([]string, 0, 4)
+	if strings.TrimSpace(params.Target) != "" {
+		candidates = append(candidates, params.Target)
+	}
 
 	switch params.SystemType {
 	case "mysql":
-		result.LastBackupTime = now.Add(-6 * time.Hour).Format("2006-01-02 15:04:05")
-		result.Status = "ok"
-		result.AgeHours = 6
-		result.NextBackup = now.Add(18 * time.Hour).Format("2006-01-02 15:04:05")
-		result.SizeGB = 42.5
-		result.Issues = []string{}
-
+		candidates = append(candidates, os.Getenv("SECOPS_BACKUP_MYSQL_PATH"), "/var/backups/mysql")
 	case "postgresql":
-		result.LastBackupTime = now.Add(-25 * time.Hour).Format("2006-01-02 15:04:05")
-		result.Status = "stale"
-		result.AgeHours = 25
-		result.NextBackup = now.Add(-1 * time.Hour).Format("2006-01-02 15:04:05")
-		result.SizeGB = 128.3
-		result.Issues = []string{"Backup is overdue by 1 hour", "Consider increasing backup frequency"}
-
+		candidates = append(candidates, os.Getenv("SECOPS_BACKUP_POSTGRES_PATH"), "/var/backups/postgresql")
 	case "k8s":
-		result.LastBackupTime = now.Add(-4 * time.Hour).Format("2006-01-02 15:04:05")
-		result.Status = "ok"
-		result.AgeHours = 4
-		result.NextBackup = now.Add(20 * time.Hour).Format("2006-01-02 15:04:05")
-		result.SizeGB = 15.7
-		result.Issues = []string{}
-
+		candidates = append(candidates, os.Getenv("SECOPS_BACKUP_K8S_PATH"), "/var/backups/k8s")
 	case "files":
-		result.LastBackupTime = now.Add(-72 * time.Hour).Format("2006-01-02 15:04:05")
-		result.Status = "missing"
-		result.AgeHours = 72
-		result.NextBackup = "unknown"
-		result.SizeGB = 0
-		result.Issues = []string{"No backup found in last 72 hours", "Critical data at risk"}
+		candidates = append(candidates, os.Getenv("SECOPS_BACKUP_FILES_PATH"))
 	}
+	return candidates
+}
 
-	return result
+func isBackupFile(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	ext := strings.ToLower(filepath.Ext(path))
+	if strings.Contains(base, "backup") || strings.Contains(base, "dump") || strings.Contains(base, "snapshot") {
+		return true
+	}
+	switch ext {
+	case ".sql", ".dump", ".bak", ".tar", ".gz", ".tgz", ".zip", ".snap":
+		return true
+	default:
+		return false
+	}
 }

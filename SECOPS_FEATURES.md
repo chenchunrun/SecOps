@@ -202,7 +202,7 @@ Admin（生产变更）
 
 ### 事件模型
 
-覆盖 12 种事件类型：
+覆盖 10 种事件类型：
 
 `permission_request` · `permission_approved` · `permission_denied` · `command_executed` · `command_failed` · `login_success` · `login_failure` · `data_access` · `config_change` · `security_alert`
 

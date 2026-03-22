@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -34,6 +35,89 @@ func TestConfig_LoadFromBytes(t *testing.T) {
 	pc, _ := loadedConfig.Providers.Get("openai")
 	require.Equal(t, "key2", pc.APIKey)
 	require.Equal(t, "https://api.openai.com/v2", pc.BaseURL)
+}
+
+func TestConfig_LoadFromBytes_DecryptsNestedProviderAPIKey(t *testing.T) {
+	t.Setenv("HOME", "/tmp/crush-test-home")
+	t.Setenv("USER", "crush-test-user")
+
+	encryptedKey, err := encrypt("zhipu-test-key")
+	require.NoError(t, err)
+
+	data := []byte(`{"providers":{"zhipu":{"api_key":"` + encryptedKey + `","base_url":"https://open.bigmodel.cn/api/paas/v4","type":"openai-compat"}}}`)
+	cfg, err := loadFromBytes([][]byte{data})
+	require.NoError(t, err)
+
+	provider, ok := cfg.Providers.Get("zhipu")
+	require.True(t, ok)
+	require.Equal(t, "zhipu-test-key", provider.APIKey)
+}
+
+func TestConfig_LoadFromBytes_DecryptsNestedOAuthTokenObject(t *testing.T) {
+	t.Setenv("HOME", "/tmp/crush-test-home")
+	t.Setenv("USER", "crush-test-user")
+
+	tokenJSON, err := json.Marshal(map[string]any{
+		"access_token":  "copilot-access-token",
+		"refresh_token": "copilot-refresh-token",
+		"expires_in":    3600,
+		"expires_at":    int64(1735689600),
+	})
+	require.NoError(t, err)
+
+	encryptedToken, err := encrypt(string(tokenJSON))
+	require.NoError(t, err)
+
+	data := []byte(`{"providers":{"copilot":{"oauth":"` + encryptedToken + `"}}}`)
+	cfg, err := loadFromBytes([][]byte{data})
+	require.NoError(t, err)
+
+	provider, ok := cfg.Providers.Get("copilot")
+	require.True(t, ok)
+	require.NotNil(t, provider.OAuthToken)
+	require.Equal(t, "copilot-access-token", provider.OAuthToken.AccessToken)
+	require.Equal(t, "copilot-refresh-token", provider.OAuthToken.RefreshToken)
+}
+
+func TestConfigStore_SetProviderAPIKey_PersistsAcrossReload(t *testing.T) {
+	tmpDir := t.TempDir()
+	globalDataPath := filepath.Join(tmpDir, "global", "crush.json")
+	workspacePath := filepath.Join(tmpDir, "workspace", ".crush", "crush.json")
+
+	cfg := &Config{}
+	cfg.setDefaults(tmpDir, filepath.Join(tmpDir, ".crush"))
+
+	store := &ConfigStore{
+		config:         cfg,
+		workingDir:     tmpDir,
+		globalDataPath: globalDataPath,
+		workspacePath:  workspacePath,
+		knownProviders: []catwalk.Provider{
+			{
+				ID:          "zhipu",
+				Name:        "Zhipu",
+				APIEndpoint: "https://open.bigmodel.cn/api/paas/v4",
+				Type:        catwalk.TypeOpenAICompat,
+			},
+		},
+	}
+
+	const providerID = "zhipu"
+	const apiKey = "zhipu-persisted-test-key"
+
+	err := store.SetProviderAPIKey(ScopeGlobal, providerID, apiKey)
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(globalDataPath)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "ENC:")
+
+	reloaded, err := loadFromConfigPaths([]string{globalDataPath})
+	require.NoError(t, err)
+
+	provider, ok := reloaded.Providers.Get(providerID)
+	require.True(t, ok)
+	require.Equal(t, apiKey, provider.APIKey)
 }
 
 // testStore wraps a Config in a minimal ConfigStore for testing.
@@ -489,8 +573,7 @@ func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
 	cfg.SetupAgents()
 	coderAgent, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
-
-	assert.Equal(t, []string{"agent", "bash", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "fetch", "agentic_fetch", "glob", "ls", "sourcegraph", "todos", "view", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
+	assert.Equal(t, resolveAllowedTools(allToolNames(), cfg.Options.DisabledTools), coderAgent.AllowedTools)
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
@@ -513,7 +596,7 @@ func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {
 	cfg.SetupAgents()
 	coderAgent, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
-	assert.Equal(t, []string{"agent", "bash", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "fetch", "agentic_fetch", "todos", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
+	assert.Equal(t, resolveAllowedTools(allToolNames(), cfg.Options.DisabledTools), coderAgent.AllowedTools)
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)

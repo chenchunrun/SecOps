@@ -1,6 +1,14 @@
 package secops
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -67,9 +75,10 @@ func TestCertificateAuditTool_ValidateParams(t *testing.T) {
 
 func TestCertificateAuditTool_Execute(t *testing.T) {
 	tool := NewCertificateAuditTool(nil)
+	certPath := writeTestCertificate(t, t.TempDir())
 
 	params := &CertificateAuditParams{
-		Paths:            []string{"/etc/ssl/certs/cert.pem"},
+		Paths:            []string{certPath},
 		CheckExpiry:      true,
 		CheckKeyStrength: true,
 	}
@@ -93,27 +102,21 @@ func TestCertificateAuditTool_Execute(t *testing.T) {
 	}
 }
 
-func TestCertificateAuditTool_GetMockCertificates(t *testing.T) {
+func TestCertificateAuditTool_ParseCertificateFile(t *testing.T) {
 	tool := NewCertificateAuditTool(nil)
-	certs := tool.getMockCertificates()
+	certPath := writeTestCertificate(t, t.TempDir())
+	cert := tool.parseCertificateFile(certPath)
 
-	if len(certs) != 3 {
-		t.Errorf("expected 3 mock certificates, got %d", len(certs))
+	if cert == nil {
+		t.Fatal("expected parsed certificate")
 	}
 
-	// 检查有效证书
-	if certs[0].Status != "valid" {
-		t.Errorf("expected first certificate to be valid, got %s", certs[0].Status)
+	if cert.Subject == "" || cert.Issuer == "" {
+		t.Error("expected subject and issuer")
 	}
 
-	// 检查即将过期的证书
-	if certs[1].Status != "expiring_soon" {
-		t.Errorf("expected second certificate to be expiring_soon, got %s", certs[1].Status)
-	}
-
-	// 检查弱密钥证书
-	if certs[2].KeyLength != 1024 {
-		t.Errorf("expected third certificate to have 1024-bit key, got %d", certs[2].KeyLength)
+	if cert.KeyLength < 2048 {
+		t.Errorf("expected key length >= 2048, got %d", cert.KeyLength)
 	}
 }
 
@@ -262,8 +265,9 @@ func TestCertificateAuditTool_DaysUntilExpiry(t *testing.T) {
 
 func BenchmarkCertificateAuditTool_Execute(b *testing.B) {
 	tool := NewCertificateAuditTool(nil)
+	certPath := writeTestCertificateTB(b, b.TempDir())
 	params := &CertificateAuditParams{
-		Paths:            []string{"/etc/ssl/certs/cert.pem"},
+		Paths:            []string{certPath},
 		CheckExpiry:      true,
 		CheckKeyStrength: true,
 	}
@@ -272,4 +276,48 @@ func BenchmarkCertificateAuditTool_Execute(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		tool.Execute(params)
 	}
+}
+
+func writeTestCertificate(t *testing.T, dir string) string {
+	t.Helper()
+	return writeTestCertificateTB(t, dir)
+}
+
+func writeTestCertificateTB(tb testing.TB, dir string) string {
+	tb.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		tb.Fatalf("generate key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1001),
+		Subject: pkix.Name{
+			CommonName:   "test.local",
+			Organization: []string{"SecOps Test"},
+		},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(30 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"test.local"},
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		tb.Fatalf("create cert: %v", err)
+	}
+
+	path := filepath.Join(dir, "test-cert.pem")
+	file, err := os.Create(path)
+	if err != nil {
+		tb.Fatalf("create cert file: %v", err)
+	}
+	defer file.Close()
+
+	if err := pem.Encode(file, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		tb.Fatalf("encode cert: %v", err)
+	}
+	return path
 }

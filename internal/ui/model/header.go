@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/csync"
 	"github.com/chenchunrun/SecOps/internal/fsext"
@@ -12,8 +14,6 @@ import (
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -41,7 +41,7 @@ func newHeader(com *common.Common) *header {
 	}
 	t := com.Styles
 	h.compactLogo = t.Header.Charm.Render("Charm™") + " " +
-		styles.ApplyBoldForegroundGrad(t, "CRUSH", t.Secondary, t.Primary) + " "
+		styles.ApplyBoldForegroundGrad(t, "SecOps", t.Secondary, t.Primary) + " "
 	return h
 }
 

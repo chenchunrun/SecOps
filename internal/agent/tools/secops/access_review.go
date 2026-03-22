@@ -1,7 +1,13 @@
 package secops
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,7 +25,7 @@ type AccessEntry struct {
 	Resource   string
 	AgeDays    int
 	LastUsed   string
-	Risk       string  // "low", "medium", "high"
+	Risk       string // "low", "medium", "high"
 }
 
 // AccessReviewResult 访问审计结果
@@ -115,6 +121,10 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 
 	switch params.SystemType {
 	case "aws":
+		if entries := art.getAWSAccessEntries(params); len(entries) > 0 {
+			result.Entries = entries
+			break
+		}
 		result.Entries = []AccessEntry{
 			{
 				Principal:  "user:admin@example.com",
@@ -159,6 +169,10 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 		}
 
 	case "gcp":
+		if entries := art.getGCPAccessEntries(params); len(entries) > 0 {
+			result.Entries = entries
+			break
+		}
 		result.Entries = []AccessEntry{
 			{
 				Principal:  "user:admin@example.com",
@@ -179,6 +193,10 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 		}
 
 	case "linux":
+		if entries := art.getLinuxAccessEntries(params); len(entries) > 0 {
+			result.Entries = entries
+			break
+		}
 		result.Entries = []AccessEntry{
 			{
 				Principal:  "user:root",
@@ -254,4 +272,193 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 	}
 
 	return result
+}
+
+func (art *AccessReviewTool) getAWSAccessEntries(params *AccessReviewParams) []AccessEntry {
+	if _, err := exec.LookPath("aws"); err != nil {
+		return nil
+	}
+	out, err := exec.Command("aws", "iam", "list-users", "--output", "json").Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	var payload struct {
+		Users []struct {
+			UserName         string `json:"UserName"`
+			Arn              string `json:"Arn"`
+			CreateDate       string `json:"CreateDate"`
+			PasswordLastUsed string `json:"PasswordLastUsed"`
+		} `json:"Users"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return nil
+	}
+	entries := make([]AccessEntry, 0, len(payload.Users))
+	for _, u := range payload.Users {
+		age := 0
+		if t, err := time.Parse(time.RFC3339, u.CreateDate); err == nil {
+			age = int(time.Since(t).Hours() / 24)
+		}
+		last := strings.TrimSpace(u.PasswordLastUsed)
+		if last == "" {
+			last = time.Now().Add(-180 * 24 * time.Hour).Format("2006-01-02 15:04")
+		}
+		risk := "low"
+		if age > 365 {
+			risk = "high"
+		} else if age > 120 {
+			risk = "medium"
+		}
+		entries = append(entries, AccessEntry{
+			Principal:  "user:" + u.UserName,
+			Permission: "iam:user",
+			Resource:   defaultIfEmpty(u.Arn, "*"),
+			AgeDays:    age,
+			LastUsed:   formatRFC3339OrNow(last),
+			Risk:       risk,
+		})
+	}
+	return entries
+}
+
+func (art *AccessReviewTool) getGCPAccessEntries(params *AccessReviewParams) []AccessEntry {
+	if _, err := exec.LookPath("gcloud"); err != nil {
+		return nil
+	}
+	project := strings.TrimSpace(params.Target)
+	if project == "" {
+		return nil
+	}
+	out, err := exec.Command("gcloud", "projects", "get-iam-policy", project, "--format=json").Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	var payload struct {
+		Bindings []struct {
+			Role    string   `json:"role"`
+			Members []string `json:"members"`
+		} `json:"bindings"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return nil
+	}
+	entries := make([]AccessEntry, 0)
+	for _, b := range payload.Bindings {
+		for _, m := range b.Members {
+			risk := "low"
+			if strings.Contains(b.Role, "owner") || strings.Contains(b.Role, "admin") {
+				risk = "high"
+			} else if strings.Contains(b.Role, "editor") {
+				risk = "medium"
+			}
+			entries = append(entries, AccessEntry{
+				Principal:  m,
+				Permission: b.Role,
+				Resource:   "projects/" + project,
+				AgeDays:    0,
+				LastUsed:   time.Now().Format("2006-01-02 15:04"),
+				Risk:       risk,
+			})
+		}
+	}
+	return entries
+}
+
+func (art *AccessReviewTool) getLinuxAccessEntries(params *AccessReviewParams) []AccessEntry {
+	passwdPath := strings.TrimSpace(os.Getenv("SECOPS_LINUX_PASSWD_PATH"))
+	if passwdPath == "" {
+		passwdPath = "/etc/passwd"
+	}
+	data, err := os.ReadFile(passwdPath)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+
+	sudoersRules := readLinuxSudoers()
+	lines := strings.Split(string(data), "\n")
+	entries := make([]AccessEntry, 0)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, ":")
+		if len(fields) < 7 {
+			continue
+		}
+		user := fields[0]
+		uid, _ := strconv.Atoi(fields[2])
+		shell := fields[6]
+		if strings.Contains(shell, "nologin") || strings.Contains(shell, "false") {
+			continue
+		}
+
+		perm := "shell:user"
+		resource := passwdPath
+		risk := "low"
+		ageDays := 0
+
+		if uid == 0 || user == "root" {
+			perm = "sudo ALL=(ALL) NOPASSWD: ALL"
+			risk = "high"
+		} else if strings.Contains(sudoersRules, user) {
+			perm = "sudo privilege"
+			risk = "medium"
+		}
+
+		entries = append(entries, AccessEntry{
+			Principal:  "user:" + user,
+			Permission: perm,
+			Resource:   resource,
+			AgeDays:    ageDays,
+			LastUsed:   time.Now().Format("2006-01-02 15:04"),
+			Risk:       risk,
+		})
+	}
+
+	return entries
+}
+
+func readLinuxSudoers() string {
+	paths := []string{"/etc/sudoers"}
+	if override := strings.TrimSpace(os.Getenv("SECOPS_LINUX_SUDOERS_PATH")); override != "" {
+		paths = append([]string{override}, paths...)
+	}
+	paths = append(paths, "/etc/sudoers.d")
+
+	var sb strings.Builder
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			_ = filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return nil
+				}
+				b, readErr := os.ReadFile(path)
+				if readErr == nil {
+					sb.WriteString("\n")
+					sb.Write(b)
+				}
+				return nil
+			})
+			continue
+		}
+		b, readErr := os.ReadFile(p)
+		if readErr == nil {
+			sb.WriteString("\n")
+			sb.Write(b)
+		}
+	}
+	return sb.String()
+}
+
+func formatRFC3339OrNow(v string) string {
+	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(v)); err == nil {
+		return t.Format("2006-01-02 15:04")
+	}
+	return time.Now().Format("2006-01-02 15:04")
 }

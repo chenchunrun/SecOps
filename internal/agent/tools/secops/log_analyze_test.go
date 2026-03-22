@@ -1,6 +1,8 @@
 package secops
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -94,12 +96,22 @@ func TestLogAnalyzeTool_ValidateParams(t *testing.T) {
 }
 
 func TestLogAnalyzeTool_Execute(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "syslog.log")
+	content := "" +
+		"Mar 22 10:01:01 server1 nginx[123]: ERROR Connection refused\n" +
+		"Mar 22 10:02:01 server1 nginx[123]: INFO Ready\n"
+	if err := os.WriteFile(logFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write test log: %v", err)
+	}
+	t.Setenv("SECOPS_LOG_SYSLOG_PATHS", logFile)
+
 	tool := NewLogAnalyzeTool(nil)
 
 	params := &LogAnalyzeParams{
-		Source: LogSourceSyslog,
+		Source:  LogSourceSyslog,
 		Keyword: "error",
-		Limit: 10,
+		Limit:   10,
 	}
 
 	result, err := tool.Execute(params)
@@ -143,15 +155,15 @@ func TestLogAnalyzeTool_FilterLogs(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		params         *LogAnalyzeParams
-		expectedCount  int
+		name          string
+		params        *LogAnalyzeParams
+		expectedCount int
 	}{
 		{
 			name: "filter by keyword",
 			params: &LogAnalyzeParams{
-				Source:  LogSourceSyslog,
-				Keyword: "Error",
+				Source:        LogSourceSyslog,
+				Keyword:       "Error",
 				CaseSensitive: false,
 			},
 			expectedCount: 1,
@@ -246,6 +258,16 @@ func TestLogAnalyzeTool_DetectAnomalies(t *testing.T) {
 }
 
 func BenchmarkLogAnalyzeTool_Execute(b *testing.B) {
+	tmpDir := b.TempDir()
+	logFile := filepath.Join(tmpDir, "syslog.log")
+	content := "" +
+		"Mar 22 10:01:01 server1 nginx[123]: ERROR Connection refused\n" +
+		"Mar 22 10:02:01 server1 nginx[123]: INFO Ready\n"
+	if err := os.WriteFile(logFile, []byte(content), 0o644); err != nil {
+		b.Fatalf("write benchmark log: %v", err)
+	}
+	b.Setenv("SECOPS_LOG_SYSLOG_PATHS", logFile)
+
 	tool := NewLogAnalyzeTool(nil)
 	params := &LogAnalyzeParams{
 		Source:  LogSourceSyslog,

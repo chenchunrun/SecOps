@@ -39,13 +39,13 @@ func (m *UI) mcpInfo(width, maxItems int, isSection bool) string {
 func mcpCounts(t *styles.Styles, counts mcp.Counts) string {
 	var parts []string
 	if counts.Tools > 0 {
-		parts = append(parts, t.Subtle.Render(fmt.Sprintf("%d tools", counts.Tools)))
+		parts = append(parts, t.Muted.Render(fmt.Sprintf("%d tools", counts.Tools)))
 	}
 	if counts.Prompts > 0 {
-		parts = append(parts, t.Subtle.Render(fmt.Sprintf("%d prompts", counts.Prompts)))
+		parts = append(parts, t.Muted.Render(fmt.Sprintf("%d prompts", counts.Prompts)))
 	}
 	if counts.Resources > 0 {
-		parts = append(parts, t.Subtle.Render(fmt.Sprintf("%d resources", counts.Resources)))
+		parts = append(parts, t.Muted.Render(fmt.Sprintf("%d resources", counts.Resources)))
 	}
 	return strings.Join(parts, " ")
 }
@@ -83,7 +83,7 @@ func mcpList(t *styles.Styles, mcps []mcp.ClientInfo, width, maxItems int) strin
 				description = t.ResourceStatus.Render(fmt.Sprintf("error: %s", m.Error.Error()))
 			}
 		case mcp.StateDisabled:
-			icon = t.ResourceOfflineIcon.Foreground(t.Muted.GetBackground()).String()
+			icon = t.ResourceOfflineIcon.Foreground(t.FgMuted).String()
 			description = t.ResourceStatus.Render("disabled")
 		default:
 			icon = t.ResourceOfflineIcon.String()
