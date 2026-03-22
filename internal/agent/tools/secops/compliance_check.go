@@ -18,6 +18,7 @@ const (
 	FrameworkPCIDSS      ComplianceFramework = "pci_dss"
 	FrameworkSOC2        ComplianceFramework = "soc2"
 	FrameworkHIPAA       ComplianceFramework = "hipaa"
+	FrameworkGDPR        ComplianceFramework = "gdpr"
 	FrameworkISO27001    ComplianceFramework = "iso27001"
 	FrameworkDockerBench ComplianceFramework = "docker_bench"
 )
@@ -37,6 +38,20 @@ var (
 	dockerBenchDaemonConfigPath = "/etc/docker/daemon.json"
 	dockerBenchSocketPath       = "/var/run/docker.sock"
 	dockerBenchIPForwardPath    = "/proc/sys/net/ipv4/ip_forward"
+
+	gdprDataAccessLogPaths = []string{
+		"/var/log/audit/audit.log",
+		"/var/log/auth.log",
+		"/var/log/secure",
+	}
+	gdprEncryptionConfigPaths = []string{
+		"/etc/secops/encryption.conf",
+		"/etc/ssl/openssl.cnf",
+	}
+	gdprRetentionPolicyPaths = []string{
+		"/etc/secops/data-retention.json",
+		"/etc/secops/retention.json",
+	}
 )
 
 // ComplianceStatus 合规状态
@@ -158,7 +173,7 @@ func (cct *ComplianceCheckTool) Name() string {
 
 // Description 实现 Tool.Description
 func (cct *ComplianceCheckTool) Description() string {
-	return "Check system compliance against various frameworks (CIS, Docker Bench, PCI-DSS, SOC2, HIPAA, ISO27001)"
+	return "Check system compliance against various frameworks (CIS, Docker Bench, PCI-DSS, SOC2, HIPAA, GDPR, ISO27001)"
 }
 
 // RequiredCapabilities 实现 Tool.RequiredCapabilities
@@ -186,6 +201,7 @@ func (cct *ComplianceCheckTool) ValidateParams(params interface{}) error {
 		FrameworkPCIDSS:      true,
 		FrameworkSOC2:        true,
 		FrameworkHIPAA:       true,
+		FrameworkGDPR:        true,
 		FrameworkISO27001:    true,
 		FrameworkDockerBench: true,
 	}
@@ -292,6 +308,8 @@ func (cct *ComplianceCheckTool) getRulesForFramework(framework ComplianceFramewo
 		rules = cct.getSOC2Rules()
 	case FrameworkHIPAA:
 		rules = cct.getHIPAARules()
+	case FrameworkGDPR:
+		rules = cct.getGDPRRules()
 	case FrameworkISO27001:
 		rules = cct.getISO27001Rules()
 	case FrameworkDockerBench:
@@ -412,6 +430,42 @@ func (cct *ComplianceCheckTool) getHIPAARules() []*ComplianceRule {
 	}
 }
 
+// getGDPRRules 获取 GDPR 规则
+func (cct *ComplianceCheckTool) getGDPRRules() []*ComplianceRule {
+	return []*ComplianceRule{
+		{
+			ID:          "gdpr_30_1",
+			Title:       "Records of processing activities",
+			Description: "Maintain records for personal data access and processing activities",
+			Severity:    SeverityHigh,
+			Framework:   FrameworkGDPR,
+			Category:    "data_protection",
+			Status:      StatusWarning,
+			Evidence:    "Data processing records not yet verified",
+		},
+		{
+			ID:          "gdpr_32_1",
+			Title:       "Security of processing",
+			Description: "Implement encryption and appropriate technical controls for personal data",
+			Severity:    SeverityHigh,
+			Framework:   FrameworkGDPR,
+			Category:    "encryption",
+			Status:      StatusWarning,
+			Evidence:    "Encryption configuration not yet verified",
+		},
+		{
+			ID:          "gdpr_5_1_e",
+			Title:       "Storage limitation",
+			Description: "Personal data must not be kept longer than necessary",
+			Severity:    SeverityMedium,
+			Framework:   FrameworkGDPR,
+			Category:    "data_governance",
+			Status:      StatusWarning,
+			Evidence:    "Data retention policy not yet verified",
+		},
+	}
+}
+
 // getISO27001Rules 获取 ISO27001 规则
 func (cct *ComplianceCheckTool) getISO27001Rules() []*ComplianceRule {
 	return []*ComplianceRule{
@@ -523,6 +577,12 @@ func (cct *ComplianceCheckTool) evaluateRule(rule *ComplianceRule) {
 		cct.evalSOC2AccessControl(rule)
 	case "hipaa_164_308":
 		cct.evalHIPAASafeguards(rule)
+	case "gdpr_30_1":
+		cct.evalGDPRDataAccessRecords(rule)
+	case "gdpr_32_1":
+		cct.evalGDPREncryption(rule)
+	case "gdpr_5_1_e":
+		cct.evalGDPRRetention(rule)
 	case "iso27001_5_1":
 		cct.evalISO27001Policy(rule)
 	case "iso27001_8_15":
@@ -659,6 +719,72 @@ func (cct *ComplianceCheckTool) evalHIPAASafeguards(rule *ComplianceRule) {
 	}
 	rule.Status = StatusWarning
 	rule.Evidence = "audit trail files not found or empty"
+}
+
+func (cct *ComplianceCheckTool) evalGDPRDataAccessRecords(rule *ComplianceRule) {
+	for _, path := range gdprDataAccessLogPaths {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() || info.Size() == 0 {
+			continue
+		}
+		rule.Status = StatusPassed
+		rule.Evidence = fmt.Sprintf("data access records available: %s (%s)", path, strconv.FormatInt(info.Size(), 10))
+		return
+	}
+	rule.Status = StatusWarning
+	rule.Evidence = "personal data access records not found or empty"
+}
+
+func (cct *ComplianceCheckTool) evalGDPREncryption(rule *ComplianceRule) {
+	for _, path := range gdprEncryptionConfigPaths {
+		data, err := os.ReadFile(path)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		content := strings.ToLower(string(data))
+		if strings.Contains(content, "tls") || strings.Contains(content, "encrypt") || strings.Contains(content, "aes") {
+			rule.Status = StatusPassed
+			rule.Evidence = fmt.Sprintf("encryption control found in %s", path)
+			return
+		}
+		rule.Status = StatusWarning
+		rule.Evidence = fmt.Sprintf("encryption config present but no strong indicators in %s", path)
+		return
+	}
+	rule.Status = StatusWarning
+	rule.Evidence = "encryption configuration not found"
+}
+
+func (cct *ComplianceCheckTool) evalGDPRRetention(rule *ComplianceRule) {
+	for _, path := range gdprRetentionPolicyPaths {
+		data, err := os.ReadFile(path)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		var cfg struct {
+			RetentionDays int `json:"retention_days"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			rule.Status = StatusWarning
+			rule.Evidence = fmt.Sprintf("invalid retention policy format in %s: %v", path, err)
+			return
+		}
+		if cfg.RetentionDays <= 0 {
+			rule.Status = StatusWarning
+			rule.Evidence = fmt.Sprintf("retention_days missing or invalid in %s", path)
+			return
+		}
+		if cfg.RetentionDays > 365 {
+			rule.Status = StatusFailed
+			rule.Evidence = fmt.Sprintf("retention_days too high in %s: %d", path, cfg.RetentionDays)
+			return
+		}
+		rule.Status = StatusPassed
+		rule.Evidence = fmt.Sprintf("retention policy is defined (%d days) in %s", cfg.RetentionDays, path)
+		return
+	}
+	rule.Status = StatusWarning
+	rule.Evidence = "data retention policy not found"
 }
 
 func (cct *ComplianceCheckTool) evalISO27001Policy(rule *ComplianceRule) {

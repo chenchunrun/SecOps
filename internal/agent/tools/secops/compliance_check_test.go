@@ -68,6 +68,11 @@ func TestComplianceCheckTool_ValidateParams(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "valid GDPR",
+			params:  &ComplianceCheckParams{Framework: FrameworkGDPR},
+			wantErr: false,
+		},
+		{
 			name:    "valid ISO27001",
 			params:  &ComplianceCheckParams{Framework: FrameworkISO27001},
 			wantErr: false,
@@ -104,7 +109,7 @@ func TestComplianceCheckTool_ValidateParams(t *testing.T) {
 		{
 			name: "valid with remediation",
 			params: &ComplianceCheckParams{
-				Framework:         FrameworkCIS,
+				Framework:          FrameworkCIS,
 				IncludeRemediation: true,
 			},
 			wantErr: false,
@@ -206,6 +211,7 @@ func TestComplianceCheckTool_Execute_AllFrameworks(t *testing.T) {
 		FrameworkPCIDSS,
 		FrameworkSOC2,
 		FrameworkHIPAA,
+		FrameworkGDPR,
 		FrameworkISO27001,
 		FrameworkDockerBench,
 	}
@@ -236,12 +242,13 @@ func TestComplianceCheckTool_GetRulesForFramework(t *testing.T) {
 
 	tests := []struct {
 		framework ComplianceFramework
-		wantLenGt  int
+		wantLenGt int
 	}{
 		{FrameworkCIS, 0},
 		{FrameworkPCIDSS, 0},
 		{FrameworkSOC2, 0},
 		{FrameworkHIPAA, 0},
+		{FrameworkGDPR, 0},
 		{FrameworkISO27001, 0},
 		{FrameworkDockerBench, 0},
 	}
@@ -281,6 +288,8 @@ func TestComplianceCheckTool_GetRulesForFramework_CategoryFilter(t *testing.T) {
 		{"PCI-DSS auth", FrameworkPCIDSS, []string{"authentication"}},
 		{"SOC2 access", FrameworkSOC2, []string{"access_control"}},
 		{"HIPAA data", FrameworkHIPAA, []string{"data_protection"}},
+		{"GDPR data", FrameworkGDPR, []string{"data_protection"}},
+		{"GDPR encryption", FrameworkGDPR, []string{"encryption"}},
 		{"ISO27001 governance", FrameworkISO27001, []string{"governance"}},
 		{"ISO27001 logging", FrameworkISO27001, []string{"logging"}},
 		{"Docker Bench daemon", FrameworkDockerBench, []string{"daemon"}},
@@ -373,6 +382,21 @@ func TestComplianceCheckTool_GetHIPAARules(t *testing.T) {
 	for _, rule := range rules {
 		if rule.Framework != FrameworkHIPAA {
 			t.Errorf("expected framework %v, got %v", FrameworkHIPAA, rule.Framework)
+		}
+	}
+}
+
+func TestComplianceCheckTool_GetGDPRRules(t *testing.T) {
+	tool := NewComplianceCheckTool(nil)
+	rules := tool.getGDPRRules()
+
+	if len(rules) == 0 {
+		t.Error("expected GDPR rules")
+	}
+
+	for _, rule := range rules {
+		if rule.Framework != FrameworkGDPR {
+			t.Errorf("expected framework %v, got %v", FrameworkGDPR, rule.Framework)
 		}
 	}
 }
@@ -513,18 +537,68 @@ func TestComplianceCheckTool_Execute_DockerBench(t *testing.T) {
 	}
 }
 
+func TestComplianceCheckTool_Execute_GDPR(t *testing.T) {
+	oldAccessPaths := gdprDataAccessLogPaths
+	oldEncPaths := gdprEncryptionConfigPaths
+	oldRetentionPaths := gdprRetentionPolicyPaths
+	defer func() {
+		gdprDataAccessLogPaths = oldAccessPaths
+		gdprEncryptionConfigPaths = oldEncPaths
+		gdprRetentionPolicyPaths = oldRetentionPaths
+	}()
+
+	tmpDir := t.TempDir()
+	accessLog := filepath.Join(tmpDir, "data-access.log")
+	encCfg := filepath.Join(tmpDir, "encryption.conf")
+	retentionCfg := filepath.Join(tmpDir, "retention.json")
+
+	if err := os.WriteFile(accessLog, []byte("user accessed pii record"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(encCfg, []byte("tls=enabled\nencryption=aes256"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(retentionCfg, []byte(`{"retention_days":180}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	gdprDataAccessLogPaths = []string{accessLog}
+	gdprEncryptionConfigPaths = []string{encCfg}
+	gdprRetentionPolicyPaths = []string{retentionCfg}
+
+	tool := NewComplianceCheckTool(nil)
+	result, err := tool.Execute(&ComplianceCheckParams{Framework: FrameworkGDPR})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	checkResult, ok := result.(*ComplianceCheckResult)
+	if !ok {
+		t.Fatal("expected ComplianceCheckResult")
+	}
+	if checkResult.TotalRules != 3 {
+		t.Fatalf("expected 3 rules, got %d", checkResult.TotalRules)
+	}
+	if checkResult.PassedRules != 3 {
+		t.Fatalf("expected 3 passed rules, got %d", checkResult.PassedRules)
+	}
+	if checkResult.Status != StatusPassed {
+		t.Fatalf("expected passed status, got %s", checkResult.Status)
+	}
+}
+
 // Score calculation tests
 
 func TestComplianceCheckTool_CalculateScore(t *testing.T) {
 	tool := NewComplianceCheckTool(nil)
 
 	tests := []struct {
-		name         string
-		passed       int
-		failed       int
-		warning      int
-		total        int
-		expected     float64
+		name     string
+		passed   int
+		failed   int
+		warning  int
+		total    int
+		expected float64
 	}{
 		{
 			name:     "all passed",
@@ -895,9 +969,9 @@ func TestComplianceCheckTool_RemediationInResult(t *testing.T) {
 	tool := NewComplianceCheckTool(nil)
 
 	params := &ComplianceCheckParams{
-		Framework:         FrameworkCIS,
+		Framework:          FrameworkCIS,
 		IncludeRemediation: true,
-		Full:              true,
+		Full:               true,
 	}
 
 	result, err := tool.Execute(params)
@@ -1111,6 +1185,9 @@ func TestComplianceFramework_Values(t *testing.T) {
 	if FrameworkHIPAA != "hipaa" {
 		t.Errorf("expected 'hipaa', got %v", FrameworkHIPAA)
 	}
+	if FrameworkGDPR != "gdpr" {
+		t.Errorf("expected 'gdpr', got %v", FrameworkGDPR)
+	}
 }
 
 func TestComplianceStatus_Values(t *testing.T) {
@@ -1235,7 +1312,7 @@ func BenchmarkComplianceCheckTool_Execute_Full(b *testing.B) {
 
 func BenchmarkComplianceCheckTool_Execute_AllFrameworks(b *testing.B) {
 	tool := NewComplianceCheckTool(nil)
-	frameworks := []ComplianceFramework{FrameworkCIS, FrameworkPCIDSS, FrameworkSOC2, FrameworkHIPAA}
+	frameworks := []ComplianceFramework{FrameworkCIS, FrameworkPCIDSS, FrameworkSOC2, FrameworkHIPAA, FrameworkGDPR}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
