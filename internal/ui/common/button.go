@@ -42,7 +42,11 @@ func Button(t *styles.Styles, opts ButtonOpts) string {
 		prefix := string(runes[:opts.UnderlineIndex])
 		target := string(runes[opts.UnderlineIndex])
 		suffix := string(runes[opts.UnderlineIndex+1:])
-		text = prefix + lipgloss.NewStyle().Underline(true).Render(target) + suffix
+		underlineStyle := lipgloss.NewStyle().
+			Underline(true).
+			Foreground(style.GetForeground()).
+			Background(style.GetBackground())
+		text = prefix + underlineStyle.Render(target) + suffix
 	}
 
 	return style.Padding(0, opts.Padding).Render(text)

@@ -738,9 +738,9 @@ func (p *Permissions) renderContentPanel(content string, width int) string {
 
 func (p *Permissions) renderButtons(contentWidth int) string {
 	buttons := []common.ButtonOpts{
-		{Text: "Allow", UnderlineIndex: 0, Selected: p.selectedOption == 0},
-		{Text: "Allow for Session", UnderlineIndex: 10, Selected: p.selectedOption == 1},
-		{Text: "Deny", UnderlineIndex: 0, Selected: p.selectedOption == 2},
+		{Text: "Allow", UnderlineIndex: -1, Selected: p.selectedOption == 0},
+		{Text: "Allow for Session", UnderlineIndex: -1, Selected: p.selectedOption == 1},
+		{Text: "Deny", UnderlineIndex: -1, Selected: p.selectedOption == 2},
 	}
 
 	content := common.ButtonGroup(p.com.Styles, buttons, "  ")
