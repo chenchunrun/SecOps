@@ -1,4 +1,4 @@
-package tools
+package secops
 
 import (
 	"fmt"
@@ -59,11 +59,11 @@ type ConfigAuditResult struct {
 
 // ConfigurationAuditTool 配置审计工具
 type ConfigurationAuditTool struct {
-	registry *ToolRegistry
+	registry *SecOpsToolRegistry
 }
 
 // NewConfigurationAuditTool 创建配置审计工具
-func NewConfigurationAuditTool(registry *ToolRegistry) *ConfigurationAuditTool {
+func NewConfigurationAuditTool(registry *SecOpsToolRegistry) *ConfigurationAuditTool {
 	return &ConfigurationAuditTool{
 		registry: registry,
 	}

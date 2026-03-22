@@ -1,4 +1,4 @@
-package tools
+package secops
 
 import (
 	"fmt"
@@ -89,11 +89,11 @@ type NetworkDiagnosticResult struct {
 
 // NetworkDiagnosticTool 网络诊断工具
 type NetworkDiagnosticTool struct {
-	registry *ToolRegistry
+	registry *SecOpsToolRegistry
 }
 
 // NewNetworkDiagnosticTool 创建网络诊断工具
-func NewNetworkDiagnosticTool(registry *ToolRegistry) *NetworkDiagnosticTool {
+func NewNetworkDiagnosticTool(registry *SecOpsToolRegistry) *NetworkDiagnosticTool {
 	return &NetworkDiagnosticTool{
 		registry: registry,
 	}

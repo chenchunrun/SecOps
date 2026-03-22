@@ -1,4 +1,4 @@
-package tools
+package secops
 
 import (
 	"fmt"
@@ -85,11 +85,11 @@ type Alert struct {
 
 // MonitoringQueryTool 监控查询工具
 type MonitoringQueryTool struct {
-	registry *ToolRegistry
+	registry *SecOpsToolRegistry
 }
 
 // NewMonitoringQueryTool 创建监控查询工具
-func NewMonitoringQueryTool(registry *ToolRegistry) *MonitoringQueryTool {
+func NewMonitoringQueryTool(registry *SecOpsToolRegistry) *MonitoringQueryTool {
 	return &MonitoringQueryTool{
 		registry: registry,
 	}

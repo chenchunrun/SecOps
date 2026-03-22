@@ -1,4 +1,4 @@
-package tools
+package secops
 
 import (
 	"fmt"
@@ -113,11 +113,11 @@ type Anomaly struct {
 
 // LogAnalyzeTool 日志分析工具
 type LogAnalyzeTool struct {
-	registry *ToolRegistry
+	registry *SecOpsToolRegistry
 }
 
 // NewLogAnalyzeTool 创建日志分析工具
-func NewLogAnalyzeTool(registry *ToolRegistry) *LogAnalyzeTool {
+func NewLogAnalyzeTool(registry *SecOpsToolRegistry) *LogAnalyzeTool {
 	return &LogAnalyzeTool{
 		registry: registry,
 	}

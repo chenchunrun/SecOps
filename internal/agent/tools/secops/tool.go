@@ -1,4 +1,4 @@
-package tools
+package secops
 
 // ToolType 工具类型
 type ToolType string
@@ -13,8 +13,8 @@ const (
 	ToolTypeNetworkDiagnostic    ToolType = "network_diagnostic"
 )
 
-// Tool 工具接口
-type Tool interface {
+// SecOpsTool 工具接口
+type SecOpsTool interface {
 	// 获取工具类型
 	Type() ToolType
 
@@ -34,20 +34,20 @@ type Tool interface {
 	ValidateParams(params interface{}) error
 }
 
-// ToolRegistry 工具注册表
-type ToolRegistry struct {
-	tools map[string]Tool
+// SecOpsToolRegistry 工具注册表
+type SecOpsToolRegistry struct {
+	tools map[string]SecOpsTool
 }
 
-// NewToolRegistry 创建工具注册表
-func NewToolRegistry() *ToolRegistry {
-	return &ToolRegistry{
-		tools: make(map[string]Tool),
+// NewSecOpsToolRegistry 创建工具注册表
+func NewSecOpsToolRegistry() *SecOpsToolRegistry {
+	return &SecOpsToolRegistry{
+		tools: make(map[string]SecOpsTool),
 	}
 }
 
 // Register 注册工具
-func (tr *ToolRegistry) Register(tool Tool) error {
+func (tr *SecOpsToolRegistry) Register(tool SecOpsTool) error {
 	if tool.Type() == "" {
 		return ErrEmptyToolType
 	}
@@ -56,21 +56,24 @@ func (tr *ToolRegistry) Register(tool Tool) error {
 }
 
 // Get 获取工具
-func (tr *ToolRegistry) Get(toolType ToolType) (Tool, bool) {
+func (tr *SecOpsToolRegistry) Get(toolType ToolType) (SecOpsTool, bool) {
 	tool, exists := tr.tools[string(toolType)]
 	return tool, exists
 }
 
 // GetAll 获取所有工具
-func (tr *ToolRegistry) GetAll() map[string]Tool {
+func (tr *SecOpsToolRegistry) GetAll() map[string]SecOpsTool {
 	return tr.tools
 }
 
 // List 列出所有工具
-func (tr *ToolRegistry) List() []Tool {
-	tools := make([]Tool, 0, len(tr.tools))
+func (tr *SecOpsToolRegistry) List() []SecOpsTool {
+	tools := make([]SecOpsTool, 0, len(tr.tools))
 	for _, tool := range tr.tools {
 		tools = append(tools, tool)
 	}
 	return tools
 }
+
+// Backward-compatible var alias for callers using NewSecOpsToolRegistry
+var NewToolRegistry = NewSecOpsToolRegistry

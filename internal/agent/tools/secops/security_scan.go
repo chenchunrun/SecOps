@@ -1,4 +1,4 @@
-package tools
+package secops
 
 import (
 	"fmt"
@@ -93,11 +93,11 @@ type ScanStats struct {
 
 // SecurityScanTool 安全扫描工具
 type SecurityScanTool struct {
-	registry *ToolRegistry
+	registry *SecOpsToolRegistry
 }
 
 // NewSecurityScanTool 创建安全扫描工具
-func NewSecurityScanTool(registry *ToolRegistry) *SecurityScanTool {
+func NewSecurityScanTool(registry *SecOpsToolRegistry) *SecurityScanTool {
 	return &SecurityScanTool{
 		registry: registry,
 	}

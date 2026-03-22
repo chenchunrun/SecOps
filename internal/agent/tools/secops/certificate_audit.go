@@ -1,4 +1,4 @@
-package tools
+package secops
 
 import (
 	"crypto/rsa"
@@ -66,11 +66,11 @@ type CertificateAuditResult struct {
 
 // CertificateAuditTool 证书审计工具
 type CertificateAuditTool struct {
-	registry *ToolRegistry
+	registry *SecOpsToolRegistry
 }
 
 // NewCertificateAuditTool 创建证书审计工具
-func NewCertificateAuditTool(registry *ToolRegistry) *CertificateAuditTool {
+func NewCertificateAuditTool(registry *SecOpsToolRegistry) *CertificateAuditTool {
 	return &CertificateAuditTool{
 		registry: registry,
 	}

@@ -1,4 +1,4 @@
-package tools
+package secops
 
 import (
 	"fmt"
@@ -112,11 +112,11 @@ type Recommendation struct {
 
 // ComplianceCheckTool 合规检查工具
 type ComplianceCheckTool struct {
-	registry *ToolRegistry
+	registry *SecOpsToolRegistry
 }
 
 // NewComplianceCheckTool 创建合规检查工具
-func NewComplianceCheckTool(registry *ToolRegistry) *ComplianceCheckTool {
+func NewComplianceCheckTool(registry *SecOpsToolRegistry) *ComplianceCheckTool {
 	return &ComplianceCheckTool{
 		registry: registry,
 	}

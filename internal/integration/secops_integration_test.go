@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/agent/tools"
+	"github.com/charmbracelet/crush/internal/agent/tools/secops"
 	"github.com/charmbracelet/crush/internal/audit"
 	"github.com/charmbracelet/crush/internal/security"
 )
@@ -13,13 +13,13 @@ import (
 // TestSecuritySystemIntegration_IncidentResponse 测试完整的安全事件响应流程
 func TestSecuritySystemIntegration_IncidentResponse(t *testing.T) {
 	// 1. 初始化系统组件
-	registry := tools.NewToolRegistry()
+	registry := secops.NewToolRegistry()
 	auditStore := audit.NewInMemoryAuditStore()
 	securityAgent := agent.NewSecurityExpertAgent("sec-1")
 	opsAgent := agent.NewOpsAgent("ops-1")
 
 	// 注册安全扫描工具
-	scanTool := tools.NewSecurityScanTool(registry)
+	scanTool := secops.NewSecurityScanTool(registry)
 	registry.Register(scanTool)
 
 	// 2. 检测安全事件
@@ -153,12 +153,12 @@ func TestComplianceFramework_Audit(t *testing.T) {
 // TestVulnerabilityScanAndResponse 测试漏洞扫描和响应
 func TestVulnerabilityScanAndResponse(t *testing.T) {
 	// 初始化系统
-	registry := tools.NewToolRegistry()
+	registry := secops.NewToolRegistry()
 	auditStore := audit.NewInMemoryAuditStore()
 	securityAgent := agent.NewSecurityExpertAgent("sec-1")
 
 	// 注册漏洞扫描工具
-	scanTool := tools.NewSecurityScanTool(registry)
+	scanTool := secops.NewSecurityScanTool(registry)
 	registry.Register(scanTool)
 
 	// 创建漏洞扫描任务
@@ -359,17 +359,17 @@ func TestMultiAgentCoordination(t *testing.T) {
 
 // TestToolRegistryAndExecution 测试工具注册和执行
 func TestToolRegistryAndExecution(t *testing.T) {
-	registry := tools.NewToolRegistry()
+	registry := secops.NewToolRegistry()
 
 	// 注册多个工具
-	toolInstances := []tools.Tool{
-		tools.NewLogAnalyzeTool(registry),
-		tools.NewMonitoringQueryTool(registry),
-		tools.NewComplianceCheckTool(registry),
-		tools.NewCertificateAuditTool(registry),
-		tools.NewSecurityScanTool(registry),
-		tools.NewConfigurationAuditTool(registry),
-		tools.NewNetworkDiagnosticTool(registry),
+	toolInstances := []secops.SecOpsTool{
+		secops.NewLogAnalyzeTool(registry),
+		secops.NewMonitoringQueryTool(registry),
+		secops.NewComplianceCheckTool(registry),
+		secops.NewCertificateAuditTool(registry),
+		secops.NewSecurityScanTool(registry),
+		secops.NewConfigurationAuditTool(registry),
+		secops.NewNetworkDiagnosticTool(registry),
 	}
 
 	for _, tool := range toolInstances {
@@ -386,7 +386,7 @@ func TestToolRegistryAndExecution(t *testing.T) {
 	}
 
 	// 检查特定工具
-	secScanTool := tools.NewSecurityScanTool(registry)
+	secScanTool := secops.NewSecurityScanTool(registry)
 	if tool, exists := registry.Get(secScanTool.Type()); !exists {
 		t.Error("expected SecurityScanTool to be registered")
 	} else {
@@ -399,14 +399,14 @@ func TestToolRegistryAndExecution(t *testing.T) {
 // TestEndToEndSecurityIncident 端到端安全事件处理
 func TestEndToEndSecurityIncident(t *testing.T) {
 	// 1. 初始化所有系统组件
-	registry := tools.NewToolRegistry()
+	registry := secops.NewToolRegistry()
 	auditStore := audit.NewInMemoryAuditStore()
 	reportGen := audit.NewComplianceReportGenerator(auditStore)
 	opsAgent := agent.NewOpsAgent("ops-1")
 	securityAgent := agent.NewSecurityExpertAgent("sec-1")
 
 	// 2. 注册工具
-	registry.Register(tools.NewSecurityScanTool(registry))
+	registry.Register(secops.NewSecurityScanTool(registry))
 
 	// 3. 事件流
 	// Step 1: 检测到可疑活动

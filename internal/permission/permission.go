@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/pubsub"
@@ -14,6 +15,48 @@ import (
 )
 
 var ErrorPermissionDenied = errors.New("user denied permission")
+
+// Severity levels for permission requests
+type Severity string
+
+const (
+	SeverityCritical Severity = "critical"
+	SeverityHigh     Severity = "high"
+	SeverityMedium   Severity = "medium"
+	SeverityLow      Severity = "low"
+)
+
+// PermissionDecision outcomes
+type PermissionDecision string
+
+const (
+	DecisionAutoApprove PermissionDecision = "auto_approve"
+	DecisionUserConfirm PermissionDecision = "user_confirm"
+	DecisionAdminReview PermissionDecision = "admin_review"
+	DecisionDeny       PermissionDecision = "deny"
+)
+
+// PermissionLevel defines the role hierarchy
+type PermissionLevel string
+
+const (
+	LevelViewer   PermissionLevel = "viewer"
+	LevelOperator PermissionLevel = "operator"
+	LevelAdmin   PermissionLevel = "admin"
+	LevelAnalyst PermissionLevel = "analyst"
+)
+
+// ResourceType classifies resources being accessed
+type ResourceType string
+
+const (
+	ResourceTypeFile     ResourceType = "file"
+	ResourceTypeNetwork ResourceType = "network"
+	ResourceTypeProcess ResourceType = "process"
+	ResourceTypeDatabase ResourceType = "database"
+	ResourceTypeCommand ResourceType = "command"
+	ResourceTypeSystem  ResourceType = "system"
+)
 
 type CreatePermissionRequest struct {
 	SessionID   string `json:"session_id"`
@@ -32,14 +75,31 @@ type PermissionNotification struct {
 }
 
 type PermissionRequest struct {
-	ID          string `json:"id"`
-	SessionID   string `json:"session_id"`
-	ToolCallID  string `json:"tool_call_id"`
-	ToolName    string `json:"tool_name"`
-	Description string `json:"description"`
-	Action      string `json:"action"`
-	Params      any    `json:"params"`
-	Path        string `json:"path"`
+	ID           string `json:"id"`
+	SessionID    string `json:"session_id"`
+	ToolCallID   string `json:"tool_call_id"`
+	ToolName     string `json:"tool_name"`
+	Description  string `json:"description"`
+	Action       string `json:"action"`
+	Params       any    `json:"params"`
+	Path         string `json:"path"`
+	// SecOps fields
+	RiskScore     int                `json:"risk_score"`
+	Severity      Severity           `json:"severity"`
+	Decision      PermissionDecision `json:"decision"`
+	ResourceType  ResourceType       `json:"resource_type"`
+	ResourcePath string            `json:"resource_path"`
+	UserID       string            `json:"user_id"`
+	Username     string            `json:"username"`
+	RequiredRole PermissionLevel    `json:"required_role"`
+	SourceIP     string            `json:"source_ip"`
+	RequestTime  time.Time         `json:"request_time"`
+	ApprovalID   string            `json:"approval_id"`
+	Reason       string            `json:"reason"`
+	RiskFactors  []string          `json:"risk_factors"`
+	ApprovedBy   string            `json:"approved_by"`
+	ApprovedAt   time.Time         `json:"approved_at"`
+	DeniedReason string            `json:"denied_reason"`
 }
 
 type Service interface {
