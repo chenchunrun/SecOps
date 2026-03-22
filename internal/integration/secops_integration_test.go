@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/agent/tools/secops"
-	"github.com/charmbracelet/crush/internal/audit"
-	"github.com/charmbracelet/crush/internal/security"
+	"github.com/chenchunrun/SecOps/internal/agent"
+	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
+	"github.com/chenchunrun/SecOps/internal/audit"
+	"github.com/chenchunrun/SecOps/internal/security"
 )
 
 // TestSecuritySystemIntegration_IncidentResponse 测试完整的安全事件响应流程

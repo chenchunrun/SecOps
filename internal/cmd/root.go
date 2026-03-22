@@ -16,14 +16,15 @@ import (
 	"charm.land/fang/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/event"
-	"github.com/charmbracelet/crush/internal/projects"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	ui "github.com/charmbracelet/crush/internal/ui/model"
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/chenchunrun/SecOps/internal/app"
+	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/db"
+	"github.com/chenchunrun/SecOps/internal/event"
+	"github.com/chenchunrun/SecOps/internal/projects"
+	"github.com/chenchunrun/SecOps/internal/ui/common"
+	ui "github.com/chenchunrun/SecOps/internal/ui/model"
+	"github.com/chenchunrun/SecOps/internal/ui/styles"
+	"github.com/chenchunrun/SecOps/internal/version"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/charmtone"
@@ -107,7 +108,9 @@ crush --continue
 		// Set up the TUI.
 		var env uv.Environ = os.Environ()
 
-		com := common.DefaultCommon(app)
+		// Detect terminal background theme for adaptive colors.
+		theme := detectTerminalTheme(os.Stdin, os.Stdout)
+		com := common.DefaultCommon(app, theme)
 		model := ui.New(com, sessionID, continueLast)
 
 		program := tea.NewProgram(
@@ -121,7 +124,7 @@ crush --continue
 		if _, err := program.Run(); err != nil {
 			event.Error(err)
 			slog.Error("TUI run error", "error", err)
-			return errors.New("Crush crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
+			return errors.New("Crush crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/chenchunrun/SecOps/issues/new?template=bug.yml") //nolint:staticcheck
 		}
 		return nil
 	},
@@ -180,6 +183,30 @@ func supportsProgressBar() bool {
 	_, isWindowsTerminal := os.LookupEnv("WT_SESSION")
 
 	return isWindowsTerminal || strings.Contains(strings.ToLower(termProg), "ghostty")
+}
+
+// detectTerminalTheme detects whether the terminal has a light or dark background.
+// It checks the TERM_BACKGROUND env var (Wezterm, Ghostty) first, then falls back
+// to lipgloss.HasDarkBackground heuristics for other terminals.
+func detectTerminalTheme(stdin, stdout *os.File) styles.Theme {
+	// Terminals that explicitly declare their background color.
+	switch os.Getenv("TERM_BACKGROUND") {
+	case "light":
+		return styles.ThemeLight
+	case "dark":
+		return styles.ThemeDark
+	}
+
+	// Fallback: use lipgloss's heuristic detection.
+	// This reads the terminal's background color via ANSI escape sequences.
+	if term.IsTerminal(stdout.Fd()) {
+		if lipgloss.HasDarkBackground(stdin, stdout) {
+			return styles.ThemeDark
+		}
+		return styles.ThemeLight
+	}
+
+	return styles.ThemeDark // Default to dark.
 }
 
 func setupAppWithProgressBar(cmd *cobra.Command) (*app.App, error) {

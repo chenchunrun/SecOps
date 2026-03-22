@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
+	"sync"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/db"
+	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/google/uuid"
 )
 
@@ -20,10 +20,24 @@ type CreateMessageParams struct {
 	IsSummaryMessage bool
 }
 
+// UpdateOptions controls how BufferedUpdate behaves.
+type UpdateOptions struct {
+	// ForceDBWrite forces the DB write even if the threshold hasn't been reached.
+	ForceDBWrite bool
+	// SkipDBWrite skips the DB write for this call (e.g., intermediate reasoning deltas).
+	SkipDBWrite bool
+}
+
 type Service interface {
 	pubsub.Subscriber[Message]
 	Create(ctx context.Context, sessionID string, params CreateMessageParams) (Message, error)
 	Update(ctx context.Context, message Message) error
+	// BufferedUpdate accumulates changes and writes to DB only when the delta
+	// threshold is reached or ForceDBWrite is set. It always publishes to pubsub
+	// immediately so the UI stays responsive. Use FlushBufferedUpdate to persist
+	// any pending writes at the end of a step.
+	BufferedUpdate(ctx context.Context, message Message, opts UpdateOptions) error
+	FlushBufferedUpdate(ctx context.Context) error
 	Get(ctx context.Context, id string) (Message, error)
 	List(ctx context.Context, sessionID string) ([]Message, error)
 	ListUserMessages(ctx context.Context, sessionID string) ([]Message, error)
@@ -32,15 +46,27 @@ type Service interface {
 	DeleteSessionMessages(ctx context.Context, sessionID string) error
 }
 
+// bufferedState holds pending writes for a single message.
+type bufferedState struct {
+	message  Message
+	deltaCount int
+}
+
 type service struct {
 	*pubsub.Broker[Message]
-	q db.Querier
+	q             db.Querier
+	buffered      map[string]*bufferedState
+	bufferedMutex sync.Mutex
 }
+
+// defaultFlushThreshold is the number of BufferedUpdate calls before a DB write occurs.
+const defaultFlushThreshold = 5
 
 func NewService(q db.Querier) Service {
 	return &service{
-		Broker: pubsub.NewBroker[Message](),
-		q:      q,
+		Broker:   pubsub.NewBroker[Message](),
+		q:        q,
+		buffered: make(map[string]*bufferedState),
 	}
 }
 
@@ -111,7 +137,72 @@ func (s *service) DeleteSessionMessages(ctx context.Context, sessionID string) e
 	return nil
 }
 
+// Update persists a message change to the database and publishes to pubsub.
+// For streaming callbacks prefer BufferedUpdate which batches writes.
 func (s *service) Update(ctx context.Context, message Message) error {
+	if err := s.writeMessageToDB(ctx, message); err != nil {
+		return err
+	}
+	s.Publish(pubsub.UpdatedEvent, message.Clone())
+	return nil
+}
+
+
+// Call this at the end of each agent step to ensure the final state is saved.
+func (s *service) FlushBufferedUpdate(ctx context.Context) error {
+	s.bufferedMutex.Lock()
+	states := make(map[string]*bufferedState, len(s.buffered))
+	for id, st := range s.buffered {
+		states[id] = st
+	}
+	clear(s.buffered)
+	s.bufferedMutex.Unlock()
+
+	for _, st := range states {
+		if err := s.writeMessageToDB(ctx, st.message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BufferedUpdate accumulates message changes and writes to DB only when the delta
+// threshold is reached or ForceDBWrite is set. Pubsub publish always happens immediately.
+func (s *service) BufferedUpdate(ctx context.Context, message Message, opts UpdateOptions) error {
+	// Always publish to pubsub immediately so the UI stays responsive.
+	s.Publish(pubsub.UpdatedEvent, message.Clone())
+
+	if opts.SkipDBWrite {
+		// Just track in buffer without writing (for intermediate reasoning deltas).
+		s.bufferedMutex.Lock()
+		s.buffered[message.ID] = &bufferedState{message: message, deltaCount: 0}
+		s.bufferedMutex.Unlock()
+		return nil
+	}
+
+	shouldFlush := opts.ForceDBWrite
+
+	s.bufferedMutex.Lock()
+	st, exists := s.buffered[message.ID]
+	if !exists {
+		st = &bufferedState{message: message, deltaCount: 0}
+		s.buffered[message.ID] = st
+	}
+	st.message = message
+	st.deltaCount++
+	if !shouldFlush && st.deltaCount < defaultFlushThreshold {
+		s.bufferedMutex.Unlock()
+		return nil
+	}
+	// Flush this message now.
+	delete(s.buffered, message.ID)
+	s.bufferedMutex.Unlock()
+
+	return s.writeMessageToDB(ctx, message)
+}
+
+// writeMessageToDB serializes and persists a message to the database.
+func (s *service) writeMessageToDB(ctx context.Context, message Message) error {
 	parts, err := marshalParts(message.Parts)
 	if err != nil {
 		return err
@@ -121,19 +212,11 @@ func (s *service) Update(ctx context.Context, message Message) error {
 		finishedAt.Int64 = f.Time
 		finishedAt.Valid = true
 	}
-	err = s.q.UpdateMessage(ctx, db.UpdateMessageParams{
+	return s.q.UpdateMessage(ctx, db.UpdateMessageParams{
 		ID:         message.ID,
 		Parts:      string(parts),
 		FinishedAt: finishedAt,
 	})
-	if err != nil {
-		return err
-	}
-	message.UpdatedAt = time.Now().Unix()
-	// Clone the message before publishing to avoid race conditions with
-	// concurrent modifications to the Parts slice.
-	s.Publish(pubsub.UpdatedEvent, message.Clone())
-	return nil
 }
 
 func (s *service) Get(ctx context.Context, id string) (Message, error) {

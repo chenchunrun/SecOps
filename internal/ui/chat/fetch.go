@@ -3,9 +3,9 @@ package chat
 import (
 	"encoding/json"
 
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/chenchunrun/SecOps/internal/agent/tools"
+	"github.com/chenchunrun/SecOps/internal/message"
+	"github.com/chenchunrun/SecOps/internal/ui/styles"
 )
 
 // -----------------------------------------------------------------------------

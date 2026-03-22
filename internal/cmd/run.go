@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"charm.land/log/v2"
-	"github.com/charmbracelet/crush/internal/event"
+	"github.com/chenchunrun/SecOps/internal/event"
 	"github.com/spf13/cobra"
 )
 

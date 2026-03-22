@@ -15,13 +15,13 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/event"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/ui/chat"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/db"
+	"github.com/chenchunrun/SecOps/internal/event"
+	"github.com/chenchunrun/SecOps/internal/message"
+	"github.com/chenchunrun/SecOps/internal/session"
+	"github.com/chenchunrun/SecOps/internal/ui/chat"
+	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/charmbracelet/x/term"
@@ -455,7 +455,7 @@ func outputSessionHuman(ctx context.Context, sess session.Session, msgs []*messa
 
 	first := true
 	for _, msg := range msgs {
-		items := chat.ExtractMessageItems(&sty, msg, toolResults)
+		items := chat.ExtractMessageItems(&sty, msg, toolResults, true)
 		for _, item := range items {
 			if !first {
 				fmt.Fprintln(&buf)

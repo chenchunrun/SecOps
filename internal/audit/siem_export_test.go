@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -380,5 +381,201 @@ func TestSplunkExporter_Export_EmptyEvents(t *testing.T) {
 	err := exporter.Export(context.Background(), []*AuditEvent{})
 	if err != nil {
 		t.Fatalf("expected no error with empty events, got %v", err)
+	}
+}
+
+// --- Credential redaction tests (13 patterns) ---
+
+func TestRedactValue_All13Patterns(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    interface{}
+		redacted bool // true = should contain REDACTED, false = unchanged
+	}{
+		// Pattern 1: Bearer Token
+		{name: "bearer token", input: "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", redacted: true},
+		// Pattern 4: AWS Access Key (AKIA)
+		{name: "aws akia key", input: "AKIAIOSFODNN7EXAMPLE", redacted: true},
+		// Pattern 4b: AWS Access Key (ASIA)
+		{name: "aws asia key", input: "ASIAIOSFODNN7EXAMPLE", redacted: true},
+		// Pattern 5: AWS Secret Key
+		{name: "aws secret key", input: "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", redacted: true},
+		// Pattern 6: URL Password
+		{name: "url password", input: "https://example.com/login?password=SuperSecret123", redacted: true},
+		// Pattern 7: Private Key
+		{name: "private key", input: "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQ...\n-----END RSA PRIVATE KEY-----", redacted: true},
+		// Pattern 8: GitHub PAT (ghp_)
+		{name: "github pat ghp", input: "ghp_ABCD1234EFGH5678IJKL9012MNOP345678QR", redacted: true},
+		// Pattern 8b: GitHub PAT (github_pat_)
+		{name: "github pat github_pat", input: "github_pat_11atrepo0_ABCD1234EFGH5678IJKL9012MNOP345678", redacted: true},
+		// Pattern 9: GCP credential (gcp_credentials)
+		{name: "gcp credentials", input: "gcp_credentials={\"type\":\"service_account\"}", redacted: true},
+		// Pattern 9b: GCP credential (GOOGLE_)
+		{name: "google credential", input: "GOOGLE_APPLICATION_CREDENTIALS=/path/to/file.json", redacted: true},
+		// Pattern 11: Generic API Key
+		{name: "generic api_key", input: "api_key=FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0000", redacted: true},
+		// Pattern 11b: apikey
+		{name: "apikey", input: "apikey: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", redacted: true},
+		// Pattern 11c: api-key
+		{name: "api-key", input: "api-key = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'", redacted: true},
+		// Pattern 12: Database DSN (mysql)
+		{name: "mysql dsn", input: "mysql://admin:password123@localhost:3306/mydb", redacted: true},
+		// Pattern 12b: postgres DSN
+		{name: "postgres dsn", input: "postgres://bob:secretpass@db.example.com:5432/prod", redacted: true},
+		// Pattern 12c: mongodb DSN
+		{name: "mongodb dsn", input: "mongodb://user:mongodbpass@cluster0.example.com:27017/admin", redacted: true},
+		// Pattern 12d: redis DSN
+		{name: "redis dsn", input: "redis://redis:MySecurePwd@redis.example.com:6379/0", redacted: true},
+		// Pattern 13: JWT Token
+		{name: "jwt token", input: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c", redacted: true},
+		// Safe content (should NOT be redacted)
+		{name: "safe string", input: "SELECT * FROM users WHERE id = 1", redacted: false},
+		{name: "normal log line", input: "[INFO] Server started on port 8080", redacted: false},
+		{name: "gcp keyword in non-credential", input: "gcp_instance_name=prod-server-01", redacted: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := redactValue(tc.input)
+			resultStr, ok := result.(string)
+			if !ok {
+				t.Fatalf("expected string result, got %T", result)
+			}
+			if tc.redacted {
+				if !strings.Contains(resultStr, redacted) {
+					t.Errorf("expected redaction marker in %q, got %q", tc.name, resultStr)
+				}
+			} else {
+				// Input should be unchanged
+				inputStr, ok := tc.input.(string)
+				if !ok {
+					t.Fatalf("expected string input for non-redacted case, got %T", tc.input)
+				}
+				if resultStr != inputStr {
+					t.Errorf("expected unchanged value %q, got %q", inputStr, resultStr)
+				}
+			}
+		})
+	}
+}
+
+func TestRedactValue_NestedStruct(t *testing.T) {
+	// Test that redaction works recursively on nested maps
+	input := map[string]interface{}{
+		"user":     "alice",
+		"db_conn":  "mysql://admin:secret123@localhost:3306/mydb",
+		"metadata": map[string]interface{}{
+			"token":    "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+			"note":     "this is safe",
+			"gcp_cred": "gcp_service_account_key=abc123",
+		},
+		"tokens": []interface{}{
+			"ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+			"normal_value",
+		},
+	}
+
+	result := redactValue(input)
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", result)
+	}
+
+	// mysql:// URL password should be redacted (regex replaces user:pass@ portion)
+	if !strings.Contains(resultMap["db_conn"].(string), redacted) {
+		t.Errorf("expected db_conn to contain redaction marker, got %v", resultMap["db_conn"])
+	}
+
+	meta, ok := resultMap["metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected nested map, got %T", resultMap["metadata"])
+	}
+	if !strings.Contains(meta["token"].(string), redacted) {
+		t.Errorf("expected token to contain redaction marker, got %v", meta["token"])
+	}
+	if meta["note"] != "this is safe" {
+		t.Errorf("expected note unchanged, got %v", meta["note"])
+	}
+	if gcpCredVal, ok := meta["gcp_cred"].(string); !ok || !strings.Contains(gcpCredVal, redacted) {
+		t.Errorf("expected gcp_cred to contain redaction marker, got %v", meta["gcp_cred"])
+	}
+
+	tokens, ok := resultMap["tokens"].([]interface{})
+	if !ok {
+		t.Fatalf("expected slice, got %T", resultMap["tokens"])
+	}
+	if tokens[0] != redacted {
+		t.Errorf("expected token redacted, got %v", tokens[0])
+	}
+	if tokens[1] != "normal_value" {
+		t.Errorf("expected normal_value unchanged, got %v", tokens[1])
+	}
+}
+
+func TestRedactEvent_DoesNotMutateOriginal(t *testing.T) {
+	event := &AuditEvent{
+		ID:       "test-123",
+		Username: "alice",
+		Action:   "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		Details: map[string]interface{}{
+			"bearer_token": "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+			"note":    "safe content",
+		},
+	}
+
+	// redactEvent must return a new struct; original must be unchanged
+	cp := redactEvent(event)
+
+	// redactEvent returns a new struct (different pointer)
+	if cp == event {
+		t.Error("expected redactEvent to return a new struct pointer, got same pointer")
+	}
+	// Verify credential in Details was redacted in the copy
+	if !strings.Contains(cp.Details["bearer_token"].(string), redacted) {
+		t.Errorf("expected Details[\"bearer_token\"] to be redacted in copy, got %v", cp.Details["bearer_token"])
+	}
+	// Verify original Details is unchanged
+	if strings.Contains(event.Details["bearer_token"].(string), redacted) {
+		t.Error("expected original Details[\"bearer_token\"] to be unchanged")
+	}
+	// Verify the Details map was deep-copied (same keys but different underlying map)
+	// We can check this by mutating the copy and verifying original is not affected
+	cp.Details["new_key"] = "new_value"
+	_, existsInOriginal := event.Details["new_key"]
+	if existsInOriginal {
+		t.Error("expected original Details to be unaffected by copy mutation")
+	}
+}
+
+func TestELKExporter_TLSRequired(t *testing.T) {
+	exporter := &ELKExporter{
+		Endpoint:   "http://insecure.example.com/_bulk",
+		Index:      "test",
+		TLSEnabled: false,
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)})
+	if err == nil {
+		t.Fatal("expected error when TLS is disabled, got nil")
+	}
+	if !strings.Contains(err.Error(), "TLS") {
+		t.Errorf("expected TLS error message, got %v", err)
+	}
+}
+
+func TestSplunkExporter_TLSRequired(t *testing.T) {
+	exporter := &SplunkExporter{
+		Endpoint:   "http://insecure.example.com/services/collector",
+		Token:      "tok",
+		Index:      "test",
+		TLSEnabled: false,
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)})
+	if err == nil {
+		t.Fatal("expected error when TLS is disabled, got nil")
+	}
+	if !strings.Contains(err.Error(), "TLS") {
+		t.Errorf("expected TLS error message, got %v", err)
 	}
 }

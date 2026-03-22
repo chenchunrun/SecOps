@@ -31,18 +31,18 @@ import (
 	"charm.land/fantasy/providers/openrouter"
 	"charm.land/fantasy/providers/vercel"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/agent/hyper"
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/stringext"
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/chenchunrun/SecOps/internal/agent/hyper"
+	"github.com/chenchunrun/SecOps/internal/agent/notify"
+	"github.com/chenchunrun/SecOps/internal/agent/tools"
+	"github.com/chenchunrun/SecOps/internal/agent/tools/mcp"
+	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/csync"
+	"github.com/chenchunrun/SecOps/internal/message"
+	"github.com/chenchunrun/SecOps/internal/permission"
+	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/session"
+	"github.com/chenchunrun/SecOps/internal/stringext"
+	"github.com/chenchunrun/SecOps/internal/version"
 	"github.com/charmbracelet/x/exp/charmtone"
 )
 
@@ -319,11 +319,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		},
 		OnReasoningStart: func(id string, reasoning fantasy.ReasoningContent) error {
 			currentAssistant.AppendReasoningContent(reasoning.Text)
-			return a.messages.Update(genCtx, *currentAssistant)
+			// Skip DB write for reasoning: accumulate in buffer, publish to pubsub for UI.
+			return a.messages.BufferedUpdate(genCtx, *currentAssistant, message.UpdateOptions{SkipDBWrite: true})
 		},
 		OnReasoningDelta: func(id string, text string) error {
 			currentAssistant.AppendReasoningContent(text)
-			return a.messages.Update(genCtx, *currentAssistant)
+			// Skip DB write for reasoning deltas: only persist when reasoning ends
+			// or when text content starts arriving.
+			return a.messages.BufferedUpdate(genCtx, *currentAssistant, message.UpdateOptions{SkipDBWrite: true})
 		},
 		OnReasoningEnd: func(id string, reasoning fantasy.ReasoningContent) error {
 			// handle anthropic signature
@@ -343,7 +346,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				}
 			}
 			currentAssistant.FinishThinking()
-			return a.messages.Update(genCtx, *currentAssistant)
+			// Force DB write when reasoning ends so the accumulated reasoning content is persisted.
+			return a.messages.BufferedUpdate(genCtx, *currentAssistant, message.UpdateOptions{ForceDBWrite: true})
 		},
 		OnTextDelta: func(id string, text string) error {
 			// Strip leading newline from initial text content. This is is
@@ -354,7 +358,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			}
 
 			currentAssistant.AppendContent(text)
-			return a.messages.Update(genCtx, *currentAssistant)
+			// Batch DB writes: only write every 5 text deltas to reduce SQLite overhead.
+			return a.messages.BufferedUpdate(genCtx, *currentAssistant, message.UpdateOptions{})
 		},
 		OnToolInputStart: func(id string, toolName string) error {
 			toolCall := message.ToolCall{
@@ -364,7 +369,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				Finished:         false,
 			}
 			currentAssistant.AddToolCall(toolCall)
-			return a.messages.Update(genCtx, *currentAssistant)
+			// Force DB write before tool execution so the tool call is persisted.
+			return a.messages.BufferedUpdate(genCtx, *currentAssistant, message.UpdateOptions{ForceDBWrite: true})
 		},
 		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
 			// TODO: implement
@@ -378,7 +384,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				Finished:         true,
 			}
 			currentAssistant.AddToolCall(toolCall)
-			return a.messages.Update(genCtx, *currentAssistant)
+			// Force DB write so the tool call with input is persisted.
+			return a.messages.BufferedUpdate(genCtx, *currentAssistant, message.UpdateOptions{ForceDBWrite: true})
 		},
 		OnToolResult: func(result fantasy.ToolResultContent) error {
 			toolResult := a.convertToToolResult(result)
@@ -401,6 +408,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				finishReason = message.FinishReasonToolUse
 			}
 			currentAssistant.AddFinish(finishReason, "", "")
+			// Flush any remaining buffered writes before persisting the final state.
+			if flushErr := a.messages.FlushBufferedUpdate(genCtx); flushErr != nil {
+				return flushErr
+			}
 			sessionLock.Lock()
 			defer sessionLock.Unlock()
 

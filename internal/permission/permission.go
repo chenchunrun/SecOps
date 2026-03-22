@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/csync"
+	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/google/uuid"
 )
 

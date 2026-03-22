@@ -18,10 +18,10 @@ import (
 	"strings"
 
 	"charm.land/catwalk/pkg/catwalk"
-	hyperp "github.com/charmbracelet/crush/internal/agent/hyper"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/oauth/copilot"
-	"github.com/charmbracelet/crush/internal/oauth/hyper"
+	hyperp "github.com/chenchunrun/SecOps/internal/agent/hyper"
+	"github.com/chenchunrun/SecOps/internal/oauth"
+	"github.com/chenchunrun/SecOps/internal/oauth/copilot"
+	"github.com/chenchunrun/SecOps/internal/oauth/hyper"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

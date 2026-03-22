@@ -1,9 +1,57 @@
 package secops
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 )
+
+// MaxFileSize is the maximum file size to scan (1 MB).
+const MaxFileSize = 1 << 20
+
+// Directories excluded from scanning.
+var skipDirs = map[string]bool{
+	".git":            true,
+	"node_modules":    true,
+	"vendor":         true,
+	".svn":           true,
+	"__pycache__":    true,
+	".pytest_cache":  true,
+	"_site":          true,
+	".tox":           true,
+	"dist":           true,
+	"build":          true,
+	".venv":          true,
+	"venv":           true,
+	".idea":          true,
+	".vscode":        true,
+	".dart_tool":     true,
+	".flutter_tools": true,
+}
+
+// skipSuffixes contains file extensions that are almost certainly binary
+// and should not be scanned for secrets.
+var skipSuffixes = map[string]bool{
+	".png":  true, ".jpg":  true, ".jpeg": true, ".gif":  true,
+	".ico":  true, ".svg":  true, ".webp": true, ".bmp":  true,
+	".pdf":  true, ".zip":  true, ".tar":  true, ".gz":   true,
+	".tgz":  true, ".bz2":  true, ".xz":   true, ".rar":  true,
+	".7z":   true, ".exe":  true, ".dll":  true, ".so":   true,
+	".dylib": true, ".a":    true, ".o":    true, ".obj":  true,
+	".class": true, ".jar":  true, ".war":  true, ".ear":  true,
+	".pyc":  true, ".pyo":  true, ".pyd":  true,
+	".doc":  true, ".docx": true, ".xls":  true, ".xlsx": true,
+	".ppt":  true, ".pptx": true,
+	".ttf":  true, ".otf":  true, ".woff": true, ".woff2": true,
+	".eot":  true,
+	".mp3":  true, ".mp4":  true, ".avi":  true, ".mov":  true,
+	".wmv":  true, ".flv":  true, ".mkv":  true,
+	".iso":  true, ".img":  true,
+	".lock": true, ".sum":  true,
+}
 
 // SecretAuditParams for scanning for leaked credentials
 type SecretAuditParams struct {
@@ -198,77 +246,42 @@ func redacted(original string, secretType string) string {
 	return "****"
 }
 
-// performAudit 执行密钥扫描
+// performAudit walks params.TargetPath and scans every text file for secrets.
 func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAuditResult {
 	result := &SecretAuditResult{
 		Findings: make([]SecretFinding, 0),
 	}
 
-	// 模拟扫描结果（真实实现会扫描文件系统）
-	mockFindings := []SecretFinding{
-		{
-			File:        "config/prod.env",
-			Line:        15,
-			Type:        "aws_access_key",
-			Redacted:    "AKIA************ABCD",
-			Severity:    "CRITICAL",
-			Description: "AWS Access Key ID exposed in configuration file",
-		},
-		{
-			File:        "scripts/deploy.sh",
-			Line:        42,
-			Type:        "password",
-			Redacted:    "********",
-			Severity:    "HIGH",
-			Description: "Hardcoded password in deployment script",
-		},
-		{
-			File:        ".env.local",
-			Line:        3,
-			Type:        "github_token",
-			Redacted:    "ghp_****************************abcd",
-			Severity:    "CRITICAL",
-			Description: "GitHub Personal Access Token in environment file",
-		},
-		{
-			File:        "keys/ssh.pem",
-			Line:        1,
-			Type:        "private_key",
-			Redacted:    "-----BEGIN RSA PRIVATE KEY----- ... -----END RSA PRIVATE KEY-----",
-			Severity:    "CRITICAL",
-			Description: "Private key committed to repository",
-		},
-		{
-			File:        "config/database.yml",
-			Line:        8,
-			Type:        "database_password",
-			Redacted:    "********",
-			Severity:    "HIGH",
-			Description: "Database password in YAML configuration",
-		},
-	}
-
-	// 按严重级别过滤
 	severityRank := map[string]int{
 		"CRITICAL": 4,
 		"HIGH":     3,
 		"MEDIUM":   2,
 		"LOW":      1,
 	}
+	minRank := severityRank[params.Severity]
 
-	minRank := 0
-	if params.Severity != "" {
-		minRank = severityRank[params.Severity]
+	absPath := params.TargetPath
+	info, err := os.Stat(absPath)
+	if err != nil {
+		result.Findings = append(result.Findings, SecretFinding{
+			File:        absPath,
+			Line:        0,
+			Type:        "scan_error",
+			Redacted:    "",
+			Severity:    "HIGH",
+			Description: "Failed to access path: " + err.Error(),
+		})
+		result.TotalScanned = 0
+		return result
 	}
 
-	for _, f := range mockFindings {
-		findingsRank := severityRank[f.Severity]
-		if findingsRank >= minRank {
-			result.Findings = append(result.Findings, f)
-		}
+	if info.IsDir() {
+		filepath.Walk(absPath, sat.makeWalker(absPath, result, severityRank, minRank))
+	} else {
+		sat.scanFile(absPath, absPath, result, severityRank, minRank)
 	}
 
-	result.TotalScanned = 127
+	// Count high-severity findings.
 	for _, f := range result.Findings {
 		if f.Severity == "CRITICAL" || f.Severity == "HIGH" {
 			result.HighSeverity++
@@ -276,4 +289,121 @@ func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAudit
 	}
 
 	return result
+}
+
+// makeWalker returns a filepath.WalkFunc that skips ignored directories and
+// scans each regular text file for secrets.
+func (sat *SecretAuditTool) makeWalker(
+	root string,
+	result *SecretAuditResult,
+	severityRank map[string]int,
+	minRank int,
+) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			_, name := filepath.Split(path)
+			if skipDirs[name] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return sat.scanFile(root, path, result, severityRank, minRank)
+	}
+}
+
+// scanFile reads a single file and records any secret findings.
+func (sat *SecretAuditTool) scanFile(
+	root, path string,
+	result *SecretAuditResult,
+	severityRank map[string]int,
+	minRank int,
+) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	if info.Size() > MaxFileSize {
+		return nil
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if skipSuffixes[ext] {
+		return nil
+	}
+
+	// Binary check: look for null bytes in first 512 bytes.
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	header := make([]byte, 512)
+	n, _ := f.Read(header)
+	f.Close()
+	if n > 0 && containsNonText(header[:n]) {
+		return nil
+	}
+
+	// Line-by-line scan.
+	f2, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f2.Close()
+
+	scanner := bufio.NewScanner(f2)
+	const maxLineSize = 512 * 1024
+	scanner.Buffer(make([]byte, maxLineSize), maxLineSize)
+
+	relPath := path
+	if root != "" {
+		relPath, _ = filepath.Rel(root, path)
+	}
+
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Bytes()
+		for _, pat := range secretPatterns {
+			idx := pat.Pattern.FindIndex(line)
+			if idx == nil {
+				continue
+			}
+			match := string(line[idx[0]:idx[1]])
+			finding := SecretFinding{
+				File:        relPath,
+				Line:        lineNum,
+				Type:        pat.Type,
+				Redacted:    redacted(match, pat.Type),
+				Severity:    pat.Severity,
+				Description: pat.Description,
+			}
+			if severityRank[finding.Severity] >= minRank {
+				result.Findings = append(result.Findings, finding)
+			}
+		}
+	}
+
+	result.TotalScanned++
+	return nil
+}
+
+// containsNonText reports whether b contains a null byte or has a high density
+// of non-printable, non-ASCII bytes, indicating binary content.
+func containsNonText(b []byte) bool {
+	nonPrintable := 0
+	for _, c := range b {
+		if c == 0 {
+			return true
+		}
+		if c < 0x20 && c != '\t' && c != '\n' && c != '\r' {
+			nonPrintable++
+		}
+	}
+	// Flag as binary if >30% of sample bytes are non-printable control chars.
+	return len(b) > 0 && (nonPrintable*10)/len(b) > 3
 }

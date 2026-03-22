@@ -1,7 +1,7 @@
 package dialog
 
 import (
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/sahilm/fuzzy"
 )
 

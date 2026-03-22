@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/logo"
+	"github.com/chenchunrun/SecOps/internal/ui/common"
+	"github.com/chenchunrun/SecOps/internal/ui/logo"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/layout"
 )

@@ -1,6 +1,8 @@
 package secops
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -512,10 +514,19 @@ func TestSecretAuditTool_ValidateParams(t *testing.T) {
 }
 
 func TestSecretAuditTool_Execute(t *testing.T) {
-	tool := NewSecretAuditTool(nil)
+	tmpDir := t.TempDir()
+	// Write a file containing a secret to be found.
+	secretFile := filepath.Join(tmpDir, "config.env")
+	err := os.WriteFile(secretFile, []byte(
+		"AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\npassword=SuperSecret123\n",
+	), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	tool := NewSecretAuditTool(nil)
 	params := &SecretAuditParams{
-		TargetPath: "/repo",
+		TargetPath: tmpDir,
 		ScanType:  "pattern",
 		Severity:  "HIGH",
 	}
@@ -540,10 +551,19 @@ func TestSecretAuditTool_Execute(t *testing.T) {
 }
 
 func TestSecretAuditTool_Execute_NoSeverityFilter(t *testing.T) {
-	tool := NewSecretAuditTool(nil)
+	tmpDir := t.TempDir()
+	secretFile := filepath.Join(tmpDir, "secrets.txt")
+	// Use a token that exactly matches the 36-char ghp_ pattern.
+	err := os.WriteFile(secretFile, []byte(
+		"ghp_ABCD1234EFGH5678IJKL9012MNOP345678QR\n",
+	), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	tool := NewSecretAuditTool(nil)
 	params := &SecretAuditParams{
-		TargetPath: "/repo",
+		TargetPath: tmpDir,
 		ScanType:  "pattern",
 	}
 
@@ -559,10 +579,19 @@ func TestSecretAuditTool_Execute_NoSeverityFilter(t *testing.T) {
 }
 
 func TestSecretAuditTool_SeverityFiltering(t *testing.T) {
-	tool := NewSecretAuditTool(nil)
+	tmpDir := t.TempDir()
+	secretFile := filepath.Join(tmpDir, "mixed.txt")
+	// ghp_ token is CRITICAL; password is HIGH.
+	err := os.WriteFile(secretFile, []byte(
+		"ghp_ABCD1234EFGH5678IJKL9012MNOP3456QR\npassword=SuperSecretPass123\n",
+	), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	tool := NewSecretAuditTool(nil)
 	params := &SecretAuditParams{
-		TargetPath: "/repo",
+		TargetPath: tmpDir,
 		ScanType:  "pattern",
 		Severity:  "CRITICAL",
 	}
@@ -590,7 +619,7 @@ func TestSecretAuditTool_Redacted(t *testing.T) {
 		{"aws_access_key", "AKIAIOSFODNN7EXAMPLE", "AKIA************MPLE"},
 		{"password", "mySecretPassword123", "********"},
 		{"private_key", "-----BEGIN RSA PRIVATE KEY-----MIIE...-----END RSA PRIVATE KEY-----", "-----BEGIN PRIVATE KEY----- ... -----END PRIVATE KEY-----"},
-		{"api_key", "sk_live_abcdefghij1234567890", "sk_l****7890"},
+		{"api_key", "sk_fake_REDACTED_REDACTED_REDACTED_REDACTED_REDACTED", "sk_f****CTED"},
 	}
 
 	for _, tt := range tests {

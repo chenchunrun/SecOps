@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/home"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/csync"
+	"github.com/chenchunrun/SecOps/internal/home"
+	"github.com/chenchunrun/SecOps/internal/permission"
+	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

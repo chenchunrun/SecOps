@@ -8,7 +8,7 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/chenchunrun/SecOps/internal/ui/styles"
 )
 
 // SyntaxHighlight applies syntax highlighting to the given source code based

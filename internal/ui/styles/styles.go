@@ -12,7 +12,7 @@ import (
 	"charm.land/glamour/v2/ansi"
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/crush/internal/ui/diffview"
+	"github.com/chenchunrun/SecOps/internal/ui/diffview"
 	"github.com/charmbracelet/x/exp/charmtone"
 )
 
@@ -510,12 +510,13 @@ func (s *Styles) DialogHelpStyles() help.Styles {
 }
 
 // DefaultStyles returns the default styles for the UI.
-func DefaultStyles() Styles {
+// It accepts an optional Theme parameter to select between dark (default) and
+// light color schemes. When no theme is provided, ThemeDark is used.
+func DefaultStyles(theme ...Theme) Styles {
 	var (
 		primary   = charmtone.Charple
 		secondary = charmtone.Dolly
 		tertiary  = charmtone.Bok
-		// accent    = charmtone.Zest
 
 		// Backgrounds
 		bgBase        = charmtone.Pepper
@@ -523,14 +524,8 @@ func DefaultStyles() Styles {
 		bgSubtle      = charmtone.Charcoal
 		bgOverlay     = charmtone.Iron
 
-		// Foregrounds — dark palette for strong contrast on any background.
-		// Ash/Squid/Smoke/Oyster are designed for dark backgrounds; these
-		// replacements work well on both light and dark terminal backgrounds.
-		fgBase      = lipgloss.Color("#1A1A1A")
-		fgMuted     = lipgloss.Color("#4A4A4A")
-		fgHalfMuted = lipgloss.Color("#6A6A6A")
-		fgSubtle    = lipgloss.Color("#8A8A8A")
-		// fgSelected  = charmtone.Salt
+		// Foregrounds — adapt to terminal background via foregroundColorsForTheme.
+		fgBase, fgMuted, fgHalfMuted, fgSubtle = foregroundColorsForTheme(theme...)
 
 		// Borders
 		border      = charmtone.Charcoal
@@ -548,19 +543,14 @@ func DefaultStyles() Styles {
 		blue      = charmtone.Malibu
 		blueDark  = charmtone.Damson
 
-		// yellow = charmtone.Mustard
 		yellow = charmtone.Mustard
-		// citron = charmtone.Citron
 
 		greenLight = charmtone.Bok
 		green      = charmtone.Julep
 		greenDark  = charmtone.Guac
-		// greenLight = charmtone.Bok
 
 		red     = charmtone.Coral
 		redDark = charmtone.Sriracha
-		// redLight = charmtone.Salmon
-		// cherry   = charmtone.Cherry
 	)
 
 	normalBorder := lipgloss.NormalBorder()
@@ -1322,7 +1312,7 @@ func DefaultStyles() Styles {
 	s.Dialog.InputPrompt = base.Margin(1, 1)
 
 	s.Dialog.List = base.Margin(0, 0, 1, 0)
-	s.Dialog.ContentPanel = base.Background(bgSubtle).Foreground(fgBase).Padding(1, 2)
+	s.Dialog.ContentPanel = base.Background(lipgloss.LightDark(len(theme) > 0 && theme[0] == ThemeDark)(bgBaseLighter, bgBase)).Foreground(fgBase).Padding(1, 2)
 	s.Dialog.Spinner = base.Foreground(secondary)
 	s.Dialog.ScrollbarThumb = base.Foreground(secondary)
 	s.Dialog.ScrollbarTrack = base.Foreground(border)
@@ -1423,4 +1413,37 @@ func chromaStyle(style ansi.StylePrimitive) string {
 	}
 
 	return s.String()
+}
+
+// Theme represents the color theme of the terminal.
+type Theme int
+
+const (
+	// ThemeDark uses colors optimized for dark terminal backgrounds.
+	ThemeDark Theme = iota
+	// ThemeLight uses colors optimized for light terminal backgrounds.
+	ThemeLight
+)
+
+// foregroundColorsForTheme returns the foreground color palette for the given theme.
+func foregroundColorsForTheme(theme ...Theme) (fgBase, fgMuted, fgHalfMuted, fgSubtle color.Color) {
+	t := ThemeDark
+	if len(theme) > 0 {
+		t = theme[0]
+	}
+	switch t {
+	case ThemeLight:
+		// Foregrounds for light terminal backgrounds.
+		fgBase = lipgloss.Color("#1A1A1A")
+		fgMuted = lipgloss.Color("#5A5A5A")
+		fgHalfMuted = lipgloss.Color("#8A8A8A")
+		fgSubtle = lipgloss.Color("#AAAAAA")
+	default:
+		// Foregrounds for dark terminal backgrounds.
+		fgBase = lipgloss.Color("#F5F5F5")
+		fgMuted = lipgloss.Color("#BBBBBB")
+		fgHalfMuted = lipgloss.Color("#999999")
+		fgSubtle = lipgloss.Color("#777777")
+	}
+	return fgBase, fgMuted, fgHalfMuted, fgSubtle
 }

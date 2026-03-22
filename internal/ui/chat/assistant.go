@@ -6,10 +6,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/ui/anim"
-	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/chenchunrun/SecOps/internal/message"
+	"github.com/chenchunrun/SecOps/internal/ui/anim"
+	"github.com/chenchunrun/SecOps/internal/ui/common"
+	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -33,16 +33,18 @@ type AssistantMessageItem struct {
 	anim              *anim.Anim
 	thinkingExpanded  bool
 	thinkingBoxHeight int // Tracks the rendered thinking box height for click detection.
+	showThinking      bool
 }
 
 // NewAssistantMessageItem creates a new AssistantMessageItem.
-func NewAssistantMessageItem(sty *styles.Styles, message *message.Message) MessageItem {
+func NewAssistantMessageItem(sty *styles.Styles, message *message.Message, showThinking bool) MessageItem {
 	a := &AssistantMessageItem{
 		highlightableMessageItem: defaultHighlighter(sty),
-		cachedMessageItem:        &cachedMessageItem{},
-		focusableMessageItem:     &focusableMessageItem{},
-		message:                  message,
-		sty:                      sty,
+		cachedMessageItem:       &cachedMessageItem{},
+		focusableMessageItem:    &focusableMessageItem{},
+		message:                 message,
+		sty:                     sty,
+		showThinking:            showThinking,
 	}
 
 	a.anim = anim.New(anim.Settings{
@@ -132,14 +134,14 @@ func (a *AssistantMessageItem) renderMessageContent(width int) string {
 	thinking := strings.TrimSpace(a.message.ReasoningContent().Thinking)
 	content := strings.TrimSpace(a.message.Content().Text)
 	// if the massage has reasoning content add that first
-	if thinking != "" {
+	if thinking != "" && a.showThinking {
 		messageParts = append(messageParts, a.renderThinking(a.message.ReasoningContent().Thinking, width))
 	}
 
 	// then add the main content
 	if content != "" {
 		// add a spacer between thinking and content
-		if thinking != "" {
+		if thinking != "" && a.showThinking {
 			messageParts = append(messageParts, "")
 		}
 		messageParts = append(messageParts, a.renderMarkdown(content, width))

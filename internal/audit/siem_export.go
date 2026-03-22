@@ -14,15 +14,37 @@ import (
 )
 
 // redactionRegexes holds the credential patterns used to redact sensitive data
-// before exporting audit events to SIEM systems.
+// before exporting audit events to SIEM systems. Covers 13 credential types:
+//  1. Bearer token          (Authorization: Bearer xxx)
+//  2. Stripe live key       (sk_live_)
+//  3. Stripe test key        (sk_test_)
+//  4. AWS access key ID      (AKIA*, ASIA*, ABIA*, ACCA*)
+//  5. AWS secret access key  (aws_secret_access_key=)
+//  6. URL password           (?password=)
+//  7. Private key header     (-----BEGIN ... PRIVATE KEY-----)
+//  8. GitHub PAT             (ghp_*, github_pat_*)
+//  9. GCP service account    (gcp_*, GOOGLE_*, _GOOGLE)
+// 10. Slack token            (xox[baprs]-*)
+// 11. Generic API key        (api_key=, apikey=, api-key=)
+// 12. Database DSN           (mysql://, postgres://, mongodb://, redis://)
+// 13. JWT token              (eyJ... - JSON Web Token header)
 var redactionRegexes = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9_-]+`),
 	regexp.MustCompile(`(?i)sk_live_[A-Za-z0-9_-]+`),
 	regexp.MustCompile(`(?i)sk_test_[A-Za-z0-9_-]+`),
 	regexp.MustCompile(`(?i)AKIA[A-Za-z0-9]+`),
+	regexp.MustCompile(`(?i)ASIA[A-Za-z0-9]+`),
 	regexp.MustCompile(`(?i)aws_secret_access_key[=:]\s*\S+`),
 	regexp.MustCompile(`(?i)[?&]password=[^&\s]+`),
 	regexp.MustCompile(`-----BEGIN.*PRIVATE KEY-----`),
+	regexp.MustCompile(`(?i)ghp_[a-zA-Z0-9]{36}`),
+	regexp.MustCompile(`(?i)github_pat_[a-zA-Z0-9_]{22,}`),
+	regexp.MustCompile(`(?i)gcp_(credentials|service_account|api_key|access_token|refresh_token|secret_key|auth|key)[a-zA-Z0-9_-]*`),
+	regexp.MustCompile(`(?i)_GOOGLE[a-zA-Z0-9_-]+|GOOGLE_[A-Z0-9_]+`),
+	regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`),
+	regexp.MustCompile(`(?i)(api_key|apikey|api-key)\s*[=:]\s*['"]?[A-Za-z0-9_\-]{20,}`),
+	regexp.MustCompile(`(?i)(mysql|postgres|mongodb|redis|postgresql)://[^@\s]+:[^@\s]+@`),
+	regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`),
 }
 
 const redacted = "***REDACTED***"

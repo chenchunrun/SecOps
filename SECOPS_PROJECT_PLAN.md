@@ -314,7 +314,7 @@ Type:
 
 ## 参考资源
 
-- Crush 项目: https://github.com/charmbracelet/crush
+- Crush 项目: https://github.com/chenchunrun/SecOps
 - Go 语言: https://golang.org
 - SQLc: https://docs.sqlc.dev
 

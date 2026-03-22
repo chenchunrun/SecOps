@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/charmbracelet/crush/internal/agent/tools/secops"
-	"github.com/charmbracelet/crush/internal/permission"
+	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
+	"github.com/chenchunrun/SecOps/internal/permission"
 
 	"charm.land/fantasy"
 )

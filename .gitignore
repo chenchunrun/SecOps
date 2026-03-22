@@ -51,3 +51,7 @@ manpages/
 completions/crush.*sh
 .prettierignore
 .task
+
+# Compiled binary
+SecOps
+crush
