@@ -228,7 +228,102 @@ func matchParts(pattern, request []string) bool {
 	return pi == len(pattern) && ri == len(request)
 }
 
-// 预定义的能力常量
+// Predefined capability policies
+var (
+	// OpsCapabilities is the Ops role capability policy set (allowlist mode)
+	OpsCapabilities *CapabilitySet
+	// SecurityCapabilities is the Security role capability policy set (allowlist mode)
+	SecurityCapabilities *CapabilitySet
+)
+
+func init() {
+	// Initialize OpsCapabilities
+	OpsCapabilities = NewCapabilitySet()
+
+	// Viewer role: read-only log and monitoring access
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "log:read", Description: "Read log files", ResourceType: "file", Action: "read", Pattern: "/var/log/**", RequiredRole: "viewer"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "log:read:/var/log/*", Description: "Read log files", ResourceType: "file", Action: "read", Pattern: "/var/log/*", RequiredRole: "viewer"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "monitoring:query", Description: "Query monitoring data", ResourceType: "network", Action: "query", Pattern: "*", RequiredRole: "viewer"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "file:read:/var/tmp/*", Description: "Read temp files", ResourceType: "file", Action: "read", Pattern: "/var/tmp/*", RequiredRole: "viewer"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "file:read:/home/*", Description: "Read user home files", ResourceType: "file", Action: "read", Pattern: "/home/*", RequiredRole: "viewer"})
+
+	// Operator role: adds log analysis, process management, monitoring alerts
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "log:analyze", Description: "Analyze log patterns", ResourceType: "file", Action: "execute", Pattern: "/var/log/**", RequiredRole: "operator"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "process:query", Description: "Query running processes", ResourceType: "process", Action: "query", Pattern: "*", RequiredRole: "operator"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "process:kill", Description: "Kill processes", ResourceType: "process", Action: "execute", Pattern: "*", RequiredRole: "operator"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "monitoring:alert", Description: "Manage monitoring alerts", ResourceType: "network", Action: "execute", Pattern: "*", RequiredRole: "operator"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "network:diagnose", Description: "Run network diagnostics", ResourceType: "network", Action: "execute", Pattern: "*", RequiredRole: "operator"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "network:trace", Description: "Run traceroute", ResourceType: "network", Action: "execute", Pattern: "*", RequiredRole: "operator"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "shell:read-only", Description: "Execute read-only shell commands", ResourceType: "command", Action: "execute", Pattern: "*", RequiredRole: "operator"})
+
+	// Admin role: full ops access including system modifications and export
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "log:export", Description: "Export log data", ResourceType: "file", Action: "write", Pattern: "*", RequiredRole: "admin"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "file:read", Description: "Read any file", ResourceType: "file", Action: "read", Pattern: "**", RequiredRole: "admin"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "file:write", Description: "Write any file", ResourceType: "file", Action: "write", Pattern: "**", RequiredRole: "admin"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "shell:read-write", Description: "Execute any shell command", ResourceType: "command", Action: "execute", Pattern: "*", RequiredRole: "admin"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "process:manage", Description: "Manage processes", ResourceType: "process", Action: "execute", Pattern: "*", RequiredRole: "admin"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "compliance:check", Description: "Run compliance checks", ResourceType: "database", Action: "execute", Pattern: "*", RequiredRole: "admin"})
+	_ = OpsCapabilities.AddCapability(&Capability{Name: "compliance:report", Description: "Generate compliance reports", ResourceType: "database", Action: "execute", Pattern: "*", RequiredRole: "admin"})
+
+	// Initialize SecurityCapabilities
+	SecurityCapabilities = NewCapabilitySet()
+
+	// Analyst role: read-only security scanning and audit
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "security:scan", Description: "Run security scans", ResourceType: "command", Action: "execute", Pattern: "*", RequiredRole: "analyst"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "security:audit", Description: "Audit security configuration", ResourceType: "file", Action: "read", Pattern: "/etc/**", RequiredRole: "analyst"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "security:analyze", Description: "Analyze security findings", ResourceType: "database", Action: "query", Pattern: "*", RequiredRole: "analyst"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "file:read:/var/log/**", Description: "Read log files for analysis", ResourceType: "file", Action: "read", Pattern: "/var/log/**", RequiredRole: "analyst"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "compliance:report", Description: "View compliance reports", ResourceType: "database", Action: "query", Pattern: "*", RequiredRole: "analyst"})
+
+	// Responder role: adds active response capabilities
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "network:scan", Description: "Run network scans", ResourceType: "network", Action: "execute", Pattern: "*", RequiredRole: "responder"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "process:kill", Description: "Kill suspicious processes", ResourceType: "process", Action: "execute", Pattern: "*", RequiredRole: "responder"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "file:delete", Description: "Delete malicious files", ResourceType: "file", Action: "delete", Pattern: "*", RequiredRole: "responder"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "compliance:check", Description: "Run compliance checks", ResourceType: "database", Action: "execute", Pattern: "*", RequiredRole: "responder"})
+	_ = SecurityCapabilities.AddCapability(&Capability{Name: "security:incident", Description: "Manage security incidents", ResourceType: "database", Action: "execute", Pattern: "*", RequiredRole: "responder"})
+}
+
+// CheckCapability checks if a user role has the specified capability.
+// It checks both OpsCapabilities and SecurityCapabilities.
+func CheckCapability(userRole, capability string) bool {
+	if OpsCapabilities.HasCapability(capability) {
+		for _, cap := range OpsCapabilities.GetAllCapabilities() {
+			if cap.Name == capability && (cap.RequiredRole == "" || cap.RequiredRole == userRole) {
+				return true
+			}
+		}
+	}
+	if SecurityCapabilities.HasCapability(capability) {
+		for _, cap := range SecurityCapabilities.GetAllCapabilities() {
+			if cap.Name == capability && (cap.RequiredRole == "" || cap.RequiredRole == userRole) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetCapabilitiesForRole returns all capabilities available to a given role.
+func GetCapabilitiesForRole(role string) []*Capability {
+	var caps []*Capability
+	seen := make(map[string]bool)
+
+	for _, cap := range OpsCapabilities.GetAllCapabilities() {
+		if (cap.RequiredRole == "" || cap.RequiredRole == role) && !seen[cap.Name] {
+			caps = append(caps, cap)
+			seen[cap.Name] = true
+		}
+	}
+	for _, cap := range SecurityCapabilities.GetAllCapabilities() {
+		if (cap.RequiredRole == "" || cap.RequiredRole == role) && !seen[cap.Name] {
+			caps = append(caps, cap)
+			seen[cap.Name] = true
+		}
+	}
+	return caps
+}
+
+// Predefined capability constants
 const (
 	// 文件操作
 	CapabilityFileRead    = "file:read"

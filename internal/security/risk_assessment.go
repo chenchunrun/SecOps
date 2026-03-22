@@ -227,12 +227,12 @@ func (ra *RiskAssessor) AssessCommand(command string) *RiskAssessment {
 	return assessment
 }
 
-// AssessPermissionRequest 评估权限请求的风险
-func (ra *RiskAssessor) AssessPermissionRequest(cmd string, resource string) *RiskAssessment {
-	assessment := ra.AssessCommand(cmd)
+// AssessPermissionRequest assesses the risk of a permission request for a tool/resource combination.
+func (ra *RiskAssessor) AssessPermissionRequest(toolName, resourcePath string) *RiskAssessment {
+	assessment := ra.AssessCommand(toolName)
 
 	// 添加资源特定的风险评估
-	if isSystemCriticalResource(resource) {
+	if isSystemCriticalResource(resourcePath) {
 		assessment.Factors = append(assessment.Factors, RiskFactor{
 			Name:     "critical_resource",
 			Weight:   20,
