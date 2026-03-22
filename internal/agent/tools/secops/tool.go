@@ -11,6 +11,12 @@ const (
 	ToolTypeSecurityScan         ToolType = "security_scan"
 	ToolTypeConfigurationAudit   ToolType = "configuration_audit"
 	ToolTypeNetworkDiagnostic    ToolType = "network_diagnostic"
+	ToolTypeDatabaseQuery        ToolType = "database_query"
+	ToolTypeBackupCheck          ToolType = "backup_check"
+	ToolTypeReplicationStatus    ToolType = "replication_status"
+	ToolTypeSecretAudit          ToolType = "secret_audit"
+	ToolTypeRotationCheck        ToolType = "rotation_check"
+	ToolTypeAccessReview         ToolType = "access_review"
 )
 
 // SecOpsTool 工具接口
