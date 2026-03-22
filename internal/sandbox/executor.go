@@ -365,7 +365,7 @@ func (e *DockerExecutor) dockerAuditLogEntry(traceID, cmd, status string) string
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 		"trace_id":  traceID,
 		"mode":      "docker",
-		"command":   cmd,
+		"command":   redactCommand(cmd),
 		"status":    status,
 	}
 	data, _ := json.Marshal(entry)
@@ -375,8 +375,8 @@ func (e *DockerExecutor) dockerAuditLogEntry(traceID, cmd, status string) string
 // writeAuditLog writes an audit log entry to the configured path or stderr.
 func (e *DockerExecutor) writeAuditLog(path, entry string) {
 	if path != "" {
-		// #nosec G302 -- audit logs should be readable
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		// #nosec G302 -- audit logs should be readable only by owner
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
 			defer f.Close()
 			fmt.Fprintln(f, entry)
@@ -522,13 +522,47 @@ func DefaultSandboxConfig() SandboxConfig {
 	}
 }
 
+// redactCommand replaces credential patterns in a command string with ***REDACTED***.
+func redactCommand(cmd string) string {
+	redacted := "***REDACTED***"
+
+	// Bearer tokens: Bearer <token>
+	cmd = regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9_\-]+`).ReplaceAllString(cmd, "Bearer "+redacted)
+
+	// API keys: sk_live_*, sk_test_*, AKIA*
+	cmd = regexp.MustCompile(`sk_live_[A-Za-z0-9_\-]+`).ReplaceAllString(cmd, redacted)
+	cmd = regexp.MustCompile(`sk_test_[A-Za-z0-9_\-]+`).ReplaceAllString(cmd, redacted)
+	cmd = regexp.MustCompile(`(?i)AKIA[A-Za-z0-9]+`).ReplaceAllString(cmd, redacted)
+
+	// AWS secret access key: aws_secret_access_key=<value> or aws_secret_access_key:<value>
+	cmd = regexp.MustCompile(`(?i)aws_secret_access_key[=:]\s*\S+`).ReplaceAllString(cmd, "aws_secret_access_key="+redacted)
+
+	// Password in URL query/fragment: ?password=... or &password=...
+	cmd = regexp.MustCompile(`(?i)[?&]password=[^&\s]+`).ReplaceAllString(cmd, "?password="+redacted)
+
+	// Basic auth in URL or -u flag: -u user:pass
+	cmd = regexp.MustCompile(`(?i)-u\s+\S+:\S+`).ReplaceAllString(cmd, "-u "+redacted)
+
+	// --password=<value>
+	cmd = regexp.MustCompile(`(?i)--password[=:]\S+`).ReplaceAllString(cmd, "--password="+redacted)
+
+	// -p followed by a password value (mysql, docker, etc.)
+	// Matches: -p <password>, -ppassword
+	cmd = regexp.MustCompile(`-p\s+\S+`).ReplaceAllString(cmd, "-p "+redacted)
+
+	// Private key content: -----BEGIN ... PRIVATE KEY-----
+	cmd = regexp.MustCompile(`-----BEGIN.*PRIVATE KEY-----`).ReplaceAllString(cmd, "-----BEGIN PRIVATE KEY----- "+redacted)
+
+	return cmd
+}
+
 // auditLogEntry creates a structured audit log entry for local/docker execution.
 func (e *LocalExecutor) auditLogEntry(traceID, mode, cmd, status string) string {
 	entry := map[string]interface{}{
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 		"trace_id":  traceID,
 		"mode":      mode,
-		"command":   cmd,
+		"command":   redactCommand(cmd),
 		"status":    status,
 	}
 	data, _ := json.Marshal(entry)
@@ -542,7 +576,7 @@ func auditLogEntrySSH(traceID, mode, target, cmd, status string) string {
 		"trace_id":  traceID,
 		"mode":      mode,
 		"target":    target,
-		"command":   cmd,
+		"command":   redactCommand(cmd),
 		"status":    status,
 	}
 	data, _ := json.Marshal(entry)
@@ -552,8 +586,8 @@ func auditLogEntrySSH(traceID, mode, target, cmd, status string) string {
 // writeAuditLog writes an audit log entry to the configured path or stderr.
 func (e *LocalExecutor) writeAuditLog(path, entry string) {
 	if path != "" {
-		// #nosec G302 -- audit logs should be readable
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		// #nosec G302 -- audit logs should be readable only by owner
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
 			defer f.Close()
 			fmt.Fprintln(f, entry)
@@ -566,8 +600,8 @@ func (e *LocalExecutor) writeAuditLog(path, entry string) {
 // writeAuditLog is a package-level wrapper for SSH and Docker executors.
 func writeAuditLog(path, entry string) {
 	if path != "" {
-		// #nosec G302 -- audit logs should be readable
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		// #nosec G302 -- audit logs should be readable only by owner
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
 			defer f.Close()
 			fmt.Fprintln(f, entry)

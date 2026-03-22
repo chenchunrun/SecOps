@@ -113,7 +113,10 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
 				ToolName:    m.Info().Name,
 				Action:      "execute",
 				Description: permissionDescription,
-				Params:      params.Input,
+				// Params is intentionally omitted — raw input values (which may contain
+				// credentials or secrets) must not flow into the permission request or
+				// audit log. Use nil to store only metadata.
+				Params: nil,
 			},
 		)
 		if err != nil {

@@ -5,25 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/charmbracelet/crush/internal/agent/tools/secops"
 	"github.com/charmbracelet/crush/internal/permission"
 
 	"charm.land/fantasy"
 )
-
-// secOpsToolAdapter wraps a SecOpsTool as a fantasy.AgentTool for use in the Crush agent.
-type secOpsToolAdapter struct {
-	tool  secops.SecOpsTool
-	perms permission.Service
-	mu    sync.RWMutex
-}
-
-// NewSecOpsToolAdapter creates a new adapter that wraps all registered SecOps tools as fantasy.AgentTool.
-func NewSecOpsToolAdapter(registry *secops.SecOpsToolRegistry, perms permission.Service) *secOpsToolAdapter {
-	return &secOpsToolAdapter{}
-}
 
 // Adapter implements fantasy.AgentTool by delegating to the wrapped SecOpsTool.
 type Adapter struct {
@@ -55,60 +42,206 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to marshal params: %v", err)), nil
 	}
 
-	// We use a generic map for validation since each tool has its own param type.
-	var genericParams interface{}
+	// Switch on tool type and unmarshal into the correct struct, then call
+	// ValidateParams BEFORE Execute to ensure all security checks run.
 	switch a.tool.Type() {
-	case secops.ToolTypeResourceMonitor:
-		var p secops.ResourceMonitorParams
+	case secops.ToolTypeLogAnalyze:
+		var p secops.LogAnalyzeParams
 		if err := json.Unmarshal(paramsBytes, &p); err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
 		}
-		genericParams = &p
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeMonitoringQuery:
+		var p secops.MonitoringQueryParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeComplianceCheck:
+		var p secops.ComplianceCheckParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeCertificateAudit:
+		var p secops.CertificateAuditParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeSecurityScan:
+		var p secops.SecurityScanParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeConfigurationAudit:
+		var p secops.ConfigAuditParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeNetworkDiagnostic:
+		var p secops.NetworkDiagnosticParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeDatabaseQuery:
+		var p secops.DatabaseQueryParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeBackupCheck:
+		var p secops.BackupCheckParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeReplicationStatus:
+		var p secops.ReplicationStatusParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeSecretAudit:
+		var p secops.SecretAuditParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeRotationCheck:
+		var p secops.RotationCheckParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeAccessReview:
+		var p secops.AccessReviewParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
 	case secops.ToolTypeInfrastructureQuery:
 		var p secops.InfrastructureQueryParams
 		if err := json.Unmarshal(paramsBytes, &p); err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
 		}
-		genericParams = &p
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
 	case secops.ToolTypeDeploymentStatus:
 		var p secops.DeploymentStatusParams
 		if err := json.Unmarshal(paramsBytes, &p); err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
 		}
-		genericParams = &p
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
 	case secops.ToolTypeAlertCheck:
 		var p secops.AlertCheckParams
 		if err := json.Unmarshal(paramsBytes, &p); err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
 		}
-		genericParams = &p
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
 	case secops.ToolTypeIncidentTimeline:
 		var p secops.IncidentTimelineParams
 		if err := json.Unmarshal(paramsBytes, &p); err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
 		}
-		genericParams = &p
-	default:
-		// For all other tools, use a generic map
-		var m map[string]interface{}
-		if err := json.Unmarshal(paramsBytes, &m); err != nil {
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
+
+	case secops.ToolTypeResourceMonitor:
+		var p secops.ResourceMonitorParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
 		}
-		genericParams = m
-	}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(&p)
 
-	// Check capabilities
+	default:
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("unsupported tool type: %s", a.tool.Type())), nil
+	}
+}
+
+// executeAndRespond calls tool.Execute and serializes the result to a ToolResponse.
+func (a *Adapter) executeAndRespond(params interface{}) (fantasy.ToolResponse, error) {
 	caps := a.tool.RequiredCapabilities()
 	if len(caps) > 0 {
 		slog.Debug("SecOps tool capabilities check", "tool", a.tool.Type(), "caps", caps)
 	}
 
-	result, err := a.tool.Execute(genericParams)
+	result, err := a.tool.Execute(params)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(err.Error()), nil
 	}
 
-	// Serialize result to JSON
 	resultBytes, err := json.Marshal(result)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to marshal result: %v", err)), nil
@@ -140,16 +273,4 @@ func RegisterSecOpsTools(registry *secops.SecOpsToolRegistry, perms permission.S
 	}
 
 	return tools
-}
-
-// secOpsToolsAdapter is the adapter instance
-var secOpsToolsAdapter *secOpsToolAdapter
-var adapterOnce sync.Once
-
-// GetSecOpsToolsAdapter returns the singleton SecOps tools adapter.
-func GetSecOpsToolsAdapter(registry *secops.SecOpsToolRegistry, perms permission.Service) *secOpsToolAdapter {
-	adapterOnce.Do(func() {
-		secOpsToolsAdapter = NewSecOpsToolAdapter(registry, perms)
-	})
-	return secOpsToolsAdapter
 }

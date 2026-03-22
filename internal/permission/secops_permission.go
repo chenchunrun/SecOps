@@ -279,7 +279,9 @@ func (ds *DefaultService) MakeDecision(req *PermissionRequest) (PermissionDecisi
 	}
 }
 
-// AuditLog 实现 Service.AuditLog - 记录审计日志
+// AuditLog implements Service.AuditLog - records audit log.
+// Params is never stored; only metadata (tool name, action, resource path,
+// risk score, decision) is persisted to prevent credential exposure.
 func (ds *DefaultService) AuditLog(req *PermissionRequest, decision PermissionDecision) error {
 	if req == nil {
 		return fmt.Errorf("request cannot be nil")
@@ -288,8 +290,21 @@ func (ds *DefaultService) AuditLog(req *PermissionRequest, decision PermissionDe
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
+	// Store a sanitized copy — never persist raw Params which may contain
+	// credentials, secrets, or other sensitive input values.
+	sanitized := *req
+	sanitized.Params = nil
+	// Derive a safe command fingerprint from the description for auditability.
+	if req.Action == "execute" && req.Description != "" {
+		desc := req.Description
+		if len(desc) > 64 {
+			desc = desc[:64]
+		}
+		sanitized.Description = desc
+	}
+
 	ds.auditLog = append(ds.auditLog, auditRecord{
-		Request:   req,
+		Request:   &sanitized,
 		Decision:  decision,
 		Timestamp: time.Now(),
 	})

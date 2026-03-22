@@ -7,8 +7,94 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"time"
 )
+
+// redactionRegexes holds the credential patterns used to redact sensitive data
+// before exporting audit events to SIEM systems.
+var redactionRegexes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9_-]+`),
+	regexp.MustCompile(`(?i)sk_live_[A-Za-z0-9_-]+`),
+	regexp.MustCompile(`(?i)sk_test_[A-Za-z0-9_-]+`),
+	regexp.MustCompile(`(?i)AKIA[A-Za-z0-9]+`),
+	regexp.MustCompile(`(?i)aws_secret_access_key[=:]\s*\S+`),
+	regexp.MustCompile(`(?i)[?&]password=[^&\s]+`),
+	regexp.MustCompile(`-----BEGIN.*PRIVATE KEY-----`),
+}
+
+const redacted = "***REDACTED***"
+
+// redactValue recursively scans and redacts credential patterns from a value.
+// Strings are scanned for all known credential patterns; maps and slices are
+// traversed recursively; all other values are returned unchanged.
+func redactValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case string:
+		result := val
+		for _, re := range redactionRegexes {
+			result = re.ReplaceAllString(result, redacted)
+		}
+		return result
+	case map[string]interface{}:
+		cp := make(map[string]interface{}, len(val))
+		for k, v := range val {
+			cp[k] = redactValue(v)
+		}
+		return cp
+	case []interface{}:
+		cp := make([]interface{}, len(val))
+		for i, item := range val {
+			cp[i] = redactValue(item)
+		}
+		return cp
+	default:
+		return v
+	}
+}
+
+// redactEvent creates a deep copy of the given event with all credential fields
+// redacted before export. The original event is not modified.
+func redactEvent(event *AuditEvent) *AuditEvent {
+	if event == nil {
+		return nil
+	}
+	cp := &AuditEvent{
+		ID:          event.ID,
+		EventType:   event.EventType,
+		Timestamp:   event.Timestamp,
+		SessionID:   event.SessionID,
+		UserID:      event.UserID,
+		Username:    event.Username,
+		SourceIP:    event.SourceIP,
+		Action:      event.Action,
+		ResourceType: event.ResourceType,
+		ResourceName: event.ResourceName,
+		ResourcePath: event.ResourcePath,
+		Result:      event.Result,
+		ErrorMsg:    event.ErrorMsg,
+		RiskScore:   event.RiskScore,
+		RiskLevel:   event.RiskLevel,
+		Severity:    event.Severity,
+		Details:     make(map[string]interface{}),
+		ApprovalID:  event.ApprovalID,
+		ApprovedBy:  event.ApprovedBy,
+		ApprovedAt:  event.ApprovedAt,
+		Reason:      event.Reason,
+		Signature:   event.Signature,
+	}
+	for k, v := range event.Details {
+		cp.Details[k] = redactValue(v)
+	}
+	if event.ChangeData != nil {
+		cp.ChangeData = &ChangeData{
+			FieldName: event.ChangeData.FieldName,
+			OldValue:  redactValue(event.ChangeData.OldValue),
+			NewValue:  redactValue(event.ChangeData.NewValue),
+		}
+	}
+	return cp
+}
 
 // SIEMExporter defines the interface for SIEM integrations.
 type SIEMExporter interface {
@@ -16,8 +102,12 @@ type SIEMExporter interface {
 }
 
 // ELKExporter exports to Elasticsearch/Logstash/Kibana.
+// TLSEnabled controls whether TLS is used for the connection. When TLSEnabled
+// is false (the default for backward compatibility), credentials present in
+// event fields are still redacted before export, but the transport itself
+// will send data in plaintext over the network — configure TLS in production.
 type ELKExporter struct {
-	Endpoint   string // e.g. "http://localhost:9200"
+	Endpoint   string // e.g. "https://localhost:9200"
 	Index      string // e.g. "secops-audit"
 	Username   string
 	Password   string
@@ -45,8 +135,8 @@ func (e *ELKExporter) Export(ctx context.Context, events []*AuditEvent) error {
 		body.Write(actionBytes)
 		body.WriteByte('\n')
 
-		// Document line
-		docBytes, err := json.Marshal(event)
+		// Document line — redact credentials before serialising
+		docBytes, err := json.Marshal(redactEvent(event))
 		if err != nil {
 			return fmt.Errorf("failed to marshal audit event: %w", err)
 		}
@@ -101,10 +191,15 @@ func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 }
 
 // SplunkExporter exports to Splunk HTTP Event Collector.
+// TLSEnabled controls whether TLS is used for the connection. When TLSEnabled
+// is false (the default for backward compatibility), credentials present in
+// event fields are still redacted before export, but the transport itself
+// will send data in plaintext over the network — configure TLS in production.
 type SplunkExporter struct {
-	Endpoint string // e.g. "https://localhost:8088/services/collector"
-	Token    string
-	Index    string
+	Endpoint   string // e.g. "https://localhost:8088/services/collector"
+	Token      string
+	Index      string
+	TLSEnabled bool
 }
 
 // SplunkHECEvent represents a Splunk HEC event payload.
@@ -125,20 +220,15 @@ func (e *SplunkExporter) Export(ctx context.Context, events []*AuditEvent) error
 
 	payload := make([]SplunkHECEvent, 0, len(events))
 	for _, ev := range events {
-		event := map[string]interface{}{
-			"id":          ev.ID,
-			"event_type":  ev.EventType,
-			"timestamp":   ev.Timestamp,
-			"session_id":  ev.SessionID,
-			"user_id":     ev.UserID,
-			"username":    ev.Username,
-			"source_ip":   ev.SourceIP,
-			"action":      ev.Action,
-			"result":      ev.Result,
-			"risk_score":  ev.RiskScore,
-			"risk_level":  ev.RiskLevel,
-			"severity":    ev.Severity,
-			"reason":      ev.Reason,
+		// Marshal the fully-redacted event so Details, ChangeData, and Params
+		// are all included and credential-free.
+		eventBytes, err := json.Marshal(redactEvent(ev))
+		if err != nil {
+			return fmt.Errorf("failed to marshal redacted audit event: %w", err)
+		}
+		var event map[string]interface{}
+		if err := json.Unmarshal(eventBytes, &event); err != nil {
+			return fmt.Errorf("failed to unmarshal redacted audit event: %w", err)
 		}
 		hecEvent := SplunkHECEvent{
 			Time:       float64(ev.Timestamp.UnixNano()) / 1e9,
