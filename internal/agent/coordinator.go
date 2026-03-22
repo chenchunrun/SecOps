@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/notify"
 	"github.com/charmbracelet/crush/internal/agent/prompt"
 	"github.com/charmbracelet/crush/internal/agent/tools"
+	"github.com/charmbracelet/crush/internal/agent/tools/secops"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/filetracker"
 	"github.com/charmbracelet/crush/internal/history"
@@ -474,6 +475,32 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 			tools.NewReadMCPResourceTool(c.cfg, c.permissions),
 		)
 	}
+
+	// Register SecOps tools as agent tools
+	secOpsRegistry := secops.NewSecOpsToolRegistry()
+	// Register all SecOps tools
+	_ = secOpsRegistry.Register(secops.NewLogAnalyzeTool(nil))
+	_ = secOpsRegistry.Register(secops.NewMonitoringQueryTool(nil))
+	_ = secOpsRegistry.Register(secops.NewComplianceCheckTool(nil))
+	_ = secOpsRegistry.Register(secops.NewCertificateAuditTool(nil))
+	_ = secOpsRegistry.Register(secops.NewSecurityScanTool(nil))
+	_ = secOpsRegistry.Register(secops.NewConfigurationAuditTool(nil))
+	_ = secOpsRegistry.Register(secops.NewNetworkDiagnosticTool(nil))
+	_ = secOpsRegistry.Register(secops.NewDatabaseQueryTool(nil))
+	_ = secOpsRegistry.Register(secops.NewBackupCheckTool(nil))
+	_ = secOpsRegistry.Register(secops.NewReplicationStatusTool(nil))
+	_ = secOpsRegistry.Register(secops.NewSecretAuditTool(nil))
+	_ = secOpsRegistry.Register(secops.NewRotationCheckTool(nil))
+	_ = secOpsRegistry.Register(secops.NewAccessReviewTool(nil))
+	_ = secOpsRegistry.Register(secops.NewInfrastructureQueryTool(nil))
+	_ = secOpsRegistry.Register(secops.NewDeploymentStatusTool(nil))
+	_ = secOpsRegistry.Register(secops.NewAlertCheckTool(nil))
+	_ = secOpsRegistry.Register(secops.NewIncidentTimelineTool(nil))
+	_ = secOpsRegistry.Register(secops.NewResourceMonitorTool(nil))
+
+	secOpsTools := RegisterSecOpsTools(secOpsRegistry, c.permissions)
+	allTools = append(allTools, secOpsTools...)
+	slog.Debug("Registered SecOps tools with agent", "count", len(secOpsTools))
 
 	var filteredTools []fantasy.AgentTool
 	for _, tool := range allTools {

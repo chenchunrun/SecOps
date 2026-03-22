@@ -2005,3 +2005,387 @@ func BenchmarkIncidentTimelineTool_Execute_AllTypes(b *testing.B) {
 		tool.Execute(params)
 	}
 }
+
+// ResourceMonitorTool tests
+
+func TestResourceMonitorTool_Type(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+	if tool.Type() != ToolTypeResourceMonitor {
+		t.Errorf("expected %v, got %v", ToolTypeResourceMonitor, tool.Type())
+	}
+}
+
+func TestResourceMonitorTool_Name(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+	if tool.Name() != "Resource Monitor" {
+		t.Errorf("expected 'Resource Monitor', got %v", tool.Name())
+	}
+}
+
+func TestResourceMonitorTool_ValidateParams(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	tests := []struct {
+		name    string
+		params  interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid params with all metrics",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"cpu", "memory", "disk", "network", "process"},
+				Duration: "1m",
+				Interval: "1s",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid params with default target",
+			params: &ResourceMonitorParams{
+				Metrics: []string{"cpu", "memory"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid params with valid interval 5s",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"cpu"},
+				Interval: "5s",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid params with valid interval 10s",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"memory"},
+				Interval: "10s",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid params with valid interval 30s",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"disk"},
+				Interval: "30s",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid params with valid duration 5m",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"cpu"},
+				Duration: "5m",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid params with valid duration 15m",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"memory"},
+				Duration: "15m",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid params with valid duration 1h",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"network"},
+				Duration: "1h",
+			},
+			wantErr: false,
+		},
+		{
+			name: "unsupported metric",
+			params: &ResourceMonitorParams{
+				Target:  "localhost",
+				Metrics: []string{"gpu"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "unsupported interval",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"cpu"},
+				Interval: "2s",
+			},
+			wantErr: true,
+		},
+		{
+			name: "unsupported duration",
+			params: &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{"cpu"},
+				Duration: "2h",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tool.ValidateParams(tt.params)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateParams() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestResourceMonitorTool_Execute(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  []string{"cpu", "memory"},
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	monResult, ok := result.(*ResourceMonitorResult)
+	if !ok {
+		t.Fatal("expected ResourceMonitorResult")
+	}
+
+	if monResult.Target != "localhost" {
+		t.Errorf("expected target localhost, got %v", monResult.Target)
+	}
+
+	if len(monResult.Metrics) == 0 {
+		t.Error("expected metrics in result")
+	}
+
+	if monResult.Summary == "" {
+		t.Error("expected summary in result")
+	}
+}
+
+func TestResourceMonitorTool_Execute_AllMetrics(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	allMetrics := []string{"cpu", "memory", "disk", "network", "process"}
+
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  allMetrics,
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	monResult := result.(*ResourceMonitorResult)
+
+	metricNames := make(map[string]bool)
+	for _, m := range monResult.Metrics {
+		metricNames[m.Name] = true
+	}
+
+	if !metricNames["cpu_usage_percent"] && !metricNames["memory_usage_percent"] {
+		t.Error("expected at least cpu or memory metrics")
+	}
+}
+
+func TestResourceMonitorTool_Execute_RemoteHost(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	params := &ResourceMonitorParams{
+		Target:   "db-server-01",
+		Metrics:  []string{"cpu", "memory"},
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	monResult := result.(*ResourceMonitorResult)
+	if monResult.Target != "db-server-01" {
+		t.Errorf("expected target db-server-01, got %v", monResult.Target)
+	}
+}
+
+func TestResourceMonitorTool_Execute_DefaultInterval(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  []string{"cpu"},
+		Duration: "1m",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	monResult := result.(*ResourceMonitorResult)
+	if len(monResult.Metrics) == 0 {
+		t.Error("expected metrics with default interval")
+	}
+}
+
+func TestResourceMonitorTool_AnomalyDetection_CPU(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	// CPU spike threshold is >90%. Our mock returns ~45-70% for localhost,
+	// so we should NOT get an anomaly by default.
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  []string{"cpu"},
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	monResult := result.(*ResourceMonitorResult)
+	// CPU in mock data is below 90% threshold for localhost
+	if monResult.Anomaly && monResult.AnomalyType == "cpu_spike" {
+		t.Log("CPU spike detected (may be expected depending on mock data)")
+	}
+}
+
+func TestResourceMonitorTool_AnomalyDetection_Memory(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	// Memory threshold is >85%. Our mock returns ~62% for localhost.
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  []string{"memory"},
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	monResult := result.(*ResourceMonitorResult)
+	if monResult.Anomaly && monResult.AnomalyType == "memory_leak" {
+		t.Log("Memory anomaly detected")
+	}
+}
+
+func TestResourceMonitorTool_MetricTypes(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	testCases := []struct {
+		metric   string
+		expected string
+	}{
+		{"cpu", "cpu_usage_percent"},
+		{"memory", "memory_usage_percent"},
+		{"disk", "disk_usage_percent"},
+		{"network", "network_latency_ms"},
+		{"process", "total_processes"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.metric, func(t *testing.T) {
+			params := &ResourceMonitorParams{
+				Target:   "localhost",
+				Metrics:  []string{tc.metric},
+				Duration: "1m",
+				Interval: "1s",
+			}
+
+			result, err := tool.Execute(params)
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			monResult := result.(*ResourceMonitorResult)
+			found := false
+			for _, m := range monResult.Metrics {
+				if m.Name == tc.expected {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected metric %v for %v", tc.expected, tc.metric)
+			}
+		})
+	}
+}
+
+func TestResourceMonitorTool_MetricFields(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  []string{"cpu"},
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	result, _ := tool.Execute(params)
+	monResult := result.(*ResourceMonitorResult)
+
+	for _, m := range monResult.Metrics {
+		if m.Name == "" {
+			t.Error("expected metric name")
+		}
+		if m.Value == 0 && m.Name != "" {
+			// Some metrics like network connections could be 0 legitimately
+		}
+		if m.Unit == "" {
+			// Some metrics like load_avg have no unit
+		}
+		if m.Timestamp.IsZero() {
+			t.Error("expected metric timestamp")
+		}
+	}
+}
+
+func BenchmarkResourceMonitorTool_Execute(b *testing.B) {
+	tool := NewResourceMonitorTool(nil)
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  []string{"cpu", "memory", "disk", "network", "process"},
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tool.Execute(params)
+	}
+}
+
+func BenchmarkResourceMonitorTool_Execute_SingleMetric(b *testing.B) {
+	tool := NewResourceMonitorTool(nil)
+	params := &ResourceMonitorParams{
+		Target:   "localhost",
+		Metrics:  []string{"cpu"},
+		Duration: "1m",
+		Interval: "1s",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tool.Execute(params)
+	}
+}

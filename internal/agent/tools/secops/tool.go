@@ -21,6 +21,7 @@ const (
 	ToolTypeDeploymentStatus     ToolType = "deployment_status"
 	ToolTypeAlertCheck          ToolType = "alert_check"
 	ToolTypeIncidentTimeline    ToolType = "incident_timeline"
+	ToolTypeResourceMonitor    ToolType = "resource_monitor"
 )
 
 // SecOpsTool 工具接口
