@@ -1,12 +1,20 @@
 package integration
 
 import (
+	"crypto/tls"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/chenchunrun/SecOps/internal/agent"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
 	"github.com/chenchunrun/SecOps/internal/audit"
+	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/security"
 )
 
@@ -411,14 +419,14 @@ func TestEndToEndSecurityIncident(t *testing.T) {
 	// 3. 事件流
 	// Step 1: 检测到可疑活动
 	suspiciousEvent := &audit.AuditEvent{
-		EventType:    audit.EventTypeSecurityAlert,
-		UserID:       "user123",
-		Username:     "suspected_user",
-		Action:       "suspicious_api_call",
-		Result:       audit.ResultDenied,
-		RiskScore:    85,
-		RiskLevel:    "critical",
-		Timestamp:    time.Now(),
+		EventType: audit.EventTypeSecurityAlert,
+		UserID:    "user123",
+		Username:  "suspected_user",
+		Action:    "suspicious_api_call",
+		Result:    audit.ResultDenied,
+		RiskScore: 85,
+		RiskLevel: "critical",
+		Timestamp: time.Now(),
 	}
 
 	auditStore.SaveEvent(suspiciousEvent)
@@ -536,5 +544,120 @@ func BenchmarkIntegration_ComplianceReporting(b *testing.B) {
 			now.Add(-24*time.Hour),
 			now,
 		)
+	}
+}
+
+func TestPermissionRiskToolAuditSIEM_EndToEnd(t *testing.T) {
+	registry := secops.NewToolRegistry()
+	logTool := secops.NewLogAnalyzeTool(registry)
+	if err := registry.Register(logTool); err != nil {
+		t.Fatalf("register log tool failed: %v", err)
+	}
+
+	permSvc := permission.NewDefaultService()
+	auditStore := audit.NewInMemoryAuditStore()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "app.log")
+	if err := os.WriteFile(logPath, []byte("INFO service started\nERROR db timeout\n"), 0o600); err != nil {
+		t.Fatalf("write log file failed: %v", err)
+	}
+	t.Setenv("SECOPS_LOG_APPLICATION_PATHS", logPath)
+
+	req := &permission.PermissionRequest{
+		SessionID:    "sess-e2e-1",
+		UserID:       "ops-user",
+		Username:     "ops",
+		ToolName:     "log_analyze",
+		Action:       "read",
+		ResourceType: permission.ResourceTypeFile,
+		ResourcePath: logPath,
+	}
+	if err := permSvc.Request(req); err != nil {
+		t.Fatalf("permission request failed: %v", err)
+	}
+	if req.Decision != permission.DecisionAutoApprove {
+		t.Fatalf("expected auto approve, got %s", req.Decision)
+	}
+
+	allowed, err := permSvc.Check(req.SessionID, req.ToolName)
+	if err != nil {
+		t.Fatalf("permission check failed: %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected permission to be cached as allowed")
+	}
+
+	toolResult, err := logTool.Execute(&secops.LogAnalyzeParams{
+		Source:  secops.LogSourceApplication,
+		Pattern: "ERROR",
+	})
+	if err != nil {
+		t.Fatalf("tool execute failed: %v", err)
+	}
+	logResult, ok := toolResult.(*secops.LogAnalyzeResult)
+	if !ok {
+		t.Fatal("expected log analyze result")
+	}
+
+	evt := audit.DefaultAuditEvent(audit.EventTypeCommandExecuted)
+	evt.Timestamp = time.Now()
+	evt.SessionID = req.SessionID
+	evt.UserID = req.UserID
+	evt.Username = req.Username
+	evt.Action = req.ToolName
+	evt.ResourceType = string(req.ResourceType)
+	evt.ResourcePath = req.ResourcePath
+	evt.Result = audit.ResultSuccess
+	evt.RiskScore = req.RiskScore
+	evt.RiskLevel = string(req.Severity)
+	evt.Details = map[string]interface{}{
+		"decision":            string(req.Decision),
+		"matched_entries":     len(logResult.Entries),
+		"token_should_redact": "Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+	}
+	if err := auditStore.SaveEvent(evt); err != nil {
+		t.Fatalf("save audit event failed: %v", err)
+	}
+
+	events, err := auditStore.ListEvents(&audit.AuditFilter{SessionID: req.SessionID})
+	if err != nil {
+		t.Fatalf("list events failed: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	var capturedBody string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/_bulk" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	exporter := &audit.ELKExporter{
+		Endpoint:   server.URL,
+		Index:      "secops-audit",
+		TLSEnabled: true,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // test-only TLS server.
+		},
+	}
+	if err := exporter.Export(t.Context(), events); err != nil {
+		t.Fatalf("siem export failed: %v", err)
+	}
+	if !strings.Contains(capturedBody, "\"index\"") {
+		t.Fatal("expected bulk index line in ELK payload")
+	}
+	if !strings.Contains(capturedBody, "***REDACTED***") {
+		t.Fatal("expected exported payload to be redacted")
+	}
+	if strings.Contains(capturedBody, "Bearer abcdefghijklmnopqrstuvwxyz") {
+		t.Fatal("expected raw bearer token to be removed from payload")
 	}
 }
