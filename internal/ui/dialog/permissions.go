@@ -10,13 +10,13 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/fsext"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/stringext"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // PermissionsID is the identifier for the permissions dialog.
@@ -493,7 +493,11 @@ func (p *Permissions) renderKeyValue(key, value string, width int) string {
 	valueStyle := t.Base
 
 	keyStr := keyStyle.Render(key)
-	valueStr := valueStyle.Width(width - lipgloss.Width(keyStr) - 1).Render(" " + value)
+	valueWidth := max(0, width-lipgloss.Width(keyStr)-1)
+	valueStr := valueStyle.
+		Width(valueWidth).
+		MaxWidth(valueWidth).
+		Render(" " + value)
 
 	return lipgloss.JoinHorizontal(lipgloss.Left, keyStr, valueStr)
 }
@@ -726,7 +730,10 @@ func (p *Permissions) renderDefaultContent(width int) string {
 // renderContentPanel renders content in a panel with the full width.
 func (p *Permissions) renderContentPanel(content string, width int) string {
 	panelStyle := p.com.Styles.Dialog.ContentPanel
-	return panelStyle.Width(width).Render(content)
+	return panelStyle.
+		Width(width).
+		MaxWidth(width).
+		Render(content)
 }
 
 func (p *Permissions) renderButtons(contentWidth int) string {
