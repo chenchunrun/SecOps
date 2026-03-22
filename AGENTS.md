@@ -1,8 +1,9 @@
-# Crush Development Guide
+# SecOps Agent Development Guide
 
 ## Project Overview
 
-Crush is a terminal-based AI coding assistant built in Go by
+SecOps Agent is an independent Crush fork maintained by
+`chenchunrun` and built on top of the original project by
 [Charm](https://charm.land). It connects to LLMs and gives them tools to read,
 write, and execute code. It supports multiple providers (Anthropic, OpenAI,
 Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with
@@ -37,13 +38,36 @@ internal/
   lsp/                             LSP client manager, auto-discovery, on-demand startup
   ui/                              Bubble Tea v2 TUI (see internal/ui/AGENTS.md)
   permission/                      Tool permission checking and allow-lists
+    secops_permission.go           SecOps risk-aware permission decision chain
+  security/
+    capability.go                  Capability-based gate model
+    risk_assessment.go             Multi-factor risk assessment engine
+  audit/
+    audit.go                       Audit event model and service
+    audit_store.go                 Persistent audit storage
+    compliance_report.go           Compliance report generation
+    siem_export.go                 SIEM exporters with redaction
+  sandbox/
+    executor.go                    Local/Docker/SSH execution backend
   skills/                          Skill file discovery and loading
   shell/                           Bash command execution with background job support
   event/                           Telemetry (PostHog)
   pubsub/                          Internal pub/sub for cross-component messaging
   filetracker/                     Tracks files touched per session
   history/                         Prompt history
+  integration/                     End-to-end integration tests
+  agent/tools/secops/              SecOps tool implementations (18 categories)
 ```
+
+## Local-only Development Docs
+
+The following files are intentionally local-only and ignored from remote
+repository tracking:
+
+- `SECOPS_DOD_MATRIX.md`
+- `SECOPS_FEATURES.md`
+- `SECOPS_PROJECT_PLAN.md`
+- `SECURITY_HARDENING.md`
 
 ### Key Dependency Roles
 

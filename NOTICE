@@ -1,0 +1,17 @@
+SecOps Agent
+Copyright (c) 2026 chenchunrun
+
+This project is an independent fork and extension based on Crush.
+
+Upstream project:
+- Name: Crush
+- Copyright (c) 2025-2026 Charmbracelet, Inc.
+- License: Functional Source License 1.1 (MIT Future License)
+
+This repository includes original modifications and additions by chenchunrun,
+including SecOps-specific agent/tooling, risk controls, audit/SIEM integration,
+and release/test hardening.
+
+Trademark notice:
+Crush and Charmbracelet marks are owned by their respective holders.
+Use of those marks in this repository is for attribution only.

@@ -1,10 +1,15 @@
-# Crush
+# SecOps Agent (Based on Crush)
 
 <p align="center">
     <a href="https://stuff.charm.sh/crush/charm-crush.png"><img width="450" alt="Charm Crush Logo" src="https://github.com/user-attachments/assets/cf8ca3ce-8b02-43f0-9d0f-5a331488da4b" /></a><br />
     <a href="https://github.com/chenchunrun/SecOps/releases"><img src="https://img.shields.io/github/release/chenchunrun/SecOps" alt="Latest Release"></a>
     <a href="https://github.com/chenchunrun/SecOps/actions"><img src="https://github.com/chenchunrun/SecOps/actions/workflows/build.yml/badge.svg" alt="Build Status"></a>
 </p>
+
+> Independent fork and SecOps extension maintained and released by
+> **chenchunrun**.
+> Based on the original Crush project by Charmbracelet. Not affiliated with or
+> endorsed by Charmbracelet.
 
 <p align="center">Your new coding bestie, now available in your favourite terminal.<br />Your tools, your code, and your workflows, wired into your LLM of choice.</p>
 <p align="center">终端里的编程新搭档，<br />无缝接入你的工具、代码与工作流，全面兼容主流 LLM 模型。</p>
@@ -26,8 +31,8 @@
 This fork includes SecOps runtime capabilities (18 tools, risk/capability gates,
 audit/SIEM, and persistence hardening).
 
-- Feature design and scope: [`SECOPS_FEATURES.md`](./SECOPS_FEATURES.md)
-- Definition of Done + test mapping: [`SECOPS_DOD_MATRIX.md`](./SECOPS_DOD_MATRIX.md)
+Internal planning and design documents are intentionally kept local-only during
+development and are not published to the remote repository.
 
 Recommended release verification commands:
 
