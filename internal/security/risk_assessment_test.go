@@ -52,8 +52,8 @@ func TestRiskAssessor_AssessCommand(t *testing.T) {
 		{
 			name:          "网络访问",
 			command:       "curl http://example.com/api",
-			expectedLevel: RiskLevelLow,
-			minScore:      15,
+			expectedLevel: RiskLevelMedium,
+			minScore:      40,
 			hasFactors:    true,
 		},
 	}

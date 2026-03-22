@@ -63,12 +63,96 @@ type RiskAssessorConfig struct {
 	UserConfirmThreshold int // >= 此分数时需要用户确认
 }
 
+// DefaultBannedCommands returns the full list of banned shell commands,
+// merging entries from both the risk assessor and the bash tool.
+func DefaultBannedCommands() []string {
+	return []string{
+		// From risk_assessment.go (not in bash.go)
+		"dd",
+		"halt",
+		"reboot",
+		"shutdown",
+
+		// Network/Download tools
+		"alias",
+		"aria2c",
+		"axel",
+		"chrome",
+		"curl",
+		"curlie",
+		"firefox",
+		"http-prompt",
+		"httpie",
+		"links",
+		"lynx",
+		"nc",
+		"safari",
+		"scp",
+		"ssh",
+		"telnet",
+		"w3m",
+		"wget",
+		"xh",
+
+		// System administration
+		"doas",
+		"su",
+		"sudo",
+
+		// Package managers
+		"apk",
+		"apt",
+		"apt-cache",
+		"apt-get",
+		"dnf",
+		"dpkg",
+		"emerge",
+		"home-manager",
+		"makepkg",
+		"opkg",
+		"pacman",
+		"paru",
+		"pkg",
+		"pkg_add",
+		"pkg_delete",
+		"portage",
+		"rpm",
+		"yay",
+		"yum",
+		"zypper",
+
+		// System modification
+		"at",
+		"batch",
+		"chkconfig",
+		"crontab",
+		"fdisk",
+		"mkfs",
+		"mount",
+		"parted",
+		"service",
+		"systemctl",
+		"umount",
+
+		// Network configuration
+		"firewall-cmd",
+		"ifconfig",
+		"ip",
+		"iptables",
+		"netstat",
+		"pfctl",
+		"route",
+		"ufw",
+
+		// File removal (kept from risk_assessment.go)
+		"rm",
+	}
+}
+
 // DefaultRiskAssessorConfig 默认风险评估配置
 func DefaultRiskAssessorConfig() *RiskAssessorConfig {
 	return &RiskAssessorConfig{
-		BannedCommands: []string{
-			"rm", "dd", "mkfs", "fdisk", "reboot", "shutdown", "halt",
-		},
+		BannedCommands: DefaultBannedCommands(),
 		SensitivePaths: []string{
 			"/etc/shadow",
 			"/etc/passwd",

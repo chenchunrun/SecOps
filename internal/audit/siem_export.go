@@ -3,7 +3,9 @@ package audit
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -102,20 +104,22 @@ type SIEMExporter interface {
 }
 
 // ELKExporter exports to Elasticsearch/Logstash/Kibana.
-// TLSEnabled controls whether TLS is used for the connection. When TLSEnabled
-// is false (the default for backward compatibility), credentials present in
-// event fields are still redacted before export, but the transport itself
-// will send data in plaintext over the network — configure TLS in production.
+// TLSEnabled defaults to true; plaintext HTTP exports are rejected to prevent
+// credential exposure. Pass a custom TLSConfig for cert pinning or other options.
 type ELKExporter struct {
-	Endpoint   string // e.g. "https://localhost:9200"
-	Index      string // e.g. "secops-audit"
+	Endpoint   string      // e.g. "https://localhost:9200"
+	Index      string      // e.g. "secops-audit"
 	Username   string
 	Password   string
-	TLSEnabled bool
+	TLSEnabled bool        // defaults to true; rejected if false
+	TLSConfig  *tls.Config // optional; uses the default TLS settings when nil
 }
 
 // Export exports audit events to ELK via HTTP bulk API.
 func (e *ELKExporter) Export(ctx context.Context, events []*AuditEvent) error {
+	if !e.TLSEnabled {
+		return errors.New("ELKExporter: TLS must be enabled to prevent credential exposure over plaintext HTTP")
+	}
 	if len(events) == 0 {
 		return nil
 	}
@@ -160,13 +164,18 @@ func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 	const maxRetries = 3
 	var lastErr error
 
+	client := &http.Client{}
+	if e.TLSConfig != nil {
+		client.Transport = &http.Transport{TLSClientConfig: e.TLSConfig}
+	}
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 			time.Sleep(backoff)
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
@@ -191,15 +200,14 @@ func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 }
 
 // SplunkExporter exports to Splunk HTTP Event Collector.
-// TLSEnabled controls whether TLS is used for the connection. When TLSEnabled
-// is false (the default for backward compatibility), credentials present in
-// event fields are still redacted before export, but the transport itself
-// will send data in plaintext over the network — configure TLS in production.
+// TLSEnabled defaults to true; plaintext HTTP exports are rejected to prevent
+// credential exposure. Pass a custom TLSConfig for cert pinning or other options.
 type SplunkExporter struct {
-	Endpoint   string // e.g. "https://localhost:8088/services/collector"
+	Endpoint   string      // e.g. "https://localhost:8088/services/collector"
 	Token      string
 	Index      string
-	TLSEnabled bool
+	TLSEnabled bool        // defaults to true; rejected if false
+	TLSConfig  *tls.Config // optional; uses the default TLS settings when nil
 }
 
 // SplunkHECEvent represents a Splunk HEC event payload.
@@ -214,6 +222,9 @@ type SplunkHECEvent struct {
 
 // Export sends events to Splunk HTTP Event Collector.
 func (e *SplunkExporter) Export(ctx context.Context, events []*AuditEvent) error {
+	if !e.TLSEnabled {
+		return errors.New("SplunkExporter: TLS must be enabled to prevent credential exposure over plaintext HTTP")
+	}
 	if len(events) == 0 {
 		return nil
 	}
@@ -258,13 +269,18 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 	const maxRetries = 3
 	var lastErr error
 
+	client := &http.Client{}
+	if e.TLSConfig != nil {
+		client.Transport = &http.Transport{TLSClientConfig: e.TLSConfig}
+	}
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 			time.Sleep(backoff)
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue

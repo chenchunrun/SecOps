@@ -28,10 +28,11 @@ func TestELKExporter_Export_Success(t *testing.T) {
 	defer server.Close()
 
 	exporter := &ELKExporter{
-		Endpoint: server.URL,
-		Index:    "test-index",
-		Username: "elastic",
-		Password: "secret",
+		Endpoint:   server.URL,
+		Index:      "test-index",
+		Username:   "elastic",
+		Password:   "secret",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{
@@ -79,8 +80,9 @@ func TestELKExporter_Export_ServerError(t *testing.T) {
 	defer server.Close()
 
 	exporter := &ELKExporter{
-		Endpoint: server.URL,
-		Index:    "test-index",
+		Endpoint:   server.URL,
+		Index:      "test-index",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypePermissionRequest)}
@@ -104,8 +106,9 @@ func TestELKExporter_Export_RetryOnFailure(t *testing.T) {
 	defer server.Close()
 
 	exporter := &ELKExporter{
-		Endpoint: server.URL,
-		Index:    "test-index",
+		Endpoint:   server.URL,
+		Index:      "test-index",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)}
@@ -126,8 +129,9 @@ func TestELKExporter_Export_RetryExhausted(t *testing.T) {
 	defer server.Close()
 
 	exporter := &ELKExporter{
-		Endpoint: server.URL,
-		Index:    "test-index",
+		Endpoint:   server.URL,
+		Index:      "test-index",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
@@ -153,9 +157,10 @@ func TestSplunkExporter_Export_Success(t *testing.T) {
 	defer server.Close()
 
 	exporter := &SplunkExporter{
-		Endpoint: server.URL,
-		Token:    "test-token",
-		Index:    "test-index",
+		Endpoint:   server.URL,
+		Token:      "test-token",
+		Index:      "test-index",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{
@@ -189,8 +194,9 @@ func TestSplunkExporter_Export_ServerError(t *testing.T) {
 	defer server.Close()
 
 	exporter := &SplunkExporter{
-		Endpoint: server.URL,
-		Token:    "bad-token",
+		Endpoint:   server.URL,
+		Token:      "bad-token",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeLoginFailure)}
@@ -214,9 +220,10 @@ func TestSplunkExporter_Export_RetryOnFailure(t *testing.T) {
 	defer server.Close()
 
 	exporter := &SplunkExporter{
-		Endpoint: server.URL,
-		Token:    "test-token",
-		Index:    "test-index",
+		Endpoint:   server.URL,
+		Token:      "test-token",
+		Index:      "test-index",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeConfigChange)}
@@ -237,8 +244,9 @@ func TestSplunkExporter_Export_RetryExhausted(t *testing.T) {
 	defer server.Close()
 
 	exporter := &SplunkExporter{
-		Endpoint: server.URL,
-		Token:    "test-token",
+		Endpoint:   server.URL,
+		Token:      "test-token",
+		TLSEnabled: true,
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
@@ -262,8 +270,8 @@ func TestExportToAll_Success(t *testing.T) {
 	}))
 	defer server2.Close()
 
-	elk := &ELKExporter{Endpoint: server1.URL, Index: "test"}
-	splunk := &SplunkExporter{Endpoint: server2.URL, Token: "tok", Index: "test"}
+	elk := &ELKExporter{Endpoint: server1.URL, Index: "test", TLSEnabled: true}
+	splunk := &SplunkExporter{Endpoint: server2.URL, Token: "tok", Index: "test", TLSEnabled: true}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)}
 
@@ -279,7 +287,7 @@ func TestExportToAll_StopsOnFirstError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	elk := &ELKExporter{Endpoint: server.URL, Index: "test"}
+	elk := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypePermissionRequest)}
 
@@ -306,7 +314,7 @@ func TestELKExporter_Export_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &ELKExporter{Endpoint: server.URL, Index: "test"}
+	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true}
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -325,7 +333,7 @@ func TestSplunkExporter_Export_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok"}
+	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true}
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -347,7 +355,7 @@ func TestELKExporter_Export_EmptyEvents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &ELKExporter{Endpoint: server.URL, Index: "test"}
+	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true}
 	err := exporter.Export(context.Background(), []*AuditEvent{})
 	if err != nil {
 		t.Fatalf("expected no error with empty events, got %v", err)
@@ -368,7 +376,7 @@ func TestSplunkExporter_Export_EmptyEvents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok"}
+	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true}
 	err := exporter.Export(context.Background(), []*AuditEvent{})
 	if err != nil {
 		t.Fatalf("expected no error with empty events, got %v", err)

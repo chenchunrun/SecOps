@@ -25,6 +25,8 @@ import (
 	"github.com/charmbracelet/crush/internal/log"
 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
 	"github.com/qjebbs/go-jsons"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const defaultCatwalkURL = "https://catwalk.charm.sh"
@@ -702,11 +704,62 @@ func loadFromBytes(configs [][]byte) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Decrypt any ENC: values that were encrypted by SetConfigField so the
+	// in-memory config holds plaintext values (required for JSON unmarshal of
+	// nested types like oauth.Token and for provider credential use at runtime).
+	data, err = decryptSensitiveValues(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt sensitive config values: %w", err)
+	}
+
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
+}
+
+// decryptSensitiveValues walks the raw JSON bytes and replaces any string value
+// prefixed with "ENC:" with its decrypted plaintext. It returns the (possibly
+// modified) JSON for unmarshaling.
+func decryptSensitiveValues(data []byte) ([]byte, error) {
+	modified := string(data)
+	changed := false
+	gjson.ParseBytes(data).ForEach(func(key, value gjson.Result) bool {
+		if value.Type != gjson.String {
+			return true
+		}
+		if !strings.HasPrefix(value.Str, encryptedMarker) {
+			return true
+		}
+		plaintext, err := decrypt(value.Str)
+		if err != nil {
+			slog.Warn("Failed to decrypt config value, leaving encrypted", "key", key.Str, "error", err)
+			return true
+		}
+		// Use the full JSON path to locate the value. For top-level keys pathJSON
+		// equals key.Str; for nested keys it includes dots (e.g. "providers.copilot.oauth").
+		pathJSON := value.Path(modified)
+		var newValue any
+		if gjson.Valid(plaintext) {
+			// Preserve JSON structure for objects/arrays (e.g. decrypted oauth.Token).
+			newValue = json.RawMessage(plaintext)
+		} else {
+			newValue = plaintext
+		}
+		modified, err = sjson.Set(modified, pathJSON, newValue)
+		if err != nil {
+			slog.Warn("Failed to inject decrypted value, leaving encrypted", "key", pathJSON, "error", err)
+			return true
+		}
+		changed = true
+		return true
+	})
+	if !changed {
+		return data, nil
+	}
+	return []byte(modified), nil
 }
 
 func hasAWSCredentials(env env.Env) bool {

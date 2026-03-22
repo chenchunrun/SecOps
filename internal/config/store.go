@@ -3,11 +3,19 @@ package config
 import (
 	"cmp"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"charm.land/catwalk/pkg/catwalk"
 	hyperp "github.com/charmbracelet/crush/internal/agent/hyper"
@@ -17,6 +25,102 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+// Encrypted value marker prefix written to config files.
+const encryptedMarker = "ENC:"
+
+// sensitivePrefixes is the list of key prefixes that identify sensitive values.
+var sensitivePrefixes = []string{"oauth", "refresh_token", "api_key", "secret", "access_token", "bearer"}
+
+// deriveKey creates a 32-byte AES key from the user's HOME directory and username.
+// It is deterministic per machine so the same key is regenerated on every restart.
+func deriveKey() ([]byte, error) {
+	home := os.Getenv("HOME")
+	user := os.Getenv("USER")
+	if home == "" || user == "" {
+		return nil, errors.New("HOME or USER env not set")
+	}
+	h := sha256.Sum256([]byte(home + ":" + user + ":crush-secrets-v1"))
+	return h[:], nil
+}
+
+// encrypt encrypts a plaintext string using AES-256-GCM and returns a base64-encoded
+// "ENC:<ciphertext>" string suitable for writing to a config file.
+func encrypt(plaintext string) (string, error) {
+	key, err := deriveKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return encryptedMarker + base64.RawURLEncoding.EncodeToString(ciphertext), nil
+}
+
+// decrypt reverses encrypt: it strips the ENC: marker, decodes base64, and
+// returns the plaintext using AES-256-GCM.
+func decrypt(encoded string) (string, error) {
+	if !strings.HasPrefix(encoded, encryptedMarker) {
+		return "", errors.New("not an encrypted value")
+	}
+	ciphertext, err := base64.RawURLEncoding.DecodeString(encoded[len(encryptedMarker):])
+	if err != nil {
+		return "", err
+	}
+	key, err := deriveKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", errors.New("ciphertext too short")
+	}
+	nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+// isSensitive returns true if the given key name refers to a sensitive field
+// that should be encrypted before being written to disk.
+func isSensitive(key string) bool {
+	lower := strings.ToLower(key)
+	for _, prefix := range sensitivePrefixes {
+		if strings.Contains(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// jsonMarshal wraps json.Marshal for use within this package.
+func jsonMarshal(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
 
 // ConfigStore is the single entry point for all config access. It owns the
 // pure-data Config, runtime state (working directory, resolver, known
@@ -95,7 +199,29 @@ func (s *ConfigStore) SetConfigField(scope Scope, key string, value any) error {
 		}
 	}
 
-	newValue, err := sjson.Set(string(data), key, value)
+	// Encrypt sensitive values before persisting.
+	writeValue := value
+	if isSensitive(key) {
+		var plaintext string
+		switch v := value.(type) {
+		case string:
+			plaintext = v
+		default:
+			// Marshal structs (e.g. oauth.Token) to JSON for encryption.
+			plaintext, err = jsonMarshal(value)
+			if err != nil {
+				return fmt.Errorf("failed to marshal sensitive value for encryption: %w", err)
+			}
+		}
+		var encrypted string
+		encrypted, err = encrypt(plaintext)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt sensitive value: %w", err)
+		}
+		writeValue = encrypted
+	}
+
+	newValue, err := sjson.Set(string(data), key, writeValue)
 	if err != nil {
 		return fmt.Errorf("failed to set config field %s: %w", key, err)
 	}
