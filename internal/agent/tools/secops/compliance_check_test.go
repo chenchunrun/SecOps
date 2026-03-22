@@ -301,7 +301,7 @@ func TestComplianceCheckTool_GetRulesForFramework_CategoryFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rules := tool.getRulesForFramework(tt.framework, tt.categories)
 			if len(rules) == 0 {
-				// Some category/framework combos may have no rules in mock data
+				// Some category/framework combos may have no matching rules.
 				t.Log("no rules returned for this combination")
 			}
 			for _, rule := range rules {
@@ -780,8 +780,8 @@ func TestComplianceCheckTool_FilterByCategory(t *testing.T) {
 	rules := tool.getRulesForFramework(FrameworkCIS, []string{"network"})
 
 	if len(rules) == 0 {
-		// Some categories may not have rules in mock
-		t.Skip("no network rules in mock")
+		// Some categories may have no rules.
+		t.Skip("no network rules available")
 	}
 
 	for _, rule := range rules {
@@ -983,9 +983,9 @@ func TestComplianceCheckTool_RemediationInResult(t *testing.T) {
 
 	for _, rule := range cr.Rules {
 		if rule.Status == StatusFailed {
-			// Failed rules in mock data should have remediation
+			// Failed rules should ideally include remediation details.
 			if rule.Remediation == nil {
-				// Some rules may not have remediation in mock
+				// Some rules may not define remediation.
 				t.Logf("rule %s has no remediation", rule.ID)
 			}
 		}

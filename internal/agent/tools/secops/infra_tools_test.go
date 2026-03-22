@@ -2640,7 +2640,7 @@ func TestResourceMonitorTool_Execute_DefaultInterval(t *testing.T) {
 func TestResourceMonitorTool_AnomalyDetection_CPU(t *testing.T) {
 	tool := NewResourceMonitorTool(nil)
 
-	// CPU spike threshold is >90%. Our mock returns ~45-70% for localhost,
+	// CPU spike threshold is >90%. Typical localhost sampling is ~45-70%,
 	// so we should NOT get an anomaly by default.
 	params := &ResourceMonitorParams{
 		Target:   "localhost",
@@ -2655,16 +2655,16 @@ func TestResourceMonitorTool_AnomalyDetection_CPU(t *testing.T) {
 	}
 
 	monResult := result.(*ResourceMonitorResult)
-	// CPU in mock data is below 90% threshold for localhost
+	// Typical sampled CPU is below 90% threshold for localhost.
 	if monResult.Anomaly && monResult.AnomalyType == "cpu_spike" {
-		t.Log("CPU spike detected (may be expected depending on mock data)")
+		t.Log("CPU spike detected (may be expected depending on live host load)")
 	}
 }
 
 func TestResourceMonitorTool_AnomalyDetection_Memory(t *testing.T) {
 	tool := NewResourceMonitorTool(nil)
 
-	// Memory threshold is >85%. Our mock returns ~62% for localhost.
+	// Memory threshold is >85%. Typical localhost sampling is around ~62%.
 	params := &ResourceMonitorParams{
 		Target:   "localhost",
 		Metrics:  []string{"memory"},
