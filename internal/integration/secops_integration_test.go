@@ -14,6 +14,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/agent"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
 	"github.com/chenchunrun/SecOps/internal/audit"
+	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/security"
 )
@@ -659,5 +660,110 @@ func TestPermissionRiskToolAuditSIEM_EndToEnd(t *testing.T) {
 	}
 	if strings.Contains(capturedBody, "Bearer abcdefghijklmnopqrstuvwxyz") {
 		t.Fatal("expected raw bearer token to be removed from payload")
+	}
+}
+
+func TestConfigKeyPersistenceAndAuditSIEMReconcile_EndToEnd(t *testing.T) {
+	homeDir := t.TempDir()
+	workingDir := filepath.Join(homeDir, "workspace")
+	if err := os.MkdirAll(workingDir, 0o755); err != nil {
+		t.Fatalf("mkdir working dir failed: %v", err)
+	}
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USER", "secops-test-user")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, "xdg-config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(homeDir, "xdg-data"))
+
+	dataDir := filepath.Join(homeDir, ".crush")
+	const providerID = "openai"
+	const apiKey = "test_api_key_abcdefghijklmnopqrstuvwxyz1234567890"
+
+	store1, err := config.Init(workingDir, dataDir, false)
+	if err != nil {
+		t.Fatalf("config init #1 failed: %v", err)
+	}
+	if err := store1.SetProviderAPIKey(config.ScopeGlobal, providerID, apiKey); err != nil {
+		t.Fatalf("set provider api key failed: %v", err)
+	}
+
+	rawConfig, err := os.ReadFile(config.GlobalConfigData())
+	if err != nil {
+		t.Fatalf("read global config data failed: %v", err)
+	}
+	if !strings.Contains(string(rawConfig), "ENC:") {
+		t.Fatal("expected persisted encrypted value in config file")
+	}
+	if strings.Contains(string(rawConfig), apiKey) {
+		t.Fatal("plaintext api key should not appear in persisted config")
+	}
+
+	store2, err := config.Init(workingDir, dataDir, false)
+	if err != nil {
+		t.Fatalf("config init #2 (restart) failed: %v", err)
+	}
+	p, ok := store2.Config().Providers.Get(providerID)
+	if !ok {
+		t.Fatalf("expected provider %s after restart", providerID)
+	}
+	if p.APIKey != apiKey {
+		t.Fatalf("expected api key to persist across restart, got %q", p.APIKey)
+	}
+
+	auditStore := audit.NewInMemoryAuditStore()
+	event := audit.DefaultAuditEvent(audit.EventTypeConfigChange)
+	event.Timestamp = time.Now()
+	event.SessionID = "sess-config-1"
+	event.UserID = "secops-user"
+	event.Username = "secops"
+	event.Action = "set_provider_api_key"
+	event.ResourceType = "config"
+	event.ResourceName = providerID
+	event.Result = audit.ResultSuccess
+	event.RiskScore = 15
+	event.RiskLevel = "low"
+	event.Details = map[string]interface{}{
+		"provider": providerID,
+		"api_key":  "api_key=" + apiKey,
+	}
+	if err := auditStore.SaveEvent(event); err != nil {
+		t.Fatalf("save audit event failed: %v", err)
+	}
+
+	events, err := auditStore.ListEvents(&audit.AuditFilter{SessionID: "sess-config-1"})
+	if err != nil {
+		t.Fatalf("list audit events failed: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	var capturedBody string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	exporter := &audit.ELKExporter{
+		Endpoint:   server.URL,
+		Index:      "secops-audit",
+		TLSEnabled: true,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // test-only TLS server.
+		},
+	}
+	if err := exporter.Export(t.Context(), events); err != nil {
+		t.Fatalf("siem export failed: %v", err)
+	}
+
+	if !strings.Contains(capturedBody, event.ID) {
+		t.Fatal("expected exported payload to include event id for reconciliation")
+	}
+	if !strings.Contains(capturedBody, "***REDACTED***") {
+		t.Fatal("expected exported payload to redact api key")
+	}
+	if strings.Contains(capturedBody, apiKey) {
+		t.Fatal("expected exported payload to remove plaintext api key")
 	}
 }
