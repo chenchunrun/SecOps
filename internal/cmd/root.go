@@ -189,9 +189,51 @@ func supportsProgressBar() bool {
 // It checks the TERM_BACKGROUND env var (Wezterm, Ghostty) first, then falls back
 // to lipgloss.HasDarkBackground heuristics for other terminals.
 func detectTerminalTheme(stdin, stdout *os.File) styles.Theme {
-	// Force a stable light theme for the main TUI regardless of terminal
-	// background detection to avoid unreadable dark-on-dark rendering.
-	return styles.ThemeLight
+	// 1) Explicit override has highest priority.
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CRUSH_THEME"))) {
+	case "dark":
+		return styles.ThemeDark
+	case "light":
+		return styles.ThemeLight
+	}
+
+	// 2) TERM_BACKGROUND hint (wezterm/ghostty and compatible envs).
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("TERM_BACKGROUND"))) {
+	case "dark":
+		return styles.ThemeDark
+	case "light":
+		return styles.ThemeLight
+	}
+
+	// 3) COLORFGBG (xterm family): parse background index.
+	if bg, ok := parseColorFGBG(os.Getenv("COLORFGBG")); ok {
+		if isDarkANSIBackground(bg) {
+			return styles.ThemeDark
+		}
+		return styles.ThemeLight
+	}
+
+	// 4) Runtime terminal probe as fallback.
+	if stdin != nil && stdout != nil &&
+		term.IsTerminal(stdin.Fd()) && term.IsTerminal(stdout.Fd()) {
+		if lipgloss.HasDarkBackground(stdin, stdout) {
+			return styles.ThemeDark
+		}
+		return styles.ThemeLight
+	}
+
+	// 5) Safe default.
+	return styles.ThemeDark
+}
+
+func isDarkANSIBackground(bg int) bool {
+	switch bg {
+	case 7, 15:
+		// Light gray/white backgrounds.
+		return false
+	default:
+		return true
+	}
 }
 
 func parseColorFGBG(value string) (int, bool) {
