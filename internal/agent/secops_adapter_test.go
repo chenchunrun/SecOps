@@ -217,6 +217,31 @@ func TestEnforceRiskDecision_MediumUserDenied(t *testing.T) {
 	}
 }
 
+func TestEnforceRiskDecision_OpsAgentLowRiskNeedsConfirmation(t *testing.T) {
+	perms := &mockPermissionService{
+		Broker:  pubsub.NewBroker[permission.PermissionRequest](),
+		granted: true,
+	}
+	a := &Adapter{
+		tool:        &testSecOpsTool{},
+		perms:       perms,
+		secopsPerms: permission.NewDefaultService(),
+		assessor:    security.NewRiskAssessor(),
+	}
+
+	call := fantasy.ToolCall{
+		ID:    "call-ops-low",
+		Input: "{}",
+	}
+
+	if err := a.enforceRiskDecision(context.Background(), call, string(RoleOpsAgent)); err != nil {
+		t.Fatalf("expected ops agent low-risk approval to pass, got %v", err)
+	}
+	if len(perms.requests) != 1 {
+		t.Fatalf("expected exactly one permission request for ops agent, got %d", len(perms.requests))
+	}
+}
+
 func TestExecuteAndRespond_CapabilityDenied(t *testing.T) {
 	t.Setenv("SECOPS_ROLE", "viewer")
 

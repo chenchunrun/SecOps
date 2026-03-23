@@ -519,6 +519,40 @@ func resolveReadOnlyTools(tools []string) []string {
 	return filterSlice(tools, readOnlyTools, true)
 }
 
+func resolveSecOpsRuntimeTools(tools []string) []string {
+	secOpsRuntimeTools := []string{
+		// Basic context and diagnostics access.
+		"bash",
+		"glob",
+		"grep",
+		"ls",
+		"view",
+		"fetch",
+		"download",
+		"sourcegraph",
+		// SecOps tools.
+		"log_analyze",
+		"monitoring_query",
+		"compliance_check",
+		"certificate_audit",
+		"security_scan",
+		"configuration_audit",
+		"network_diagnostic",
+		"database_query",
+		"backup_check",
+		"replication_status",
+		"secret_audit",
+		"rotation_check",
+		"access_review",
+		"infrastructure_query",
+		"deployment_status",
+		"alert_check",
+		"incident_timeline",
+		"resource_monitor",
+	}
+	return filterSlice(tools, secOpsRuntimeTools, true)
+}
+
 func filterSlice(data []string, mask []string, include bool) []string {
 	var filtered []string
 	for _, s := range data {
@@ -564,7 +598,7 @@ func (c *Config) SetupAgents() {
 			Description:  "An agent focused on operational incidents, diagnostics, monitoring, and compliance.",
 			Model:        SelectedModelTypeLarge,
 			ContextPaths: c.Options.ContextPaths,
-			AllowedTools: []string{},
+			AllowedTools: resolveSecOpsRuntimeTools(allowedTools),
 			AllowedMCP:   map[string][]string{},
 		},
 		AgentSecurityExpertAgent: {
@@ -573,7 +607,7 @@ func (c *Config) SetupAgents() {
 			Description:  "An agent focused on vulnerability response, security audits, threat assessment, and incident response.",
 			Model:        SelectedModelTypeLarge,
 			ContextPaths: c.Options.ContextPaths,
-			AllowedTools: []string{},
+			AllowedTools: resolveSecOpsRuntimeTools(allowedTools),
 			AllowedMCP:   map[string][]string{},
 		},
 	}

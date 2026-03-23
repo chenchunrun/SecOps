@@ -523,9 +523,9 @@ func DefaultStyles(theme ...Theme) Styles {
 	isDarkTheme := len(theme) == 0 || theme[0] == ThemeDark
 
 	var (
-		primary   = charmtone.Charple
-		secondary = charmtone.Dolly
-		tertiary  = charmtone.Bok
+		primary   color.Color = charmtone.Charple
+		secondary color.Color = charmtone.Dolly
+		tertiary  color.Color = charmtone.Bok
 
 		// Backgrounds
 		bgBase        color.Color = charmtone.Pepper
@@ -538,41 +538,63 @@ func DefaultStyles(theme ...Theme) Styles {
 
 		// Borders
 		border      color.Color = charmtone.Charcoal
-		borderFocus = charmtone.Charple
+		borderFocus color.Color = charmtone.Charple
 
 		// Status
-		error   = charmtone.Sriracha
-		warning = charmtone.Zest
-		info    = charmtone.Malibu
+		error   color.Color = charmtone.Sriracha
+		warning color.Color = charmtone.Zest
+		info    color.Color = charmtone.Malibu
 
 		// Colors
-		white = charmtone.Butter
+		white color.Color = charmtone.Butter
 
-		blueLight = charmtone.Sardine
-		blue      = charmtone.Malibu
-		blueDark  = charmtone.Damson
+		blueLight color.Color = charmtone.Sardine
+		blue      color.Color = charmtone.Malibu
+		blueDark  color.Color = charmtone.Damson
 
-		yellow = charmtone.Mustard
+		yellow color.Color = charmtone.Mustard
 
-		greenLight = charmtone.Bok
-		green      = charmtone.Julep
-		greenDark  = charmtone.Guac
+		greenLight color.Color = charmtone.Bok
+		green      color.Color = charmtone.Julep
+		greenDark  color.Color = charmtone.Guac
 
-		red     = charmtone.Coral
-		redDark = charmtone.Sriracha
+		red     color.Color = charmtone.Coral
+		redDark color.Color = charmtone.Sriracha
 	)
 
 	if !isDarkTheme {
+		// Codex-like light palette: soft gray canvas, dark text, cyan accents.
 		bgBase = lipgloss.Color("#FFFFFF")
-		bgBaseLighter = lipgloss.Color("#F7F7F7")
-		bgSubtle = lipgloss.Color("#EFEFEF")
-		bgOverlay = lipgloss.Color("#FFFFFF")
+		bgBaseLighter = lipgloss.Color("#F4F4F4")
+		bgSubtle = lipgloss.Color("#ECECEC")
+		bgOverlay = lipgloss.Color("#F7F7F7")
 		border = lipgloss.Color("#CFCFCF")
+		borderFocus = lipgloss.Color("#00A8B5")
+
+		primary = lipgloss.Color("#0E7490")
+		secondary = lipgloss.Color("#0E7490")
+		tertiary = lipgloss.Color("#3B82F6")
+
+		blueLight = lipgloss.Color("#0F766E")
+		blue = lipgloss.Color("#0C4A6E")
+		blueDark = lipgloss.Color("#0E7490")
+
+		greenLight = lipgloss.Color("#15803D")
+		green = lipgloss.Color("#166534")
+		greenDark = lipgloss.Color("#14532D")
+
+		yellow = lipgloss.Color("#92400E")
+		warning = lipgloss.Color("#78350F")
+		red = lipgloss.Color("#DC2626")
+		redDark = lipgloss.Color("#B91C1C")
+		error = red
+		info = blue
 	}
 
 	normalBorder := lipgloss.NormalBorder()
 
 	base := lipgloss.NewStyle().Foreground(fgBase)
+	fgBaseHex := newStrPtr(colorHex(fgBase))
 
 	s := Styles{}
 
@@ -657,7 +679,7 @@ func DefaultStyles(theme ...Theme) Styles {
 			StylePrimitive: ansi.StylePrimitive{
 				// BlockPrefix: "\n",
 				// BlockSuffix: "\n",
-				Color: newFgBaseHex(),
+				Color: fgBaseHex,
 			},
 			// Margin: new(uint(defaultMargin)),
 		},
@@ -769,7 +791,7 @@ func DefaultStyles(theme ...Theme) Styles {
 			},
 			Chroma: &ansi.Chroma{
 				Text: ansi.StylePrimitive{
-					Color: newFgBaseHex(),
+					Color: fgBaseHex,
 				},
 				Error: ansi.StylePrimitive{
 					Color:           new(charmtone.Butter.Hex()),
@@ -800,7 +822,7 @@ func DefaultStyles(theme ...Theme) Styles {
 					Color: new(charmtone.Zest.Hex()),
 				},
 				Name: ansi.StylePrimitive{
-					Color: newFgBaseHex(),
+					Color: fgBaseHex,
 				},
 				NameBuiltin: ansi.StylePrimitive{
 					Color: new(charmtone.Cheeky.Hex()),
@@ -863,7 +885,7 @@ func DefaultStyles(theme ...Theme) Styles {
 
 	// PlainMarkdown style - muted colors on subtle background for thinking content.
 	plainBg := newStrPtr(colorHex(bgBaseLighter))
-	plainFg := newFgBaseHex()
+	plainFg := fgBaseHex
 	s.PlainMarkdown = ansi.StyleConfig{
 		Document: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
@@ -1065,7 +1087,7 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.WindowTooSmall = s.Muted
 
 	// tag presets
-	s.TagBase = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
+	s.TagBase = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase))
 	s.TagError = s.TagBase.Background(red)
 	s.TagInfo = s.TagBase.Background(blueLight)
 
@@ -1125,12 +1147,12 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Tool.StateWaiting = base.Foreground(fgMuted)
 	s.Tool.StateCancelled = base.Foreground(fgMuted)
 
-	s.Tool.ErrorTag = base.Padding(0, 1).Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
+	s.Tool.ErrorTag = base.Padding(0, 1).Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase))
 	s.Tool.ErrorMessage = base.Foreground(fgMuted)
 
 	// Diff and multi-edit styles
 	s.Tool.DiffTruncation = s.Muted.Background(bgBaseLighter).PaddingLeft(2)
-	s.Tool.NoteTag = base.Padding(0, 1).Background(info).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
+	s.Tool.NoteTag = base.Padding(0, 1).Background(info).Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase))
 	s.Tool.NoteMessage = base.Foreground(fgMuted)
 
 	// Job header styles
@@ -1143,11 +1165,11 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Tool.JobDescription = s.Muted
 
 	// Agent task styles
-	s.Tool.AgentTaskTag = base.Padding(0, 1).MarginLeft(2).Background(blueLight).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
+	s.Tool.AgentTaskTag = base.Padding(0, 1).MarginLeft(2).Background(blueLight).Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase))
 	s.Tool.AgentPrompt = s.Muted
 
 	// Agentic fetch styles
-	s.Tool.AgenticFetchPromptTag = base.Padding(0, 1).MarginLeft(2).Background(green).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, border))
+	s.Tool.AgenticFetchPromptTag = base.Padding(0, 1).MarginLeft(2).Background(green).Foreground(lipgloss.LightDark(isDarkTheme)(white, border))
 
 	// Todo styles
 	s.Tool.TodoRatio = base.Foreground(blueDark)
@@ -1173,7 +1195,7 @@ func DefaultStyles(theme ...Theme) Styles {
 
 	// Buttons: focused uses strong contrast on positive background.
 	s.ButtonFocus = lipgloss.NewStyle().
-		Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).
+		Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase)).
 		Background(greenDark).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(greenDark)
@@ -1251,7 +1273,7 @@ func DefaultStyles(theme ...Theme) Styles {
 		BorderForeground(greenDark).BorderStyle(messageFocussedBorder)
 	s.Chat.Message.Thinking = lipgloss.NewStyle().MaxHeight(10)
 	s.Chat.Message.ErrorTag = lipgloss.NewStyle().Padding(0, 1).
-		Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
+		Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase))
 	s.Chat.Message.ErrorTitle = lipgloss.NewStyle().Foreground(fgHalfMuted)
 	s.Chat.Message.ErrorDetails = lipgloss.NewStyle().Foreground(fgMuted)
 
@@ -1335,16 +1357,16 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Dialog.Sessions.RenamingPlaceholder = base.Foreground(charmtone.Squid)
 
 	s.Status.Help = lipgloss.NewStyle().Padding(0, 1)
-	s.Status.SuccessIndicator = base.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgSubtle)).Background(green).Padding(0, 1).SetString("OKAY!")
+	s.Status.SuccessIndicator = base.Foreground(lipgloss.LightDark(isDarkTheme)(white, bgSubtle)).Background(green).Padding(0, 1).SetString("OKAY!")
 	s.Status.InfoIndicator = s.Status.SuccessIndicator
 	s.Status.UpdateIndicator = s.Status.SuccessIndicator.SetString("HEY!")
-	s.Status.WarnIndicator = s.Status.SuccessIndicator.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgOverlay)).Background(yellow).SetString("WARNING")
-	s.Status.ErrorIndicator = s.Status.SuccessIndicator.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).Background(red).SetString("ERROR")
-	s.Status.SuccessMessage = base.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgSubtle)).Background(greenDark).Padding(0, 1)
+	s.Status.WarnIndicator = s.Status.SuccessIndicator.Foreground(lipgloss.LightDark(isDarkTheme)(white, bgOverlay)).Background(yellow).SetString("WARNING")
+	s.Status.ErrorIndicator = s.Status.SuccessIndicator.Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase)).Background(red).SetString("ERROR")
+	s.Status.SuccessMessage = base.Foreground(lipgloss.LightDark(isDarkTheme)(white, bgSubtle)).Background(greenDark).Padding(0, 1)
 	s.Status.InfoMessage = s.Status.SuccessMessage
 	s.Status.UpdateMessage = s.Status.SuccessMessage
-	s.Status.WarnMessage = s.Status.SuccessMessage.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgOverlay)).Background(warning)
-	s.Status.ErrorMessage = s.Status.SuccessMessage.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).Background(red)
+	s.Status.WarnMessage = s.Status.SuccessMessage.Foreground(lipgloss.LightDark(isDarkTheme)(white, bgOverlay)).Background(warning)
+	s.Status.ErrorMessage = s.Status.SuccessMessage.Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase)).Background(red)
 
 	// Completions styles
 	s.Completions.Normal = base.Background(bgSubtle).Foreground(fgBase)
@@ -1352,11 +1374,11 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Completions.Match = base.Underline(true)
 
 	// Attachments styles
-	attachmentIconStyle := base.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).Background(green).Padding(0, 1)
+	attachmentIconStyle := base.Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase)).Background(green).Padding(0, 1)
 	s.Attachments.Image = attachmentIconStyle.SetString(ImageIcon)
 	s.Attachments.Text = attachmentIconStyle.SetString(TextIcon)
 	s.Attachments.Normal = base.Padding(0, 1).MarginRight(1).Background(fgMuted).Foreground(fgBase)
-	s.Attachments.Deleting = base.Padding(0, 1).Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
+	s.Attachments.Deleting = base.Padding(0, 1).Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(white, bgBase))
 
 	// Pills styles
 	s.Pills.Base = base.Padding(0, 1)

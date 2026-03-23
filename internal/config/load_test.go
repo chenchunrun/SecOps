@@ -557,6 +557,18 @@ func TestConfig_setupAgentsWithNoDisabledTools(t *testing.T) {
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
 	assert.Equal(t, []string{"glob", "grep", "ls", "sourcegraph", "view"}, taskAgent.AllowedTools)
+
+	opsAgent, ok := cfg.Agents[AgentOpsAgent]
+	require.True(t, ok)
+	assert.Contains(t, opsAgent.AllowedTools, "ls")
+	assert.Contains(t, opsAgent.AllowedTools, "view")
+	assert.Contains(t, opsAgent.AllowedTools, "bash")
+	assert.Contains(t, opsAgent.AllowedTools, "monitoring_query")
+
+	securityAgent, ok := cfg.Agents[AgentSecurityExpertAgent]
+	require.True(t, ok)
+	assert.Contains(t, securityAgent.AllowedTools, "ls")
+	assert.Contains(t, securityAgent.AllowedTools, "security_scan")
 }
 
 func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
@@ -578,6 +590,12 @@ func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
 	assert.Equal(t, []string{"glob", "ls", "sourcegraph", "view"}, taskAgent.AllowedTools)
+
+	opsAgent, ok := cfg.Agents[AgentOpsAgent]
+	require.True(t, ok)
+	assert.NotContains(t, opsAgent.AllowedTools, "download")
+	assert.NotContains(t, opsAgent.AllowedTools, "grep")
+	assert.Contains(t, opsAgent.AllowedTools, "ls")
 }
 
 func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {

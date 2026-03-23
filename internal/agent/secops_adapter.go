@@ -336,6 +336,9 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	if err != nil {
 		return fmt.Errorf("secops decision failed: %w", err)
 	}
+	if decision == permission.DecisionAutoApprove && role == string(RoleOpsAgent) {
+		decision = permission.DecisionUserConfirm
+	}
 	req.Decision = decision
 	_ = a.secopsPerms.AuditLog(req, decision)
 
