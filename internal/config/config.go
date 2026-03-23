@@ -218,6 +218,28 @@ type Permissions struct {
 	SkipRequests bool     `json:"-"`                                                                                                                              // Automatically accept all permissions (YOLO mode)
 }
 
+type RemoteAuth struct {
+	Type    string `json:"type,omitempty" jsonschema:"description=Authentication type for remote profile,enum=ssh_key,enum=agent"`
+	KeyPath string `json:"key_path,omitempty" jsonschema:"description=Path to SSH private key for remote profile"`
+}
+
+type RemoteProfile struct {
+	ID              string     `json:"id" jsonschema:"required,description=Unique ID for remote profile,example=prod-web-1"`
+	Host            string     `json:"host" jsonschema:"required,description=Remote SSH host,example=10.0.1.12"`
+	Port            int        `json:"port,omitempty" jsonschema:"description=SSH port,default=22"`
+	User            string     `json:"user,omitempty" jsonschema:"description=SSH username,example=ops"`
+	Env             string     `json:"env,omitempty" jsonschema:"description=Environment tag,example=prod"`
+	ProxyJump       string     `json:"proxy_jump,omitempty" jsonschema:"description=SSH ProxyJump host,example=bastion.company.internal"`
+	AllowedCommands []string   `json:"allowed_commands,omitempty" jsonschema:"description=Allowed command patterns for this profile"`
+	DenyCommands    []string   `json:"deny_commands,omitempty" jsonschema:"description=Deny command patterns for this profile"`
+	Auth            RemoteAuth `json:"auth,omitempty" jsonschema:"description=Authentication options for this profile"`
+}
+
+type Remote struct {
+	Profiles       []RemoteProfile `json:"profiles,omitempty" jsonschema:"description=List of remote execution profiles"`
+	DefaultProfile string          `json:"default_profile,omitempty" jsonschema:"description=Default remote execution profile ID"`
+}
+
 type TrailerStyle string
 
 const (
@@ -392,6 +414,8 @@ type Config struct {
 
 	Permissions *Permissions `json:"permissions,omitempty" jsonschema:"description=Permission settings for tool usage"`
 
+	Remote *Remote `json:"remote,omitempty" jsonschema:"description=Remote execution profiles for SSH-based operations"`
+
 	Tools Tools `json:"tools,omitzero" jsonschema:"description=Tool configurations"`
 
 	Agents map[string]Agent `json:"-"`
@@ -479,6 +503,7 @@ func allToolNames() []string {
 		"ls",
 		"sourcegraph",
 		"todos",
+		"todo",
 		"view",
 		"write",
 		"list_mcp_resources",
@@ -502,6 +527,15 @@ func allToolNames() []string {
 		"alert_check",
 		"incident_timeline",
 		"resource_monitor",
+		// compatibility aliases
+		"Infrastructure Query",
+		"Compliance Check",
+		"Compliance Checker",
+		"Network Diagnostic",
+		"Network Diagnostics",
+		"Monitoring Query",
+		"Log Analyze",
+		"Log Analysis",
 	}
 }
 
@@ -530,6 +564,8 @@ func resolveSecOpsRuntimeTools(tools []string) []string {
 		"fetch",
 		"download",
 		"sourcegraph",
+		"todos",
+		"todo",
 		// SecOps tools.
 		"log_analyze",
 		"monitoring_query",
@@ -549,6 +585,15 @@ func resolveSecOpsRuntimeTools(tools []string) []string {
 		"alert_check",
 		"incident_timeline",
 		"resource_monitor",
+		// compatibility aliases
+		"Infrastructure Query",
+		"Compliance Check",
+		"Compliance Checker",
+		"Network Diagnostic",
+		"Network Diagnostics",
+		"Monitoring Query",
+		"Log Analyze",
+		"Log Analysis",
 	}
 	return filterSlice(tools, secOpsRuntimeTools, true)
 }

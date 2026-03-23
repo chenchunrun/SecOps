@@ -11,6 +11,7 @@ import (
 
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
+	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/security"
 
@@ -42,6 +43,7 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to parse arguments: %v", err)), nil
 		}
 	}
+	paramsMap = normalizeSecOpsParams(a.tool.Type(), paramsMap)
 
 	// Convert map to the appropriate params struct
 	paramsBytes, err := json.Marshal(paramsMap)
@@ -237,6 +239,91 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 	}
 }
 
+func normalizeSecOpsParams(toolType secops.ToolType, in map[string]interface{}) map[string]interface{} {
+	if in == nil {
+		return map[string]interface{}{}
+	}
+	out := make(map[string]interface{}, len(in)+3)
+	for k, v := range in {
+		out[k] = v
+	}
+
+	switch toolType {
+	case secops.ToolTypeNetworkDiagnostic:
+		if _, ok := out["type"]; !ok {
+			if v, exists := out["diagnostic_type"]; exists {
+				out["type"] = v
+			}
+		}
+		if _, ok := out["target"]; !ok {
+			if v, exists := out["host"]; exists {
+				out["target"] = v
+			}
+		}
+		if cmdRaw, exists := out["command"]; exists {
+			if cmd, ok := cmdRaw.(string); ok {
+				fillNetworkTypeAndTargetFromCommand(out, cmd)
+			}
+		}
+		if _, ok := out["type"]; !ok {
+			out["type"] = string(secops.DiagnosticPing)
+		}
+
+	case secops.ToolTypeComplianceCheck:
+		if _, ok := out["framework"]; !ok {
+			out["framework"] = string(secops.FrameworkCIS)
+		}
+
+	case secops.ToolTypeInfrastructureQuery:
+		if _, ok := out["system_type"]; !ok {
+			out["system_type"] = "terraform"
+		}
+		if _, ok := out["query_type"]; !ok {
+			out["query_type"] = "resources"
+		}
+	}
+
+	return out
+}
+
+func fillNetworkTypeAndTargetFromCommand(out map[string]interface{}, command string) {
+	cmd := strings.ToLower(strings.TrimSpace(command))
+	if cmd == "" {
+		return
+	}
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 {
+		return
+	}
+
+	if _, ok := out["type"]; !ok {
+		switch fields[0] {
+		case "ping":
+			out["type"] = string(secops.DiagnosticPing)
+		case "traceroute", "tracepath":
+			out["type"] = string(secops.DiagnosticTraceroute)
+		case "mtr":
+			out["type"] = string(secops.DiagnosticMTR)
+		case "dig", "nslookup":
+			out["type"] = string(secops.DiagnosticDNS)
+		case "nmap":
+			out["type"] = string(secops.DiagnosticPortScan)
+		}
+	}
+
+	if _, ok := out["target"]; ok {
+		return
+	}
+	for i := len(fields) - 1; i >= 0; i-- {
+		f := strings.Trim(fields[i], "\"' ")
+		if f == "" || strings.HasPrefix(f, "-") {
+			continue
+		}
+		out["target"] = f
+		return
+	}
+}
+
 // executeAndRespond calls tool.Execute and serializes the result to a ToolResponse.
 func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, params interface{}) (fantasy.ToolResponse, error) {
 	caps := a.tool.RequiredCapabilities()
@@ -274,6 +361,39 @@ func (a *Adapter) ProviderOptions() fantasy.ProviderOptions {
 // SetProviderOptions implements fantasy.AgentTool.
 func (a *Adapter) SetProviderOptions(opts fantasy.ProviderOptions) {}
 
+// RegisterDefaultSecOpsToolSet registers the built-in 18 SecOps tools.
+func RegisterDefaultSecOpsToolSet(registry *secops.SecOpsToolRegistry) error {
+	if registry == nil {
+		return fmt.Errorf("secops registry is nil")
+	}
+	constructors := []func(*secops.SecOpsToolRegistry) secops.SecOpsTool{
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewLogAnalyzeTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewMonitoringQueryTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewComplianceCheckTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewCertificateAuditTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewSecurityScanTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewConfigurationAuditTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewNetworkDiagnosticTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewDatabaseQueryTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewBackupCheckTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewReplicationStatusTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewSecretAuditTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewRotationCheckTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewAccessReviewTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewInfrastructureQueryTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewDeploymentStatusTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewAlertCheckTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewIncidentTimelineTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewResourceMonitorTool(nil) },
+	}
+	for _, ctor := range constructors {
+		if err := registry.Register(ctor(registry)); err != nil {
+			return fmt.Errorf("register secops tool: %w", err)
+		}
+	}
+	return nil
+}
+
 // RegisterSecOpsTools registers all SecOps tools with the Crush coordinator's tool list.
 // It returns a slice of fantasy.AgentTool that can be passed to SetTools.
 func RegisterSecOpsTools(registry *secops.SecOpsToolRegistry, perms permission.Service) []fantasy.AgentTool {
@@ -306,6 +426,11 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	}
 
 	assessment := a.assessRisk(call.Input)
+	remoteCtx := parseRemoteContext(call.Input)
+	resourcePath := string(a.tool.Type())
+	if remoteCtx.Transport == "ssh" && remoteCtx.TargetHost != "" {
+		resourcePath = "ssh://" + remoteCtx.TargetHost
+	}
 	req := &permission.PermissionRequest{
 		SessionID:    sessionID,
 		ToolCallID:   call.ID,
@@ -313,13 +438,18 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 		Description:  call.Input,
 		Action:       "execute",
 		ResourceType: permission.ResourceTypeCommand,
-		ResourcePath: string(a.tool.Type()),
+		ResourcePath: resourcePath,
 		UserID:       role,
 		Username:     role,
 		RequestTime:  timeNowUTC(),
 		RiskScore:    assessment.Score,
 		RiskFactors:  riskFactorNames(assessment.Factors),
+		Transport:    remoteCtx.Transport,
+		TargetHost:   remoteCtx.TargetHost,
+		TargetEnv:    remoteCtx.TargetEnv,
+		TargetID:     remoteCtx.TargetID,
 	}
+	a.recordRiskAuditEvent(req, assessment, "risk_evaluated")
 
 	switch assessment.Level {
 	case security.RiskLevelCritical:
@@ -341,6 +471,7 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	}
 	req.Decision = decision
 	_ = a.secopsPerms.AuditLog(req, decision)
+	a.recordDecisionAuditEvent(req, assessment, decision, "")
 
 	switch decision {
 	case permission.DecisionDeny:
@@ -358,14 +489,21 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 			Description: "SecOps risk confirmation required",
 			Action:      "execute",
 			Params:      call.Input,
-			Path:        ".",
+			Path:        resourcePath,
+			Transport:   remoteCtx.Transport,
+			TargetHost:  remoteCtx.TargetHost,
+			TargetEnv:   remoteCtx.TargetEnv,
+			TargetID:    remoteCtx.TargetID,
 		})
 		if reqErr != nil {
+			a.recordDecisionAuditEvent(req, assessment, decision, reqErr.Error())
 			return fmt.Errorf("permission request failed: %w", reqErr)
 		}
 		if !granted {
+			a.recordDecisionAuditEvent(req, assessment, permission.DecisionDeny, "user denied permission")
 			return permission.ErrorPermissionDenied
 		}
+		a.recordDecisionAuditEvent(req, assessment, permission.DecisionAutoApprove, "user confirmed")
 	}
 
 	return nil
@@ -487,4 +625,115 @@ func riskFactorNames(factors []security.RiskFactor) []string {
 
 func timeNowUTC() time.Time {
 	return time.Now().UTC()
+}
+
+func (a *Adapter) recordRiskAuditEvent(req *permission.PermissionRequest, assessment *security.RiskAssessment, action string) {
+	if req == nil {
+		return
+	}
+	event := audit.NewAuditEventBuilder(audit.EventTypePermissionRequest).
+		WithSession(req.SessionID).
+		WithUser(req.UserID, req.Username).
+		WithAction(action).
+		WithResource(string(req.ResourceType), req.ToolName, req.ResourcePath).
+		WithRiskScore(req.RiskScore, string(assessment.Level)).
+		WithRemoteTarget(req.Transport, req.TargetHost, req.TargetEnv, req.TargetID).
+		WithDetail("tool_call_id", req.ToolCallID).
+		WithDetail("risk_factors", req.RiskFactors).
+		WithDetail("risk_action", assessment.Action).
+		WithDetail("risk_details", assessment.Details).
+		WithResult(audit.ResultSuccess).
+		Build()
+	_ = audit.RecordGlobal(event)
+}
+
+func (a *Adapter) recordDecisionAuditEvent(
+	req *permission.PermissionRequest,
+	assessment *security.RiskAssessment,
+	decision permission.PermissionDecision,
+	errMsg string,
+) {
+	if req == nil {
+		return
+	}
+
+	eventType := audit.EventTypePermissionApproved
+	result := audit.ResultSuccess
+	action := "risk_decision_" + string(decision)
+	if decision == permission.DecisionDeny || decision == permission.DecisionAdminReview {
+		eventType = audit.EventTypePermissionDenied
+		result = audit.ResultDenied
+	}
+	if errMsg != "" {
+		result = audit.ResultError
+	}
+
+	event := audit.NewAuditEventBuilder(eventType).
+		WithSession(req.SessionID).
+		WithUser(req.UserID, req.Username).
+		WithAction(action).
+		WithResource(string(req.ResourceType), req.ToolName, req.ResourcePath).
+		WithRiskScore(req.RiskScore, string(assessment.Level)).
+		WithRemoteTarget(req.Transport, req.TargetHost, req.TargetEnv, req.TargetID).
+		WithDetail("tool_call_id", req.ToolCallID).
+		WithDetail("decision", decision).
+		WithDetail("risk_factors", req.RiskFactors).
+		WithResult(result).
+		Build()
+	if errMsg != "" {
+		event.ErrorMsg = errMsg
+	}
+	_ = audit.RecordGlobal(event)
+}
+
+type remoteContext struct {
+	Transport  string
+	TargetHost string
+	TargetEnv  string
+	TargetID   string
+}
+
+func parseRemoteContext(input string) remoteContext {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return remoteContext{}
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		return remoteContext{}
+	}
+
+	host := firstString(payload, "remote_host", "target_host")
+	user := firstString(payload, "remote_user")
+	target := strings.TrimSpace(host)
+	if target != "" && strings.TrimSpace(user) != "" {
+		target = strings.TrimSpace(user) + "@" + target
+	}
+	if target == "" {
+		return remoteContext{}
+	}
+
+	return remoteContext{
+		Transport:  "ssh",
+		TargetHost: target,
+		TargetEnv:  firstString(payload, "remote_env", "target_env", "env", "environment"),
+		TargetID:   firstString(payload, "remote_profile", "target_id", "profile", "profile_id"),
+	}
+}
+
+func firstString(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		v, ok := m[key]
+		if !ok {
+			continue
+		}
+		if s, ok := v.(string); ok {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }

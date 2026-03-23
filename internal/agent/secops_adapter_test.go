@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"charm.land/fantasy"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
+	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/chenchunrun/SecOps/internal/security"
@@ -34,6 +36,68 @@ func TestAdapterInfoUsesToolTypeName(t *testing.T) {
 
 	if info.Name != string(secops.ToolTypeLogAnalyze) {
 		t.Fatalf("expected tool name %q, got %q", secops.ToolTypeLogAnalyze, info.Name)
+	}
+}
+
+func TestRegisterDefaultSecOpsToolSet_All18(t *testing.T) {
+	t.Parallel()
+
+	registry := secops.NewSecOpsToolRegistry()
+	if err := RegisterDefaultSecOpsToolSet(registry); err != nil {
+		t.Fatalf("RegisterDefaultSecOpsToolSet() error = %v", err)
+	}
+
+	all := registry.GetAll()
+	if len(all) != 18 {
+		t.Fatalf("expected 18 secops tools, got %d", len(all))
+	}
+
+	expected := []secops.ToolType{
+		secops.ToolTypeLogAnalyze,
+		secops.ToolTypeMonitoringQuery,
+		secops.ToolTypeComplianceCheck,
+		secops.ToolTypeCertificateAudit,
+		secops.ToolTypeSecurityScan,
+		secops.ToolTypeConfigurationAudit,
+		secops.ToolTypeNetworkDiagnostic,
+		secops.ToolTypeDatabaseQuery,
+		secops.ToolTypeBackupCheck,
+		secops.ToolTypeReplicationStatus,
+		secops.ToolTypeSecretAudit,
+		secops.ToolTypeRotationCheck,
+		secops.ToolTypeAccessReview,
+		secops.ToolTypeInfrastructureQuery,
+		secops.ToolTypeDeploymentStatus,
+		secops.ToolTypeAlertCheck,
+		secops.ToolTypeIncidentTimeline,
+		secops.ToolTypeResourceMonitor,
+	}
+	for _, tt := range expected {
+		if _, ok := all[string(tt)]; !ok {
+			t.Fatalf("missing registered secops tool: %s", tt)
+		}
+	}
+}
+
+func TestRegisterSecOpsTools_CountMatchesRegistry(t *testing.T) {
+	t.Parallel()
+
+	registry := secops.NewSecOpsToolRegistry()
+	if err := RegisterDefaultSecOpsToolSet(registry); err != nil {
+		t.Fatalf("RegisterDefaultSecOpsToolSet() error = %v", err)
+	}
+	tools := RegisterSecOpsTools(registry, nil)
+	if len(tools) != 18 {
+		t.Fatalf("expected 18 adapter tools, got %d", len(tools))
+	}
+	seen := map[string]bool{}
+	for _, tool := range tools {
+		seen[tool.Info().Name] = true
+	}
+	for name := range registry.GetAll() {
+		if !seen[name] {
+			t.Fatalf("adapter missing tool %q", name)
+		}
 	}
 }
 
@@ -169,7 +233,46 @@ func TestEnforceRiskDecision_MediumNeedsPermissionService(t *testing.T) {
 	}
 }
 
+func TestNormalizeSecOpsParams(t *testing.T) {
+	t.Parallel()
+
+	t.Run("network diagnostic maps legacy fields and command", func(t *testing.T) {
+		in := map[string]interface{}{
+			"diagnostic_type": "ping",
+			"command":         "ping -c 3 8.8.8.8",
+		}
+		got := normalizeSecOpsParams(secops.ToolTypeNetworkDiagnostic, in)
+		if fmt.Sprint(got["type"]) != "ping" {
+			t.Fatalf("expected type=ping, got %v", got["type"])
+		}
+		if fmt.Sprint(got["target"]) != "8.8.8.8" {
+			t.Fatalf("expected target=8.8.8.8, got %v", got["target"])
+		}
+	})
+
+	t.Run("compliance check defaults framework", func(t *testing.T) {
+		got := normalizeSecOpsParams(secops.ToolTypeComplianceCheck, map[string]interface{}{})
+		if fmt.Sprint(got["framework"]) != "cis" {
+			t.Fatalf("expected framework=cis, got %v", got["framework"])
+		}
+	})
+
+	t.Run("infrastructure query defaults required fields", func(t *testing.T) {
+		got := normalizeSecOpsParams(secops.ToolTypeInfrastructureQuery, map[string]interface{}{})
+		if fmt.Sprint(got["system_type"]) != "terraform" {
+			t.Fatalf("expected system_type=terraform, got %v", got["system_type"])
+		}
+		if fmt.Sprint(got["query_type"]) != "resources" {
+			t.Fatalf("expected query_type=resources, got %v", got["query_type"])
+		}
+	})
+}
+
 func TestEnforceRiskDecision_MediumUserApproved(t *testing.T) {
+	store := audit.NewInMemoryAuditStore()
+	audit.SetGlobalStore(store)
+	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
+
 	perms := &mockPermissionService{
 		Broker:  pubsub.NewBroker[permission.PermissionRequest](),
 		granted: true,
@@ -182,8 +285,14 @@ func TestEnforceRiskDecision_MediumUserApproved(t *testing.T) {
 	}
 
 	call := fantasy.ToolCall{
-		ID:    "call-medium-allow",
-		Input: "password=ApprovedSecret",
+		ID: "call-medium-allow",
+		Input: `{
+			"command":"echo password=ApprovedSecret",
+			"remote_host":"10.0.0.8",
+			"remote_user":"ops",
+			"remote_env":"prod",
+			"remote_profile":"prod-web"
+		}`,
 	}
 
 	if err := a.enforceRiskDecision(context.Background(), call, "admin"); err != nil {
@@ -192,9 +301,41 @@ func TestEnforceRiskDecision_MediumUserApproved(t *testing.T) {
 	if len(perms.requests) != 1 {
 		t.Fatalf("expected exactly one permission request, got %d", len(perms.requests))
 	}
+	req := perms.requests[0]
+	if req.Transport != "ssh" {
+		t.Fatalf("expected transport ssh, got %q", req.Transport)
+	}
+	if req.TargetHost != "ops@10.0.0.8" {
+		t.Fatalf("expected target host ops@10.0.0.8, got %q", req.TargetHost)
+	}
+	if req.TargetEnv != "prod" {
+		t.Fatalf("expected target env prod, got %q", req.TargetEnv)
+	}
+	if req.TargetID != "prod-web" {
+		t.Fatalf("expected target id prod-web, got %q", req.TargetID)
+	}
+	if req.Path != "ssh://ops@10.0.0.8" {
+		t.Fatalf("expected path ssh://ops@10.0.0.8, got %q", req.Path)
+	}
+
+	events, err := store.ListEvents(&audit.AuditFilter{SessionID: "secops"})
+	if err != nil {
+		t.Fatalf("list audit events: %v", err)
+	}
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 audit events, got %d", len(events))
+	}
+	last := events[len(events)-1]
+	if last.TargetHost != "ops@10.0.0.8" || last.Transport != "ssh" {
+		t.Fatalf("unexpected remote metadata in audit event: %#v", last)
+	}
 }
 
 func TestEnforceRiskDecision_MediumUserDenied(t *testing.T) {
+	store := audit.NewInMemoryAuditStore()
+	audit.SetGlobalStore(store)
+	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
+
 	perms := &mockPermissionService{
 		Broker:  pubsub.NewBroker[permission.PermissionRequest](),
 		granted: false,
@@ -214,6 +355,14 @@ func TestEnforceRiskDecision_MediumUserDenied(t *testing.T) {
 	err := a.enforceRiskDecision(context.Background(), call, "admin")
 	if !errors.Is(err, permission.ErrorPermissionDenied) {
 		t.Fatalf("expected permission denied error, got %v", err)
+	}
+
+	events, listErr := store.ListEvents(&audit.AuditFilter{EventType: audit.EventTypePermissionDenied})
+	if listErr != nil {
+		t.Fatalf("list audit events: %v", listErr)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected permission_denied audit event")
 	}
 }
 
@@ -290,5 +439,26 @@ func TestRiskCandidatesFromInput(t *testing.T) {
 
 	if len(candidates) != 3 {
 		t.Fatalf("expected 3 risk candidates, got %d: %#v", len(candidates), candidates)
+	}
+}
+
+func TestParseRemoteContext(t *testing.T) {
+	ctx := parseRemoteContext(`{
+		"remote_host":"10.0.0.9",
+		"remote_user":"ops",
+		"remote_env":"staging",
+		"remote_profile":"staging-web"
+	}`)
+	if ctx.Transport != "ssh" {
+		t.Fatalf("expected ssh transport, got %q", ctx.Transport)
+	}
+	if ctx.TargetHost != "ops@10.0.0.9" {
+		t.Fatalf("unexpected target host %q", ctx.TargetHost)
+	}
+	if ctx.TargetEnv != "staging" {
+		t.Fatalf("unexpected target env %q", ctx.TargetEnv)
+	}
+	if ctx.TargetID != "staging-web" {
+		t.Fatalf("unexpected target id %q", ctx.TargetID)
 	}
 }

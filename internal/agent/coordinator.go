@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
@@ -90,9 +93,24 @@ type coordinator struct {
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
 	mainAgentID  string
+	updateState  coordinatorUpdateState
 
 	readyWg errgroup.Group
 }
+
+type coordinatorUpdateState struct {
+	mu                  sync.Mutex
+	lastModelsSignature string
+	lastToolsSignature  string
+}
+
+type runMode int
+
+const (
+	runModeAuto runMode = iota
+	runModeFast
+	runModeDeep
+)
 
 func NewCoordinator(
 	ctx context.Context,
@@ -160,6 +178,24 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		return nil, fmt.Errorf("failed to update models: %w", err)
 	}
 
+	mode, cleanedPrompt := parseRunModePrompt(prompt)
+	prompt = cleanedPrompt
+
+	// Auto-route simple prompts to the fast model profile (small model),
+	// while keeping complex prompts on the large model profile.
+	useFastProfile := false
+	if largeModel, smallModel, ok := currentAgentModels(c.currentAgent); ok {
+		if mode == runModeFast || (mode == runModeAuto && shouldUseFastModel(prompt, attachments)) {
+			c.currentAgent.SetModels(smallModel, smallModel)
+			defer c.currentAgent.SetModels(largeModel, smallModel)
+			useFastProfile = true
+			slog.Debug("Routing prompt to fast model profile", "session_id", sessionID)
+		} else if mode == runModeDeep {
+			c.currentAgent.SetModels(largeModel, smallModel)
+			slog.Debug("Routing prompt to deep model profile", "session_id", sessionID)
+		}
+	}
+
 	model := c.currentAgent.Model()
 	maxTokens := model.CatwalkCfg.DefaultMaxTokens
 	if model.ModelCfg.MaxTokens != 0 {
@@ -180,6 +216,10 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 	providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
 	if !ok {
 		return nil, errModelProviderNotConfigured
+	}
+
+	if useFastProfile {
+		model = applyProviderAwareFastProfile(model, providerCfg)
 	}
 
 	mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
@@ -227,6 +267,120 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 	}
 
 	return result, originalErr
+}
+
+func parseRunModePrompt(prompt string) (runMode, string) {
+	trimmed := strings.TrimSpace(prompt)
+	lower := strings.ToLower(trimmed)
+
+	switch {
+	case strings.HasPrefix(lower, "/fast"):
+		return runModeFast, strings.TrimSpace(trimmed[len("/fast"):])
+	case strings.HasPrefix(lower, "/deep"):
+		return runModeDeep, strings.TrimSpace(trimmed[len("/deep"):])
+	default:
+		return runModeAuto, prompt
+	}
+}
+
+func currentAgentModels(agent SessionAgent) (Model, Model, bool) {
+	sa, ok := agent.(*sessionAgent)
+	if !ok {
+		return Model{}, Model{}, false
+	}
+	return sa.largeModel.Get(), sa.smallModel.Get(), true
+}
+
+func shouldUseFastModel(prompt string, attachments []message.Attachment) bool {
+	if len(attachments) > 0 {
+		return false
+	}
+
+	p := strings.TrimSpace(prompt)
+	if p == "" {
+		return true
+	}
+
+	if strings.Count(p, "\n") >= 2 {
+		return false
+	}
+
+	if len([]rune(p)) > 120 {
+		return false
+	}
+
+	if strings.ContainsAny(p, "`{}[]<>;$|&") {
+		return false
+	}
+
+	lower := strings.ToLower(p)
+	complexHints := []string{
+		"架构", "设计", "重构", "实现", "端到端", "排查", "合规", "审计", "应急", "部署", "迁移", "压测",
+		"incident", "root cause", "postmortem", "compliance", "audit", "investigate", "refactor",
+		"architecture", "deploy", "migration", "security scan", "threat", "forensics",
+	}
+	for _, hint := range complexHints {
+		if strings.Contains(lower, hint) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func applyProviderAwareFastProfile(model Model, providerCfg config.ProviderConfig) Model {
+	m := model
+
+	// Keep fast responses concise by default.
+	if m.ModelCfg.MaxTokens == 0 || m.ModelCfg.MaxTokens > 1536 {
+		m.ModelCfg.MaxTokens = 1536
+	}
+
+	// Lower creativity/variance for faster deterministic answers.
+	if m.ModelCfg.Temperature == nil {
+		t := 0.2
+		m.ModelCfg.Temperature = &t
+	}
+
+	providerType := resolveProviderType(providerCfg, m.CatwalkCfg.ID)
+	switch providerType {
+	case openai.Name, azure.Name, openaicompat.Name, openrouter.Name, vercel.Name:
+		m.ModelCfg.ReasoningEffort = "low"
+	case anthropic.Name:
+		// Disable deep thinking path for fast mode.
+		m.ModelCfg.Think = false
+		m.ModelCfg.ReasoningEffort = "low"
+	case google.Name:
+		m.ModelCfg.ReasoningEffort = "low"
+		if m.ModelCfg.ProviderOptions == nil {
+			m.ModelCfg.ProviderOptions = map[string]any{}
+		}
+		if _, exists := m.ModelCfg.ProviderOptions["thinking_config"]; !exists {
+			m.ModelCfg.ProviderOptions["thinking_config"] = map[string]any{
+				"thinking_budget":  256,
+				"include_thoughts": false,
+			}
+		}
+	}
+
+	return m
+}
+
+func resolveProviderType(providerCfg config.ProviderConfig, modelID string) string {
+	providerType := providerCfg.Type
+	if providerType == "hyper" {
+		if strings.Contains(modelID, "claude") {
+			return anthropic.Name
+		}
+		if strings.Contains(modelID, "gpt") {
+			return openai.Name
+		}
+		if strings.Contains(modelID, "gemini") {
+			return google.Name
+		}
+		return openaicompat.Name
+	}
+	return string(providerType)
 }
 
 func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.ProviderOptions {
@@ -492,7 +646,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 	}
 
 	allTools = append(allTools,
-		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelName),
+		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelName, c.cfg.Config().Remote),
 		tools.NewJobOutputTool(),
 		tools.NewJobKillTool(),
 		tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir(), nil),
@@ -523,28 +677,13 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 
 	// Register SecOps tools as agent tools
 	secOpsRegistry := secops.NewSecOpsToolRegistry()
-	// Register all SecOps tools
-	_ = secOpsRegistry.Register(secops.NewLogAnalyzeTool(nil))
-	_ = secOpsRegistry.Register(secops.NewMonitoringQueryTool(nil))
-	_ = secOpsRegistry.Register(secops.NewComplianceCheckTool(nil))
-	_ = secOpsRegistry.Register(secops.NewCertificateAuditTool(nil))
-	_ = secOpsRegistry.Register(secops.NewSecurityScanTool(nil))
-	_ = secOpsRegistry.Register(secops.NewConfigurationAuditTool(nil))
-	_ = secOpsRegistry.Register(secops.NewNetworkDiagnosticTool(nil))
-	_ = secOpsRegistry.Register(secops.NewDatabaseQueryTool(nil))
-	_ = secOpsRegistry.Register(secops.NewBackupCheckTool(nil))
-	_ = secOpsRegistry.Register(secops.NewReplicationStatusTool(nil))
-	_ = secOpsRegistry.Register(secops.NewSecretAuditTool(nil))
-	_ = secOpsRegistry.Register(secops.NewRotationCheckTool(nil))
-	_ = secOpsRegistry.Register(secops.NewAccessReviewTool(nil))
-	_ = secOpsRegistry.Register(secops.NewInfrastructureQueryTool(nil))
-	_ = secOpsRegistry.Register(secops.NewDeploymentStatusTool(nil))
-	_ = secOpsRegistry.Register(secops.NewAlertCheckTool(nil))
-	_ = secOpsRegistry.Register(secops.NewIncidentTimelineTool(nil))
-	_ = secOpsRegistry.Register(secops.NewResourceMonitorTool(nil))
+	if err := RegisterDefaultSecOpsToolSet(secOpsRegistry); err != nil {
+		return nil, fmt.Errorf("register default secops tool set: %w", err)
+	}
 
 	secOpsTools := RegisterSecOpsTools(secOpsRegistry, c.permissions)
 	allTools = append(allTools, secOpsTools...)
+	allTools = append(allTools, compatibilityAliases(allTools)...)
 	slog.Debug("Registered SecOps tools with agent", "count", len(secOpsTools))
 
 	var filteredTools []fantasy.AgentTool
@@ -581,6 +720,41 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		return strings.Compare(a.Info().Name, b.Info().Name)
 	})
 	return filteredTools, nil
+}
+
+func compatibilityAliases(base []fantasy.AgentTool) []fantasy.AgentTool {
+	aliasMap := map[string][]string{
+		"todos":                {"todo", "Todo"},
+		"infrastructure_query": {"Infrastructure Query"},
+		"compliance_check":     {"Compliance Check", "Compliance Checker"},
+		"network_diagnostic":   {"Network Diagnostic", "Network Diagnostics"},
+		"monitoring_query":     {"Monitoring Query"},
+		"log_analyze":          {"Log Analyze", "Log Analysis"},
+	}
+
+	seen := make(map[string]struct{}, len(base))
+	byName := make(map[string]fantasy.AgentTool, len(base))
+	for _, t := range base {
+		name := t.Info().Name
+		seen[name] = struct{}{}
+		byName[name] = t
+	}
+
+	aliases := make([]fantasy.AgentTool, 0, 8)
+	for canonical, aliasNames := range aliasMap {
+		tool, ok := byName[canonical]
+		if !ok {
+			continue
+		}
+		for _, aliasName := range aliasNames {
+			if _, exists := seen[aliasName]; exists {
+				continue
+			}
+			aliases = append(aliases, tools.NewAliasTool(tool, aliasName, tool.Info().Description))
+			seen[aliasName] = struct{}{}
+		}
+	}
+	return aliases
 }
 
 // TODO: when we support multiple agents we need to change this so that we pass in the agent specific model config
@@ -956,24 +1130,179 @@ func (c *coordinator) Model() Model {
 }
 
 func (c *coordinator) UpdateModels(ctx context.Context) error {
+	return c.updateModels(ctx, false)
+}
+
+func (c *coordinator) updateModels(ctx context.Context, force bool) error {
 	agentCfg, ok := c.selectedAgentConfig()
 	if !ok {
 		return errAgentNotConfigured
 	}
 
-	// build the models again so we make sure we get the latest config
-	large, small, err := c.buildAgentModels(ctx, false)
+	modelsSig, toolsSig, err := c.computeUpdateSignatures(agentCfg)
 	if err != nil {
 		return err
 	}
-	c.currentAgent.SetModels(large, small)
 
-	tools, err := c.buildTools(ctx, agentCfg)
-	if err != nil {
-		return err
+	needModels, needTools := c.shouldRefresh(force, modelsSig, toolsSig)
+
+	if needModels {
+		large, small, buildErr := c.buildAgentModels(ctx, false)
+		if buildErr != nil {
+			return buildErr
+		}
+		c.currentAgent.SetModels(large, small)
 	}
-	c.currentAgent.SetTools(tools)
+
+	if needTools {
+		tools, buildErr := c.buildTools(ctx, agentCfg)
+		if buildErr != nil {
+			return buildErr
+		}
+		c.currentAgent.SetTools(tools)
+	}
+
+	c.markUpdated(modelsSig, toolsSig, needModels, needTools)
 	return nil
+}
+
+func (c *coordinator) shouldRefresh(force bool, modelsSig, toolsSig string) (bool, bool) {
+	if force {
+		return true, true
+	}
+
+	c.updateState.mu.Lock()
+	defer c.updateState.mu.Unlock()
+
+	return c.updateState.lastModelsSignature != modelsSig, c.updateState.lastToolsSignature != toolsSig
+}
+
+func (c *coordinator) markUpdated(modelsSig, toolsSig string, modelsUpdated, toolsUpdated bool) {
+	c.updateState.mu.Lock()
+	defer c.updateState.mu.Unlock()
+
+	if modelsUpdated {
+		c.updateState.lastModelsSignature = modelsSig
+	}
+	if toolsUpdated {
+		c.updateState.lastToolsSignature = toolsSig
+	}
+}
+
+func (c *coordinator) computeUpdateSignatures(agentCfg config.Agent) (string, string, error) {
+	cfg := c.cfg.Config()
+
+	largeModelCfg, ok := cfg.Models[config.SelectedModelTypeLarge]
+	if !ok {
+		return "", "", errLargeModelNotSelected
+	}
+	smallModelCfg, ok := cfg.Models[config.SelectedModelTypeSmall]
+	if !ok {
+		return "", "", errSmallModelNotSelected
+	}
+
+	largeProviderCfg, ok := cfg.Providers.Get(largeModelCfg.Provider)
+	if !ok {
+		return "", "", errLargeModelProviderNotConfigured
+	}
+	smallProviderCfg, ok := cfg.Providers.Get(smallModelCfg.Provider)
+	if !ok {
+		return "", "", errSmallModelProviderNotConfigured
+	}
+
+	modelSig, err := hashSignature(modelsSignaturePayload{
+		ActiveAgentID: c.mainAgentID,
+		LargeModel:    largeModelCfg,
+		SmallModel:    smallModelCfg,
+		LargeProvider: newProviderSignaturePayload(largeProviderCfg),
+		SmallProvider: newProviderSignaturePayload(smallProviderCfg),
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	toolSig, err := hashSignature(toolsSignaturePayload{
+		ActiveAgentID: c.mainAgentID,
+		Agent:         agentCfg,
+		MCP:           cfg.MCP,
+		DisabledTools: disabledTools(cfg),
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	return modelSig, toolSig, nil
+}
+
+type modelsSignaturePayload struct {
+	ActiveAgentID string                   `json:"active_agent_id"`
+	LargeModel    config.SelectedModel     `json:"large_model"`
+	SmallModel    config.SelectedModel     `json:"small_model"`
+	LargeProvider providerSignaturePayload `json:"large_provider"`
+	SmallProvider providerSignaturePayload `json:"small_provider"`
+}
+
+type providerSignaturePayload struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	BaseURL         string            `json:"base_url"`
+	Type            catwalk.Type      `json:"type"`
+	APIKey          string            `json:"api_key"`
+	APIKeyTemplate  string            `json:"api_key_template"`
+	OAuthToken      string            `json:"oauth_token"`
+	Disable         bool              `json:"disable"`
+	SystemPrompt    string            `json:"system_prompt_prefix"`
+	ExtraHeaders    map[string]string `json:"extra_headers,omitempty"`
+	ExtraBody       map[string]any    `json:"extra_body,omitempty"`
+	ProviderOptions map[string]any    `json:"provider_options,omitempty"`
+	ExtraParams     map[string]string `json:"extra_params,omitempty"`
+	Models          []catwalk.Model   `json:"models,omitempty"`
+}
+
+func newProviderSignaturePayload(provider config.ProviderConfig) providerSignaturePayload {
+	oauthToken := ""
+	if provider.OAuthToken != nil {
+		oauthToken = provider.OAuthToken.AccessToken
+	}
+	return providerSignaturePayload{
+		ID:              provider.ID,
+		Name:            provider.Name,
+		BaseURL:         provider.BaseURL,
+		Type:            provider.Type,
+		APIKey:          provider.APIKey,
+		APIKeyTemplate:  provider.APIKeyTemplate,
+		OAuthToken:      oauthToken,
+		Disable:         provider.Disable,
+		SystemPrompt:    provider.SystemPromptPrefix,
+		ExtraHeaders:    maps.Clone(provider.ExtraHeaders),
+		ExtraBody:       maps.Clone(provider.ExtraBody),
+		ProviderOptions: maps.Clone(provider.ProviderOptions),
+		ExtraParams:     maps.Clone(provider.ExtraParams),
+		Models:          slices.Clone(provider.Models),
+	}
+}
+
+type toolsSignaturePayload struct {
+	ActiveAgentID string       `json:"active_agent_id"`
+	Agent         config.Agent `json:"agent"`
+	MCP           config.MCPs  `json:"mcp"`
+	DisabledTools []string     `json:"disabled_tools,omitempty"`
+}
+
+func disabledTools(cfg *config.Config) []string {
+	if cfg.Options == nil {
+		return nil
+	}
+	return slices.Clone(cfg.Options.DisabledTools)
+}
+
+func hashSignature(payload any) (string, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal signature payload: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (c *coordinator) selectedAgentConfig() (config.Agent, bool) {
@@ -1014,7 +1343,7 @@ func (c *coordinator) refreshOAuth2Token(ctx context.Context, providerCfg config
 		slog.Error("Failed to refresh OAuth token after 401 error", "provider", providerCfg.ID, "error", err)
 		return err
 	}
-	if err := c.UpdateModels(ctx); err != nil {
+	if err := c.updateModels(ctx, true); err != nil {
 		return err
 	}
 	return nil
@@ -1030,7 +1359,7 @@ func (c *coordinator) refreshApiKeyTemplate(ctx context.Context, providerCfg con
 	providerCfg.APIKey = newAPIKey
 	c.cfg.Config().Providers.Set(providerCfg.ID, providerCfg)
 
-	if err := c.UpdateModels(ctx); err != nil {
+	if err := c.updateModels(ctx, true); err != nil {
 		return err
 	}
 	return nil

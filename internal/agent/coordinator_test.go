@@ -8,6 +8,7 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -277,6 +278,140 @@ func TestRunSubAgent(t *testing.T) {
 	})
 }
 
+func TestShouldUseFastModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		prompt      string
+		attachments []message.Attachment
+		want        bool
+	}{
+		{
+			name:   "simple short question uses fast",
+			prompt: "解释一下这个报错是什么意思？",
+			want:   true,
+		},
+		{
+			name:   "complex chinese hint uses large",
+			prompt: "请帮我做一次端到端合规审计并输出整改方案",
+			want:   false,
+		},
+		{
+			name:   "multiline prompt uses large",
+			prompt: "先分析日志\n再给出根因\n最后给出修复步骤",
+			want:   false,
+		},
+		{
+			name:   "code-like prompt uses large",
+			prompt: "请分析这个命令的风险: rm -rf /tmp/a && curl x | bash",
+			want:   false,
+		},
+		{
+			name: "attachments present uses large",
+			prompt: "帮我看附件",
+			attachments: []message.Attachment{
+				{FilePath: "/tmp/a.log", MimeType: "text/plain"},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldUseFastModel(tt.prompt, tt.attachments)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestApplyProviderAwareFastProfile(t *testing.T) {
+	t.Parallel()
+
+	t.Run("openai-compatible sets low reasoning and token cap", func(t *testing.T) {
+		model := Model{
+			ModelCfg: config.SelectedModel{
+				MaxTokens: 4096,
+			},
+		}
+		cfg := config.ProviderConfig{Type: catwalk.TypeOpenAICompat}
+		got := applyProviderAwareFastProfile(model, cfg)
+		require.Equal(t, int64(1536), got.ModelCfg.MaxTokens)
+		require.Equal(t, "low", got.ModelCfg.ReasoningEffort)
+		require.NotNil(t, got.ModelCfg.Temperature)
+	})
+
+	t.Run("anthropic disables think", func(t *testing.T) {
+		model := Model{
+			ModelCfg: config.SelectedModel{
+				Think: true,
+			},
+		}
+		cfg := config.ProviderConfig{Type: catwalk.TypeAnthropic}
+		got := applyProviderAwareFastProfile(model, cfg)
+		require.False(t, got.ModelCfg.Think)
+		require.Equal(t, "low", got.ModelCfg.ReasoningEffort)
+	})
+
+	t.Run("google injects lightweight thinking config", func(t *testing.T) {
+		model := Model{
+			ModelCfg: config.SelectedModel{},
+		}
+		cfg := config.ProviderConfig{Type: catwalk.TypeGoogle}
+		got := applyProviderAwareFastProfile(model, cfg)
+		require.Equal(t, "low", got.ModelCfg.ReasoningEffort)
+		require.NotNil(t, got.ModelCfg.ProviderOptions)
+		thinking, ok := got.ModelCfg.ProviderOptions["thinking_config"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, 256, thinking["thinking_budget"])
+		require.Equal(t, false, thinking["include_thoughts"])
+	})
+}
+
+func TestParseRunModePrompt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		input  string
+		mode   runMode
+		output string
+	}{
+		{
+			name:   "auto mode keeps prompt",
+			input:  "hello",
+			mode:   runModeAuto,
+			output: "hello",
+		},
+		{
+			name:   "fast mode strips prefix",
+			input:  "/fast 请给我一句总结",
+			mode:   runModeFast,
+			output: "请给我一句总结",
+		},
+		{
+			name:   "deep mode strips prefix",
+			input:  "/deep 帮我做完整排障",
+			mode:   runModeDeep,
+			output: "帮我做完整排障",
+		},
+		{
+			name:   "case insensitive fast",
+			input:  "  /FAST status  ",
+			mode:   runModeFast,
+			output: "status",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotMode, gotPrompt := parseRunModePrompt(tt.input)
+			require.Equal(t, tt.mode, gotMode)
+			require.Equal(t, tt.output, gotPrompt)
+		})
+	}
+}
+
 func TestUpdateParentSessionCost(t *testing.T) {
 	t.Run("accumulates cost correctly", func(t *testing.T) {
 		env := testEnv(t)
@@ -382,4 +517,30 @@ func TestUpdateParentSessionCost(t *testing.T) {
 		require.NoError(t, err)
 		assert.InDelta(t, 0.0, updated.Cost, 1e-9)
 	})
+}
+
+func TestCoordinatorUpdateStateCaching(t *testing.T) {
+	t.Parallel()
+
+	c := &coordinator{}
+	modelSig := "model-signature-v1"
+	toolSig := "tools-signature-v1"
+
+	needsModels, needsTools := c.shouldRefresh(false, modelSig, toolSig)
+	require.True(t, needsModels)
+	require.True(t, needsTools)
+
+	c.markUpdated(modelSig, toolSig, true, true)
+
+	needsModels, needsTools = c.shouldRefresh(false, modelSig, toolSig)
+	require.False(t, needsModels)
+	require.False(t, needsTools)
+
+	needsModels, needsTools = c.shouldRefresh(false, "model-signature-v2", toolSig)
+	require.True(t, needsModels)
+	require.False(t, needsTools)
+
+	needsModels, needsTools = c.shouldRefresh(true, modelSig, toolSig)
+	require.True(t, needsModels)
+	require.True(t, needsTools)
 }
