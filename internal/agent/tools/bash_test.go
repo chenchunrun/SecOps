@@ -60,6 +60,13 @@ func TestBashTool_DefaultAutoBackgroundThreshold(t *testing.T) {
 	require.Contains(t, meta.Output, "done")
 }
 
+func TestBashDescriptionWithNilAttributionDoesNotPanic(t *testing.T) {
+	require.NotPanics(t, func() {
+		desc := bashDescription(nil, "test-model")
+		require.NotEmpty(t, desc)
+	})
+}
+
 func TestBashTool_CustomAutoBackgroundThreshold(t *testing.T) {
 	workingDir := t.TempDir()
 	tool := newBashToolForTest(workingDir)

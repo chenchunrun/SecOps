@@ -544,3 +544,17 @@ func TestCoordinatorUpdateStateCaching(t *testing.T) {
 	require.True(t, needsModels)
 	require.True(t, needsTools)
 }
+
+func TestBuildAnthropicProvider_AllowsNilHeadersWithBearerKey(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	cfg, err := config.Init(env.workingDir, "", false)
+	require.NoError(t, err)
+
+	c := &coordinator{cfg: cfg}
+
+	provider, err := c.buildAnthropicProvider("", "Bearer test-token", nil, "")
+	require.NoError(t, err)
+	require.NotNil(t, provider)
+}

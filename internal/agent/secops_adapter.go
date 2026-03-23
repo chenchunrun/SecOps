@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -26,6 +27,15 @@ type Adapter struct {
 	assessor    *security.RiskAssessor
 }
 
+type remoteValidationError struct {
+	code string
+	msg  string
+}
+
+func (e *remoteValidationError) Error() string {
+	return e.msg
+}
+
 // Info returns tool metadata.
 func (a *Adapter) Info() fantasy.ToolInfo {
 	return fantasy.ToolInfo{
@@ -44,6 +54,10 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 		}
 	}
 	paramsMap = normalizeSecOpsParams(a.tool.Type(), paramsMap)
+	if err := validateRemoteSSHParams(paramsMap); err != nil {
+		a.recordRemoteValidationAuditEvent(ctx, call, paramsMap, err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid remote ssh parameters: %v", err)), nil
+	}
 
 	// Convert map to the appropriate params struct
 	paramsBytes, err := json.Marshal(paramsMap)
@@ -237,6 +251,160 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 	default:
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("unsupported tool type: %s", a.tool.Type())), nil
 	}
+}
+
+var (
+	remoteHostPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]*$`)
+	remoteUserPattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+	remoteProfileIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+)
+
+func validateRemoteSSHParams(params map[string]interface{}) error {
+	if len(params) == 0 {
+		return nil
+	}
+
+	checkNoControl := func(name, val string) error {
+		if strings.ContainsAny(val, "\r\n\x00") {
+			return fmt.Errorf("%s contains control characters", name)
+		}
+		return nil
+	}
+
+	getString := func(key string) string {
+		v, ok := params[key]
+		if !ok {
+			return ""
+		}
+		s, ok := v.(string)
+		if !ok {
+			return ""
+		}
+		return strings.TrimSpace(s)
+	}
+
+	remoteHost := getString("remote_host")
+	remoteUser := getString("remote_user")
+	remoteProfile := getString("remote_profile")
+	remoteKeyPath := getString("remote_key_path")
+	remoteProxyJump := getString("remote_proxy_jump")
+
+	if remoteHost != "" {
+		if strings.HasPrefix(remoteHost, "-") {
+			return &remoteValidationError{code: "host_dash_prefix", msg: "remote_host cannot start with '-'"}
+		}
+		if err := checkNoControl("remote_host", remoteHost); err != nil {
+			return &remoteValidationError{code: "host_control_chars", msg: err.Error()}
+		}
+		if !remoteHostPattern.MatchString(remoteHost) {
+			return &remoteValidationError{code: "host_invalid_format", msg: "remote_host has invalid format"}
+		}
+	}
+
+	if remoteUser != "" {
+		if strings.HasPrefix(remoteUser, "-") {
+			return &remoteValidationError{code: "user_dash_prefix", msg: "remote_user cannot start with '-'"}
+		}
+		if err := checkNoControl("remote_user", remoteUser); err != nil {
+			return &remoteValidationError{code: "user_control_chars", msg: err.Error()}
+		}
+		if !remoteUserPattern.MatchString(remoteUser) {
+			return &remoteValidationError{code: "user_invalid_format", msg: "remote_user has invalid format"}
+		}
+	}
+
+	if remoteProfile != "" {
+		if strings.HasPrefix(remoteProfile, "-") {
+			return &remoteValidationError{code: "profile_dash_prefix", msg: "remote_profile cannot start with '-'"}
+		}
+		if err := checkNoControl("remote_profile", remoteProfile); err != nil {
+			return &remoteValidationError{code: "profile_control_chars", msg: err.Error()}
+		}
+		if !remoteProfileIDPattern.MatchString(remoteProfile) {
+			return &remoteValidationError{code: "profile_invalid_format", msg: "remote_profile has invalid format"}
+		}
+	}
+
+	if remoteKeyPath != "" {
+		if strings.HasPrefix(remoteKeyPath, "-") {
+			return &remoteValidationError{code: "key_path_dash_prefix", msg: "remote_key_path cannot start with '-'"}
+		}
+		if err := checkNoControl("remote_key_path", remoteKeyPath); err != nil {
+			return &remoteValidationError{code: "key_path_control_chars", msg: err.Error()}
+		}
+	}
+
+	if remoteProxyJump != "" {
+		if strings.HasPrefix(remoteProxyJump, "-") {
+			return &remoteValidationError{code: "proxy_jump_dash_prefix", msg: "remote_proxy_jump cannot start with '-'"}
+		}
+		if err := checkNoControl("remote_proxy_jump", remoteProxyJump); err != nil {
+			return &remoteValidationError{code: "proxy_jump_control_chars", msg: err.Error()}
+		}
+	}
+
+	if portRaw, ok := params["remote_port"]; ok {
+		switch p := portRaw.(type) {
+		case float64:
+			if p < 0 || p > 65535 {
+				return &remoteValidationError{code: "port_out_of_range", msg: "remote_port must be between 0 and 65535"}
+			}
+		case int:
+			if p < 0 || p > 65535 {
+				return &remoteValidationError{code: "port_out_of_range", msg: "remote_port must be between 0 and 65535"}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (a *Adapter) recordRemoteValidationAuditEvent(
+	ctx context.Context,
+	call fantasy.ToolCall,
+	params map[string]interface{},
+	err error,
+) {
+	sessionID := tools.GetSessionFromContext(ctx)
+	if sessionID == "" {
+		sessionID = "secops"
+	}
+	role := secOpsRole()
+
+	code := "unknown_validation_error"
+	if rv, ok := err.(*remoteValidationError); ok && rv.code != "" {
+		code = rv.code
+	}
+
+	host := strings.TrimSpace(stringValue(params["remote_host"]))
+	user := strings.TrimSpace(stringValue(params["remote_user"]))
+	target := host
+	if target != "" && user != "" {
+		target = user + "@" + host
+	}
+
+	event := audit.NewAuditEventBuilder(audit.EventTypePermissionDenied).
+		WithSession(sessionID).
+		WithUser(role, role).
+		WithAction("remote_param_validation_failed").
+		WithResource(string(permission.ResourceTypeCommand), string(a.tool.Type()), string(a.tool.Type())).
+		WithRemoteTarget("ssh", target, strings.TrimSpace(stringValue(params["remote_env"])), strings.TrimSpace(stringValue(params["remote_profile"]))).
+		WithDetail("tool_call_id", call.ID).
+		WithDetail("validation_reason_code", code).
+		WithDetail("validation_error", err.Error()).
+		WithDetail("ssh_option_profile", "secops_default_v1").
+		WithDetail("remote_policy_source", "secops_permission_engine").
+		WithResult(audit.ResultDenied).
+		Build()
+	event.Reason = code
+	_ = audit.RecordGlobal(event)
+}
+
+func stringValue(v interface{}) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func normalizeSecOpsParams(toolType secops.ToolType, in map[string]interface{}) map[string]interface{} {
@@ -631,7 +799,7 @@ func (a *Adapter) recordRiskAuditEvent(req *permission.PermissionRequest, assess
 	if req == nil {
 		return
 	}
-	event := audit.NewAuditEventBuilder(audit.EventTypePermissionRequest).
+	builder := audit.NewAuditEventBuilder(audit.EventTypePermissionRequest).
 		WithSession(req.SessionID).
 		WithUser(req.UserID, req.Username).
 		WithAction(action).
@@ -641,9 +809,9 @@ func (a *Adapter) recordRiskAuditEvent(req *permission.PermissionRequest, assess
 		WithDetail("tool_call_id", req.ToolCallID).
 		WithDetail("risk_factors", req.RiskFactors).
 		WithDetail("risk_action", assessment.Action).
-		WithDetail("risk_details", assessment.Details).
-		WithResult(audit.ResultSuccess).
-		Build()
+		WithDetail("risk_details", assessment.Details)
+	addRemoteAuditProfileDetails(builder, req.Transport)
+	event := builder.WithResult(audit.ResultSuccess).Build()
 	_ = audit.RecordGlobal(event)
 }
 
@@ -668,7 +836,7 @@ func (a *Adapter) recordDecisionAuditEvent(
 		result = audit.ResultError
 	}
 
-	event := audit.NewAuditEventBuilder(eventType).
+	builder := audit.NewAuditEventBuilder(eventType).
 		WithSession(req.SessionID).
 		WithUser(req.UserID, req.Username).
 		WithAction(action).
@@ -677,13 +845,22 @@ func (a *Adapter) recordDecisionAuditEvent(
 		WithRemoteTarget(req.Transport, req.TargetHost, req.TargetEnv, req.TargetID).
 		WithDetail("tool_call_id", req.ToolCallID).
 		WithDetail("decision", decision).
-		WithDetail("risk_factors", req.RiskFactors).
-		WithResult(result).
-		Build()
+		WithDetail("risk_factors", req.RiskFactors)
+	addRemoteAuditProfileDetails(builder, req.Transport)
+	event := builder.WithResult(result).Build()
 	if errMsg != "" {
 		event.ErrorMsg = errMsg
 	}
 	_ = audit.RecordGlobal(event)
+}
+
+func addRemoteAuditProfileDetails(builder *audit.AuditEventBuilder, transport string) {
+	if strings.ToLower(strings.TrimSpace(transport)) != "ssh" {
+		return
+	}
+	builder.
+		WithDetail("ssh_option_profile", "secops_default_v1").
+		WithDetail("remote_policy_source", "secops_permission_engine")
 }
 
 type remoteContext struct {

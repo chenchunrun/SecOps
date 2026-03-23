@@ -185,15 +185,23 @@ var bannedCommands = []string{
 
 func bashDescription(attribution *config.Attribution, modelName string) string {
 	bannedCommandsStr := strings.Join(bannedCommands, ", ")
+	attr := config.Attribution{}
+	if attribution != nil {
+		attr = *attribution
+	}
 	var out bytes.Buffer
 	if err := bashDescriptionTpl.Execute(&out, bashDescriptionData{
 		BannedCommands:  bannedCommandsStr,
 		MaxOutputLength: MaxOutputLength,
-		Attribution:     *attribution,
+		Attribution:     attr,
 		ModelName:       modelName,
 	}); err != nil {
-		// this should never happen.
-		panic("failed to execute bash description template: " + err.Error())
+		// Avoid panics in tool construction; return a safe fallback description.
+		return fmt.Sprintf(
+			"Execute shell commands with safety guardrails. Banned commands: %s. Max output length: %d.",
+			bannedCommandsStr,
+			MaxOutputLength,
+		)
 	}
 	return out.String()
 }

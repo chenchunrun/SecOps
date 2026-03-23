@@ -176,14 +176,8 @@ func (sst *SecurityScanTool) ValidateParams(params interface{}) error {
 	if !validTargets[p.Target] {
 		return fmt.Errorf("unsupported target: %s", p.Target)
 	}
-	if p.RemotePort < 0 || p.RemotePort > 65535 {
-		return fmt.Errorf("remote_port must be between 1 and 65535")
-	}
-	if strings.TrimSpace(p.RemoteHost) == "" {
-		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
-			strings.TrimSpace(p.RemoteKey) != "" || strings.TrimSpace(p.ProxyJump) != "" {
-			return fmt.Errorf("remote_host is required when remote ssh options are set")
-		}
+	if err := validateRemoteSSHParams(p.RemoteHost, p.RemoteUser, p.RemoteKey, p.ProxyJump, p.RemotePort); err != nil {
+		return err
 	}
 
 	return nil
@@ -397,7 +391,7 @@ func buildSecurityScanSSHArgs(params *SecurityScanParams, name string, args ...s
 		target = user + "@" + host
 	}
 
-	sshArgs := []string{"-o", "BatchMode=yes"}
+	sshArgs := defaultSSHOptionArgs()
 	if params.RemotePort > 0 {
 		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
 	}

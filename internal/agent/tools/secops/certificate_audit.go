@@ -146,14 +146,8 @@ func (cat *CertificateAuditTool) ValidateParams(params interface{}) error {
 	if p.ExpiryWarningDays < 0 {
 		return fmt.Errorf("expiry warning days must be positive")
 	}
-	if p.RemotePort < 0 || p.RemotePort > 65535 {
-		return fmt.Errorf("remote_port must be between 1 and 65535")
-	}
-	if strings.TrimSpace(p.RemoteHost) == "" {
-		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
-			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
-			return fmt.Errorf("remote_host is required when remote ssh options are set")
-		}
+	if err := validateRemoteSSHParams(p.RemoteHost, p.RemoteUser, p.RemoteKeyPath, p.RemoteProxyJump, p.RemotePort); err != nil {
+		return err
 	}
 
 	return nil
@@ -483,7 +477,7 @@ func buildCertSSHArgs(params *CertificateAuditParams, remoteCmd string) ([]strin
 	if user != "" {
 		target = user + "@" + host
 	}
-	sshArgs := []string{"-o", "BatchMode=yes"}
+	sshArgs := defaultSSHOptionArgs()
 	if params.RemotePort > 0 {
 		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
 	}

@@ -163,8 +163,8 @@ func (ndt *NetworkDiagnosticTool) ValidateParams(params interface{}) error {
 	if p.Timeout > 300 {
 		return fmt.Errorf("timeout cannot exceed 300 seconds")
 	}
-	if p.RemotePort < 0 || p.RemotePort > 65535 {
-		return fmt.Errorf("remote_port must be between 1 and 65535")
+	if err := validateRemoteSSHParams(p.RemoteHost, p.RemoteUser, p.RemoteKeyPath, p.RemoteProxyJump, p.RemotePort); err != nil {
+		return err
 	}
 
 	if p.Type == DiagnosticPortScan && len(p.Ports) == 0 {
@@ -595,7 +595,7 @@ func buildSSHCommandArgs(params *NetworkDiagnosticParams, name string, args ...s
 		target = user + "@" + host
 	}
 
-	sshArgs := []string{"-o", "BatchMode=yes"}
+	sshArgs := defaultSSHOptionArgs()
 	if params.RemotePort > 0 {
 		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
 	}

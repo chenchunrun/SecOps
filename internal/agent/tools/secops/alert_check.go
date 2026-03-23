@@ -115,14 +115,8 @@ func (act *AlertCheckTool) ValidateParams(params interface{}) error {
 	if p.Status != "" && !validStatuses[p.Status] {
 		return fmt.Errorf("unsupported status: %s", p.Status)
 	}
-	if p.RemotePort < 0 || p.RemotePort > 65535 {
-		return fmt.Errorf("remote_port must be between 1 and 65535")
-	}
-	if strings.TrimSpace(p.RemoteHost) == "" {
-		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
-			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
-			return fmt.Errorf("remote_host is required when remote ssh options are set")
-		}
+	if err := validateRemoteSSHParams(p.RemoteHost, p.RemoteUser, p.RemoteKeyPath, p.RemoteProxyJump, p.RemotePort); err != nil {
+		return err
 	}
 
 	return nil
@@ -924,7 +918,7 @@ func buildAlertSSHArgs(params *AlertCheckParams, remoteCmd string) ([]string, er
 	if user != "" {
 		target = user + "@" + host
 	}
-	sshArgs := []string{"-o", "BatchMode=yes"}
+	sshArgs := defaultSSHOptionArgs()
 	if params.RemotePort > 0 {
 		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
 	}

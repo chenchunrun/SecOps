@@ -846,12 +846,18 @@ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map
 
 	switch {
 	case strings.HasPrefix(apiKey, "Bearer "):
-		// NOTE: Prevent the SDK from picking up the API key from env.
-		os.Setenv("ANTHROPIC_API_KEY", "")
+		// Avoid global env mutation; explicitly clear SDK key in options.
+		opts = append(opts, anthropic.WithAPIKey(""))
+		if headers == nil {
+			headers = map[string]string{}
+		}
 		headers["Authorization"] = apiKey
 	case providerID == string(catwalk.InferenceProviderMiniMax) || providerID == string(catwalk.InferenceProviderMiniMaxChina):
-		// NOTE: Prevent the SDK from picking up the API key from env.
-		os.Setenv("ANTHROPIC_API_KEY", "")
+		// Avoid global env mutation; explicitly clear SDK key in options.
+		opts = append(opts, anthropic.WithAPIKey(""))
+		if headers == nil {
+			headers = map[string]string{}
+		}
 		headers["Authorization"] = "Bearer " + apiKey
 	case apiKey != "":
 		// X-Api-Key header

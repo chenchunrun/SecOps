@@ -462,3 +462,108 @@ func TestParseRemoteContext(t *testing.T) {
 		t.Fatalf("unexpected target id %q", ctx.TargetID)
 	}
 }
+
+func TestAdapterRunRejectsUnsafeRemoteSSHParams(t *testing.T) {
+	t.Setenv("SECOPS_ROLE", "admin")
+	store := audit.NewInMemoryAuditStore()
+	audit.SetGlobalStore(store)
+	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
+
+	a := &Adapter{
+		tool: &testSecOpsTool{},
+	}
+
+	resp, err := a.Run(context.Background(), fantasy.ToolCall{
+		ID:    "call-unsafe-remote",
+		Input: `{"remote_host":"-oProxyCommand=evil"}`,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.IsError {
+		t.Fatal("expected unsafe remote_host to be rejected")
+	}
+	if !strings.Contains(resp.Content, "invalid remote ssh parameters") {
+		t.Fatalf("unexpected response content: %q", resp.Content)
+	}
+
+	events, err := store.ListEvents(&audit.AuditFilter{EventType: audit.EventTypePermissionDenied})
+	if err != nil {
+		t.Fatalf("list audit events: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected permission_denied event for remote param validation failure")
+	}
+	last := events[len(events)-1]
+	if last.Action != "remote_param_validation_failed" {
+		t.Fatalf("unexpected action: %q", last.Action)
+	}
+	if got := last.Details["validation_reason_code"]; got != "host_dash_prefix" {
+		t.Fatalf("unexpected validation_reason_code: %#v", got)
+	}
+	if got := last.Details["ssh_option_profile"]; got != "secops_default_v1" {
+		t.Fatalf("unexpected ssh_option_profile: %#v", got)
+	}
+	if got := last.Details["remote_policy_source"]; got != "secops_permission_engine" {
+		t.Fatalf("unexpected remote_policy_source: %#v", got)
+	}
+}
+
+func TestAdapterRunAllowsSafeRemoteSSHParams(t *testing.T) {
+	t.Setenv("SECOPS_ROLE", "admin")
+
+	a := &Adapter{
+		tool: &testSecOpsTool{},
+	}
+
+	resp, err := a.Run(context.Background(), fantasy.ToolCall{
+		ID: "call-safe-remote",
+		Input: `{
+			"remote_host":"10.0.0.9",
+			"remote_user":"ops",
+			"remote_port":22
+		}`,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.IsError {
+		t.Fatalf("expected safe remote params to pass, got %q", resp.Content)
+	}
+}
+
+func TestEnforceRiskDecision_RemoteAuditIncludesProfileDetails(t *testing.T) {
+	t.Setenv("SECOPS_ROLE", "admin")
+	store := audit.NewInMemoryAuditStore()
+	audit.SetGlobalStore(store)
+	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
+
+	a := &Adapter{
+		tool:        &testSecOpsTool{},
+		secopsPerms: permission.NewDefaultService(),
+		assessor:    security.NewRiskAssessor(),
+	}
+
+	err := a.enforceRiskDecision(context.Background(), fantasy.ToolCall{
+		ID:    "call-remote-audit-profile",
+		Input: `{"remote_host":"10.0.0.9","remote_user":"ops","remote_env":"prod","remote_profile":"prod-web"}`,
+	}, "admin")
+	if err != nil {
+		t.Fatalf("unexpected enforceRiskDecision error: %v", err)
+	}
+
+	events, listErr := store.ListEvents(&audit.AuditFilter{EventType: audit.EventTypePermissionRequest})
+	if listErr != nil {
+		t.Fatalf("list audit events: %v", listErr)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected permission_request audit events")
+	}
+	last := events[len(events)-1]
+	if got := last.Details["ssh_option_profile"]; got != "secops_default_v1" {
+		t.Fatalf("unexpected ssh_option_profile: %#v", got)
+	}
+	if got := last.Details["remote_policy_source"]; got != "secops_permission_engine" {
+		t.Fatalf("unexpected remote_policy_source: %#v", got)
+	}
+}
