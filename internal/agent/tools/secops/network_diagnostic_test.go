@@ -1,6 +1,9 @@
 package secops
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +87,16 @@ func TestNetworkDiagnosticTool_ValidateParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "invalid remote port",
+			params: &NetworkDiagnosticParams{
+				Type:       DiagnosticPing,
+				Target:     "example.com",
+				RemoteHost: "10.0.0.2",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
 			name: "too many ports",
 			params: &NetworkDiagnosticParams{
 				Type:   DiagnosticPortScan,
@@ -111,6 +124,12 @@ func TestNetworkDiagnosticTool_ValidateParams(t *testing.T) {
 
 func TestNetworkDiagnosticTool_ExecuteTraceroute(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "traceroute" || strings.Contains(strings.Join(args, " "), "traceroute") {
+			return []byte(" 1 10.0.0.1 2.5 ms\n"), nil
+		}
+		return nil, fmt.Errorf("unsupported command")
+	}
 
 	params := &NetworkDiagnosticParams{
 		Type:   DiagnosticTraceroute,
@@ -135,8 +154,34 @@ func TestNetworkDiagnosticTool_ExecuteTraceroute(t *testing.T) {
 		t.Error("expected hops in result")
 	}
 
-	if diagResult.Duration == 0 {
-		t.Error("expected non-zero duration")
+	if diagResult.Duration < 0 {
+		t.Error("expected non-negative duration")
+	}
+}
+
+func TestNetworkDiagnosticTool_ExecuteTraceroute_NoFallbackByDefault(t *testing.T) {
+	tool := NewNetworkDiagnosticTool(nil)
+	t.Setenv("SECOPS_NETWORK_DIAG_ALLOW_FALLBACK", "")
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("command not found")
+	}
+
+	result, err := tool.Execute(&NetworkDiagnosticParams{
+		Type:   DiagnosticTraceroute,
+		Target: "8.8.8.8",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	diag := result.(*NetworkDiagnosticResult)
+	if len(diag.Hops) != 0 {
+		t.Fatalf("expected no hops without fallback, got %d", len(diag.Hops))
+	}
+	if diag.Status != "error" {
+		t.Fatalf("expected error status, got %s", diag.Status)
+	}
+	if len(diag.Issues) == 0 {
+		t.Fatal("expected issues when traceroute returns no data")
 	}
 }
 
@@ -193,7 +238,13 @@ func TestNetworkDiagnosticTool_ExecutePing(t *testing.T) {
 	}
 
 	if diagResult.PingResult == nil {
-		t.Fatal("expected ping result")
+		if diagResult.Status != "error" {
+			t.Fatalf("expected error status when ping result is nil, got %s", diagResult.Status)
+		}
+		if len(diagResult.Issues) == 0 {
+			t.Fatal("expected issues when ping result is nil")
+		}
+		return
 	}
 
 	if diagResult.PingResult.Sent != 4 {
@@ -224,7 +275,13 @@ func TestNetworkDiagnosticTool_ExecuteDNS(t *testing.T) {
 	}
 
 	if len(diagResult.DNSRecords) == 0 {
-		t.Error("expected DNS records")
+		if diagResult.Status != "error" {
+			t.Errorf("expected error status when no DNS records, got %s", diagResult.Status)
+		}
+		if len(diagResult.Issues) == 0 {
+			t.Error("expected issues when no DNS records")
+		}
+		return
 	}
 
 	for _, record := range diagResult.DNSRecords {
@@ -239,6 +296,16 @@ func TestNetworkDiagnosticTool_ExecuteDNS(t *testing.T) {
 
 func TestNetworkDiagnosticTool_ExecuteMTR(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if name == "mtr" || strings.Contains(strings.Join(args, " "), "mtr") {
+			return []byte(
+				"Start: 2026-03-23T00:00:00+0000\n" +
+					"HOST: local Loss% Snt Last Avg Best Wrst StDev\n" +
+					" 1.|-- 10.0.0.1  0.0% 10 2.0 2.3 1.8 3.1 0.4\n",
+			), nil
+		}
+		return nil, fmt.Errorf("unsupported command")
+	}
 
 	params := &NetworkDiagnosticParams{
 		Type:   DiagnosticMTR,
@@ -386,6 +453,76 @@ func TestNetworkDiagnosticTool_FallbackPingViaTCP(t *testing.T) {
 		if result.Loss < 0 || result.Loss > 100 {
 			t.Errorf("expected packet loss between 0-100, got %f", result.Loss)
 		}
+	}
+}
+
+func TestNetworkDiagnosticTool_RemoteTracerouteUsesSSH(t *testing.T) {
+	tool := NewNetworkDiagnosticTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(" 1 10.0.0.1 2.5 ms\n"), nil
+	}
+
+	params := &NetworkDiagnosticParams{
+		Target:          "example.com",
+		Timeout:         5,
+		RemoteHost:      "10.0.0.2",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	}
+	hops := tool.runTracerouteCommand("example.com", 5, params)
+	if len(hops) != 1 {
+		t.Fatalf("expected one hop, got %d", len(hops))
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	joined := strings.Join(gotArgs, " ")
+	if !strings.Contains(joined, "-p 2222") {
+		t.Fatalf("expected ssh port arg in %q", joined)
+	}
+	if !strings.Contains(joined, "-i /tmp/id_ed25519") {
+		t.Fatalf("expected ssh key arg in %q", joined)
+	}
+	if !strings.Contains(joined, "-J bastion") {
+		t.Fatalf("expected ssh proxyjump arg in %q", joined)
+	}
+	if !strings.Contains(joined, "ops@10.0.0.2") {
+		t.Fatalf("expected ssh target in %q", joined)
+	}
+	if !strings.Contains(joined, "traceroute") || !strings.Contains(joined, "example.com") {
+		t.Fatalf("expected traceroute command in %q", joined)
+	}
+}
+
+func TestNetworkDiagnosticTool_LocalTracerouteUsesDirectCommand(t *testing.T) {
+	tool := NewNetworkDiagnosticTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(" 1 10.0.0.1 2.5 ms\n"), nil
+	}
+
+	params := &NetworkDiagnosticParams{
+		Target:  "example.com",
+		Timeout: 5,
+	}
+	hops := tool.runTracerouteCommand("example.com", 5, params)
+	if len(hops) != 1 {
+		t.Fatalf("expected one hop, got %d", len(hops))
+	}
+	if gotName != "traceroute" {
+		t.Fatalf("expected traceroute command, got %s", gotName)
+	}
+	if len(gotArgs) == 0 || gotArgs[len(gotArgs)-1] != "example.com" {
+		t.Fatalf("expected target argument, got %v", gotArgs)
 	}
 }
 

@@ -1,6 +1,7 @@
 package dialog
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -451,12 +452,40 @@ func (p *Permissions) renderHeader(contentWidth int) string {
 	pathLine := p.renderKeyValue("Path", fsext.PrettyPath(p.permission.Path), contentWidth)
 
 	lines := []string{title, "", toolLine, pathLine}
+	if transport := strings.TrimSpace(p.permission.Transport); transport != "" {
+		lines = append(lines, p.renderKeyValue("Transport", transport, contentWidth))
+	}
+	if target := strings.TrimSpace(p.permission.TargetHost); target != "" {
+		lines = append(lines, p.renderKeyValue("Target", target, contentWidth))
+	}
+	if env := strings.TrimSpace(p.permission.TargetEnv); env != "" {
+		lines = append(lines, p.renderKeyValue("Env", env, contentWidth))
+	}
+	if targetID := strings.TrimSpace(p.permission.TargetID); targetID != "" {
+		lines = append(lines, p.renderKeyValue("Profile", targetID, contentWidth))
+	}
 
 	// Add tool-specific header info.
 	switch p.permission.ToolName {
 	case tools.BashToolName:
 		if params, ok := p.permission.Params.(tools.BashPermissionsParams); ok {
 			lines = append(lines, p.renderKeyValue("Desc", params.Description, contentWidth))
+			// Backward-compatible fallback if permission metadata was not populated.
+			if strings.TrimSpace(p.permission.TargetHost) == "" && strings.TrimSpace(params.RemoteHost) != "" {
+				lines = append(lines, p.renderKeyValue("Target", formatRemoteTargetDisplay(params.RemoteUser, params.RemoteHost), contentWidth))
+			}
+			if strings.TrimSpace(p.permission.TargetID) == "" && strings.TrimSpace(params.RemoteProfile) != "" {
+				lines = append(lines, p.renderKeyValue("Profile", params.RemoteProfile, contentWidth))
+			}
+			if strings.TrimSpace(p.permission.TargetEnv) == "" && strings.TrimSpace(params.RemoteEnv) != "" {
+				lines = append(lines, p.renderKeyValue("Env", params.RemoteEnv, contentWidth))
+			}
+			if policyType := strings.TrimSpace(params.PolicyType); policyType != "" && policyType != "none" {
+				lines = append(lines, p.renderKeyValue("Policy", policyType+" / "+cmp.Or(strings.TrimSpace(params.PolicyResult), "allow"), contentWidth))
+			}
+			if policyRule := strings.TrimSpace(params.PolicyRule); policyRule != "" {
+				lines = append(lines, p.renderKeyValue("Rule", policyRule, contentWidth))
+			}
 		}
 	case tools.DownloadToolName:
 		if params, ok := p.permission.Params.(tools.DownloadPermissionsParams); ok {
@@ -523,6 +552,18 @@ func prettyName(name string) string {
 	name = strings.ReplaceAll(name, "_", " ")
 	name = strings.ReplaceAll(name, "-", " ")
 	return stringext.Capitalize(name)
+}
+
+func formatRemoteTargetDisplay(user, host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return host
+	}
+	return user + "@" + host
 }
 
 func (p *Permissions) renderContent(width int) string {

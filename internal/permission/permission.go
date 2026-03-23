@@ -66,6 +66,10 @@ type CreatePermissionRequest struct {
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
 	Path        string `json:"path"`
+	Transport   string `json:"transport,omitempty"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetEnv   string `json:"target_env,omitempty"`
+	TargetID    string `json:"target_id,omitempty"`
 }
 
 type PermissionNotification struct {
@@ -83,6 +87,10 @@ type PermissionRequest struct {
 	Action       string `json:"action"`
 	Params       any    `json:"params"`
 	Path         string `json:"path"`
+	Transport    string `json:"transport,omitempty"`
+	TargetHost   string `json:"target_host,omitempty"`
+	TargetEnv    string `json:"target_env,omitempty"`
+	TargetID     string `json:"target_id,omitempty"`
 	// SecOps fields
 	RiskScore     int                `json:"risk_score"`
 	Severity      Severity           `json:"severity"`
@@ -241,6 +249,10 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		Description: opts.Description,
 		Action:      opts.Action,
 		Params:      opts.Params,
+		Transport:   opts.Transport,
+		TargetHost:  opts.TargetHost,
+		TargetEnv:   opts.TargetEnv,
+		TargetID:    opts.TargetID,
 	}
 
 	s.sessionPermissionsMu.RLock()

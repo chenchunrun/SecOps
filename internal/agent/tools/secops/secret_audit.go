@@ -2,11 +2,16 @@ package secops
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // MaxFileSize is the maximum file size to scan (1 MB).
@@ -55,9 +60,14 @@ var skipSuffixes = map[string]bool{
 
 // SecretAuditParams for scanning for leaked credentials
 type SecretAuditParams struct {
-	TargetPath string `json:"target_path"` // directory or repo to scan
-	ScanType   string `json:"scan_type"`   // "pattern", "entropy", "ai"
-	Severity   string `json:"severity"`    // filter: CRITICAL, HIGH, MEDIUM
+	TargetPath      string `json:"target_path"` // directory or repo to scan
+	ScanType        string `json:"scan_type"`   // "pattern", "entropy", "ai"
+	Severity        string `json:"severity"`    // filter: CRITICAL, HIGH, MEDIUM
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // SecretFinding 密钥发现
@@ -80,11 +90,15 @@ type SecretAuditResult struct {
 // SecretAuditTool 密钥审计工具
 type SecretAuditTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewSecretAuditTool 创建密钥审计工具
 func NewSecretAuditTool(registry *SecOpsToolRegistry) *SecretAuditTool {
-	return &SecretAuditTool{registry: registry}
+	return &SecretAuditTool{
+		registry: registry,
+		runCmd:   runSecretCommand,
+	}
 }
 
 // Type 实现 Tool.Type
@@ -137,6 +151,15 @@ func (sat *SecretAuditTool) ValidateParams(params interface{}) error {
 	}
 	if p.Severity != "" && !validSeverities[p.Severity] {
 		return fmt.Errorf("unsupported severity: %s", p.Severity)
+	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
 	}
 
 	return nil
@@ -288,6 +311,15 @@ func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAudit
 		"LOW":      1,
 	}
 	minRank := severityRank[params.Severity]
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		sat.performRemoteAudit(params, result, severityRank, minRank)
+		for _, f := range result.Findings {
+			if f.Severity == "CRITICAL" || f.Severity == "HIGH" {
+				result.HighSeverity++
+			}
+		}
+		return result
+	}
 
 	absPath := params.TargetPath
 	info, err := os.Stat(absPath)
@@ -318,6 +350,69 @@ func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAudit
 	}
 
 	return result
+}
+
+func (sat *SecretAuditTool) performRemoteAudit(
+	params *SecretAuditParams,
+	result *SecretAuditResult,
+	severityRank map[string]int,
+	minRank int,
+) {
+	target := strings.TrimSpace(params.TargetPath)
+	if target == "" {
+		return
+	}
+	pathsOut, err := sat.runRemoteCommand(params, "if [ -d "+shellQuoteSecret(target)+" ]; then find "+shellQuoteSecret(target)+" -type f 2>/dev/null; else printf '%s\\n' "+shellQuoteSecret(target)+"; fi")
+	if err != nil {
+		result.Findings = append(result.Findings, SecretFinding{
+			File:        target,
+			Line:        0,
+			Type:        "scan_error",
+			Severity:    "HIGH",
+			Description: "Failed to enumerate remote path: " + err.Error(),
+		})
+		return
+	}
+	for _, path := range strings.Split(strings.TrimSpace(string(pathsOut)), "\n") {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if skipSuffixes[ext] {
+			continue
+		}
+		content, cErr := sat.runRemoteCommand(params, "head -c "+fmt.Sprintf("%d", MaxFileSize+1)+" "+shellQuoteSecret(path)+" 2>/dev/null")
+		if cErr != nil || len(content) == 0 || len(content) > MaxFileSize {
+			continue
+		}
+		if containsNonText(content) {
+			continue
+		}
+		sat.scanContent(path, content, result, severityRank, minRank)
+		result.TotalScanned++
+	}
+}
+
+func (sat *SecretAuditTool) runRemoteCommand(params *SecretAuditParams, remoteCmd string) ([]byte, error) {
+	if sat.runCmd == nil {
+		sat.runCmd = runSecretCommand
+	}
+	sshArgs, err := buildSecretSSHArgs(params, remoteCmd)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	stdout, stderr, cmdErr := sat.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = cmdErr.Error()
+		}
+		return nil, fmt.Errorf("remote secret command failed: %s", msg)
+	}
+	return stdout, nil
 }
 
 // makeWalker returns a filepath.WalkFunc that skips ignored directories and
@@ -384,15 +479,30 @@ func (sat *SecretAuditTool) scanFile(
 	}
 	defer f2.Close()
 
-	scanner := bufio.NewScanner(f2)
-	const maxLineSize = 512 * 1024
-	scanner.Buffer(make([]byte, maxLineSize), maxLineSize)
-
 	relPath := path
 	if root != "" {
 		relPath, _ = filepath.Rel(root, path)
 	}
+	content, readErr := io.ReadAll(f2)
+	if readErr != nil {
+		return nil
+	}
+	sat.scanContent(relPath, content, result, severityRank, minRank)
 
+	result.TotalScanned++
+	return nil
+}
+
+func (sat *SecretAuditTool) scanContent(
+	file string,
+	content []byte,
+	result *SecretAuditResult,
+	severityRank map[string]int,
+	minRank int,
+) {
+	scanner := bufio.NewScanner(strings.NewReader(string(content)))
+	const maxLineSize = 512 * 1024
+	scanner.Buffer(make([]byte, maxLineSize), maxLineSize)
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
@@ -403,14 +513,12 @@ func (sat *SecretAuditTool) scanFile(
 			if idx == nil {
 				continue
 			}
-			// Avoid duplicate findings for database-specific password keys
-			// that are also matched by the generic password pattern.
 			if pat.Type == "password" && isDatabasePasswordLine(lowerLine) {
 				continue
 			}
 			match := string(line[idx[0]:idx[1]])
 			finding := SecretFinding{
-				File:        relPath,
+				File:        file,
 				Line:        lineNum,
 				Type:        pat.Type,
 				Redacted:    redacted(match, pat.Type),
@@ -422,9 +530,6 @@ func (sat *SecretAuditTool) scanFile(
 			}
 		}
 	}
-
-	result.TotalScanned++
-	return nil
 }
 
 func isDatabasePasswordLine(line string) bool {
@@ -463,4 +568,50 @@ func containsNonText(b []byte) bool {
 	}
 	// Flag as binary if >30% of sample bytes are non-printable control chars.
 	return len(b) > 0 && (nonPrintable*10)/len(b) > 3
+}
+
+func runSecretCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildSecretSSHArgs(params *SecretAuditParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func shellQuoteSecret(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }

@@ -67,6 +67,8 @@ type Commands struct {
 	list  *list.FilterableList
 
 	windowWidth int
+	runMode     RunMode
+	agentMode   AgentMode
 
 	customCommands []commands.CustomCommand
 	mcpPrompts     []commands.MCPPrompt
@@ -78,7 +80,7 @@ type Commands struct {
 var _ Dialog = (*Commands)(nil)
 
 // NewCommands creates a new commands dialog.
-func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, hasQueue bool, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
+func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, hasQueue bool, runMode RunMode, agentMode AgentMode, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
 	c := &Commands{
 		com:            com,
 		selected:       SystemCommands,
@@ -86,6 +88,8 @@ func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, has
 		hasSession:     hasSession,
 		hasTodos:       hasTodos,
 		hasQueue:       hasQueue,
+		runMode:        runMode,
+		agentMode:      agentMode,
 		customCommands: customCommands,
 		mcpPrompts:     mcpPrompts,
 	}
@@ -509,6 +513,30 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		notificationLabel = "Enable Notifications"
 	}
 	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_notifications", notificationLabel, "", ActionToggleNotifications{}))
+	commands = append(commands, NewCommandItem(c.com.Styles, "audit_remote_denies", "Show Remote Denials", "", ActionShowRemoteDenies{}))
+	agentSuffix := func(mode AgentMode) string {
+		if c.agentMode == mode {
+			return " (Current)"
+		}
+		return ""
+	}
+	commands = append(commands,
+		NewCommandItem(c.com.Styles, "agent_mode_auto", "Agent Mode: Auto"+agentSuffix(AgentModeAuto), "", ActionSetAgentMode{Mode: AgentModeAuto}),
+		NewCommandItem(c.com.Styles, "agent_mode_coder", "Agent Mode: Coder"+agentSuffix(AgentModeCoder), "", ActionSetAgentMode{Mode: AgentModeCoder}),
+		NewCommandItem(c.com.Styles, "agent_mode_ops", "Agent Mode: Ops"+agentSuffix(AgentModeOps), "", ActionSetAgentMode{Mode: AgentModeOps}),
+		NewCommandItem(c.com.Styles, "agent_mode_security", "Agent Mode: Security"+agentSuffix(AgentModeSecurity), "", ActionSetAgentMode{Mode: AgentModeSecurity}),
+	)
+	modeSuffix := func(mode RunMode) string {
+		if c.runMode == mode {
+			return " (Current)"
+		}
+		return ""
+	}
+	commands = append(commands,
+		NewCommandItem(c.com.Styles, "run_mode_auto", "Run Mode: Auto"+modeSuffix(RunModeAuto), "", ActionSetRunMode{Mode: RunModeAuto}),
+		NewCommandItem(c.com.Styles, "run_mode_fast", "Run Mode: Fast"+modeSuffix(RunModeFast), "", ActionSetRunMode{Mode: RunModeFast}),
+		NewCommandItem(c.com.Styles, "run_mode_deep", "Run Mode: Deep"+modeSuffix(RunModeDeep), "", ActionSetRunMode{Mode: RunModeDeep}),
+	)
 
 	commands = append(commands,
 		NewCommandItem(c.com.Styles, "toggle_yolo", "Toggle Yolo Mode", "", ActionToggleYoloMode{}),

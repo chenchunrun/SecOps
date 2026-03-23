@@ -1,18 +1,26 @@
 package secops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // RotationCheckParams for checking key rotation status
 type RotationCheckParams struct {
-	SystemType string `json:"system_type"` // "aws", "gcp", "azure", "kubernetes"
-	KeyType    string `json:"key_type"`    // "api_key", "cert", "password"
-	TargetID   string `json:"target_id"`
+	SystemType      string `json:"system_type"` // "aws", "gcp", "azure", "kubernetes"
+	KeyType         string `json:"key_type"`    // "api_key", "cert", "password"
+	TargetID        string `json:"target_id"`
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // RotationCheckResult 轮换检查结果
@@ -22,16 +30,22 @@ type RotationCheckResult struct {
 	Status       string // "ok", "due", "overdue", "unknown"
 	NextRotation string
 	PolicyDays   int
+	DataSource   string `json:"data_source,omitempty"`   // metadata, target_file, fallback_sample
+	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 
 // RotationCheckTool 密钥轮换检查工具
 type RotationCheckTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewRotationCheckTool 创建密钥轮换检查工具
 func NewRotationCheckTool(registry *SecOpsToolRegistry) *RotationCheckTool {
-	return &RotationCheckTool{registry: registry}
+	return &RotationCheckTool{
+		registry: registry,
+		runCmd:   runRotationCommand,
+	}
 }
 
 // Type 实现 Tool.Type
@@ -83,6 +97,15 @@ func (rct *RotationCheckTool) ValidateParams(params interface{}) error {
 	if p.KeyType != "" && !validKeyTypes[p.KeyType] {
 		return fmt.Errorf("unsupported key_type: %s", p.KeyType)
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	return nil
 }
@@ -104,9 +127,11 @@ func (rct *RotationCheckTool) Execute(params interface{}) (interface{}, error) {
 // performCheck 执行轮换检查
 func (rct *RotationCheckTool) performCheck(params *RotationCheckParams) *RotationCheckResult {
 	if result := rct.rotationFromMetadata(params); result != nil {
+		result.DataSource = "metadata"
 		return result
 	}
 	if result := rct.rotationFromTarget(params); result != nil {
+		result.DataSource = "target_file"
 		return result
 	}
 
@@ -192,6 +217,8 @@ func (rct *RotationCheckTool) performCheck(params *RotationCheckParams) *Rotatio
 			result.Status = "unknown"
 		}
 	}
+	result.DataSource = "fallback_sample"
+	result.FallbackReason = "rotation metadata/target file unavailable; returned built-in baseline policy estimate"
 
 	return result
 }
@@ -209,9 +236,20 @@ func (rct *RotationCheckTool) rotationFromMetadata(params *RotationCheckParams) 
 	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
-		return nil
+	var data []byte
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		remoteCmd := "cat " + shellQuoteRotation(path)
+		out, _, err := rct.runRemoteCommand(params, remoteCmd)
+		if err != nil || len(out) == 0 {
+			return nil
+		}
+		data = out
+	} else {
+		out, err := os.ReadFile(path)
+		if err != nil || len(out) == 0 {
+			return nil
+		}
+		data = out
 	}
 
 	if rec := findRotationRecordFromArray(data, params); rec != nil {
@@ -228,12 +266,28 @@ func (rct *RotationCheckTool) rotationFromTarget(params *RotationCheckParams) *R
 	if target == "" {
 		return nil
 	}
-	info, err := os.Stat(target)
-	if err != nil || info.IsDir() {
-		return nil
+	var last time.Time
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		remoteCmd := "if [ -f " + shellQuoteRotation(target) + " ]; then " +
+			"stat -c %Y " + shellQuoteRotation(target) + " 2>/dev/null || " +
+			"stat -f %m " + shellQuoteRotation(target) + "; fi"
+		out, _, err := rct.runRemoteCommand(params, remoteCmd)
+		if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+			return nil
+		}
+		sec, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+		if err != nil {
+			return nil
+		}
+		last = time.Unix(sec, 0)
+	} else {
+		info, err := os.Stat(target)
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		last = info.ModTime()
 	}
 
-	last := info.ModTime()
 	policy := defaultPolicyDays(params.SystemType, params.KeyType)
 	age := int(time.Since(last).Hours() / 24)
 	next := last.Add(time.Duration(policy) * 24 * time.Hour)
@@ -327,4 +381,65 @@ func statusByAge(ageDays, policyDays int) string {
 		return "due"
 	}
 	return "ok"
+}
+
+func (rct *RotationCheckTool) runRemoteCommand(params *RotationCheckParams, remoteCmd string) ([]byte, []byte, error) {
+	if rct.runCmd == nil {
+		rct.runCmd = runRotationCommand
+	}
+	sshArgs, err := buildRotationSSHArgs(params, remoteCmd)
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	return rct.runCmd(ctx, "ssh", sshArgs...)
+}
+
+func runRotationCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildRotationSSHArgs(params *RotationCheckParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func shellQuoteRotation(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }

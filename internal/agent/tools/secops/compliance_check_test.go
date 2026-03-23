@@ -1,8 +1,10 @@
 package secops
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -153,6 +155,23 @@ func TestComplianceCheckTool_ValidateParams(t *testing.T) {
 			params:  "invalid",
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &ComplianceCheckParams{
+				Framework:  FrameworkCIS,
+				RemoteHost: "10.0.0.2",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option missing host",
+			params: &ComplianceCheckParams{
+				Framework:  FrameworkCIS,
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -201,6 +220,49 @@ func TestComplianceCheckTool_Execute(t *testing.T) {
 
 	if checkResult.Status == "" {
 		t.Error("expected status to be set")
+	}
+}
+
+func TestComplianceCheckTool_Execute_RemoteDockerBenchUsesSSH(t *testing.T) {
+	tool := NewComplianceCheckTool(nil)
+	var calls []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if name != "ssh" {
+			t.Fatalf("expected ssh command, got %s", name)
+		}
+
+		cmdline := strings.Join(args, " ")
+		switch {
+		case strings.Contains(cmdline, "/etc/docker/daemon.json"):
+			return []byte(`{"userns-remap":"default"}`), nil
+		case strings.Contains(cmdline, "/var/run/docker.sock"):
+			return []byte("regular file|0|660"), nil
+		case strings.Contains(cmdline, "/proc/sys/net/ipv4/ip_forward"):
+			return []byte("0\n"), nil
+		default:
+			return []byte(""), nil
+		}
+	}
+
+	result, err := tool.Execute(&ComplianceCheckParams{
+		Framework:       FrameworkDockerBench,
+		RemoteHost:      "10.0.0.2",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	cr := result.(*ComplianceCheckResult)
+	if cr.TotalRules == 0 {
+		t.Fatal("expected docker bench rules")
+	}
+	if len(calls) == 0 {
+		t.Fatal("expected ssh calls")
 	}
 }
 
@@ -1030,7 +1092,7 @@ func TestComplianceCheckTool_CheckRule(t *testing.T) {
 	}
 
 	before := time.Now()
-	tool.checkRule(rule, false)
+	tool.checkRule(rule, false, nil)
 	after := time.Now()
 
 	if rule.LastChecked.Before(before) || rule.LastChecked.After(after) {
@@ -1049,7 +1111,7 @@ func TestComplianceCheckTool_CheckRule_FullMode(t *testing.T) {
 	}
 
 	originalEvidence := rule.Evidence
-	tool.checkRule(rule, true)
+	tool.checkRule(rule, true, nil)
 
 	// In full mode, evidence should be prefixed with "Detailed check: "
 	if rule.Evidence == "" {
@@ -1071,7 +1133,7 @@ func TestComplianceCheckTool_CheckRule_PassedStatus_NoEvidenceChange(t *testing.
 	}
 
 	originalEvidence := rule.Evidence
-	tool.checkRule(rule, true)
+	tool.checkRule(rule, true, nil)
 
 	// Passed rules should not have evidence modified in full mode
 	if rule.Evidence != originalEvidence {

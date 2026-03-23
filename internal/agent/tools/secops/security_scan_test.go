@@ -3,6 +3,7 @@ package secops
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -43,6 +44,27 @@ func TestSecurityScanTool_ValidateParams(t *testing.T) {
 		{
 			name:    "missing target path",
 			params:  &SecurityScanParams{Scanner: ScannerTrivy, Target: TargetImage},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &SecurityScanParams{
+				Scanner:    ScannerTrivy,
+				Target:     TargetImage,
+				TargetPath: "ubuntu:latest",
+				RemoteHost: "10.0.0.2",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &SecurityScanParams{
+				Scanner:    ScannerTrivy,
+				Target:     TargetImage,
+				TargetPath: "ubuntu:latest",
+				RemoteUser: "ops",
+			},
 			wantErr: true,
 		},
 	}
@@ -105,6 +127,49 @@ func TestSecurityScanTool_Execute_CommandFailure(t *testing.T) {
 	_, err := tool.Execute(params)
 	if err == nil {
 		t.Fatal("expected error when scanner command fails")
+	}
+}
+
+func TestSecurityScanTool_Execute_RemoteViaSSH(t *testing.T) {
+	tool := NewSecurityScanTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		const trivyOut = `{"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2024-1000","Title":"RCE","Description":"desc","Severity":"CRITICAL","PkgName":"openssl","InstalledVersion":"3.0.0","FixedVersion":"3.0.5","PrimaryURL":"https://example.com/cve"}]}]}`
+		return []byte(trivyOut), nil, nil
+	}
+
+	params := &SecurityScanParams{
+		Scanner:    ScannerTrivy,
+		Target:     TargetImage,
+		TargetPath: "ubuntu:latest",
+		RemoteHost: "10.0.0.2",
+		RemoteUser: "ops",
+		RemotePort: 2222,
+		RemoteKey:  "/tmp/id_ed25519",
+		ProxyJump:  "bastion",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	scanResult, ok := result.(*ScanResult)
+	if !ok || scanResult.TotalVulnerabilities != 1 {
+		t.Fatalf("expected one vulnerability from mocked remote scan, got %#v", result)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	joined := strings.Join(gotArgs, " ")
+	if !strings.Contains(joined, "-p 2222") ||
+		!strings.Contains(joined, "-i /tmp/id_ed25519") ||
+		!strings.Contains(joined, "-J bastion") ||
+		!strings.Contains(joined, "ops@10.0.0.2") ||
+		!strings.Contains(joined, "trivy") {
+		t.Fatalf("unexpected ssh args: %q", joined)
 	}
 }
 

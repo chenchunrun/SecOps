@@ -2,6 +2,7 @@ package secops
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -14,10 +15,15 @@ import (
 
 // ResourceMonitorParams for system resource monitoring
 type ResourceMonitorParams struct {
-	Target   string   `json:"target"`   // "localhost" or hostname
-	Metrics  []string `json:"metrics"`  // "cpu", "memory", "disk", "network", "process"
-	Duration string   `json:"duration"` // "1m", "5m", "15m"
-	Interval string   `json:"interval"` // "1s", "5s", "10s"
+	Target          string   `json:"target"`   // "localhost" or hostname
+	Metrics         []string `json:"metrics"`  // "cpu", "memory", "disk", "network", "process"
+	Duration        string   `json:"duration"` // "1m", "5m", "15m"
+	Interval        string   `json:"interval"` // "1s", "5s", "10s"
+	RemoteHost      string   `json:"remote_host,omitempty"`
+	RemoteUser      string   `json:"remote_user,omitempty"`
+	RemotePort      int      `json:"remote_port,omitempty"`
+	RemoteKeyPath   string   `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string   `json:"remote_proxy_jump,omitempty"`
 }
 
 // ResourceMetric represents a single metric measurement
@@ -40,11 +46,15 @@ type ResourceMonitorResult struct {
 // ResourceMonitorTool 资源监控工具
 type ResourceMonitorTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewResourceMonitorTool creates a resource monitor tool
 func NewResourceMonitorTool(registry *SecOpsToolRegistry) *ResourceMonitorTool {
-	return &ResourceMonitorTool{registry: registry}
+	return &ResourceMonitorTool{
+		registry: registry,
+		runCmd:   runResourceCommand,
+	}
 }
 
 // Type implements Tool.Type
@@ -104,6 +114,15 @@ func (rmt *ResourceMonitorTool) ValidateParams(params interface{}) error {
 	if p.Duration != "" && !validDurations[p.Duration] {
 		return fmt.Errorf("unsupported duration: %s", p.Duration)
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	return nil
 }
@@ -139,6 +158,15 @@ func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams)
 	duration, _ := time.ParseDuration(params.Duration)
 	interval, _ := time.ParseDuration(params.Interval)
 
+	// Gather metrics from remote host over SSH when explicitly requested.
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		for _, metric := range params.Metrics {
+			result.Metrics = append(result.Metrics, rmt.getRemoteMetrics(metric, params)...)
+		}
+		rmt.detectAnomalies(result)
+		return result
+	}
+
 	// Gather metrics using real local collectors when possible.
 	for _, metric := range params.Metrics {
 		switch metric {
@@ -159,6 +187,96 @@ func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams)
 	rmt.detectAnomalies(result)
 
 	return result
+}
+
+func (rmt *ResourceMonitorTool) getRemoteMetrics(metric string, params *ResourceMonitorParams) []ResourceMetric {
+	now := time.Now()
+	switch metric {
+	case "cpu":
+		out, err := rmt.runRemoteCommand(params, "top -bn1 2>/dev/null | head -n 5; cat /proc/loadavg 2>/dev/null")
+		if err != nil {
+			return []ResourceMetric{
+				{Name: "cpu_usage_percent", Value: 0, Unit: "%", Timestamp: now},
+				{Name: "load_avg_1m", Value: 0, Unit: "", Timestamp: now},
+				{Name: "cpu_iowait_percent", Value: 0, Unit: "%", Timestamp: now},
+			}
+		}
+		usage, iowait, load := parseRemoteCPU(string(out))
+		return []ResourceMetric{
+			{Name: "cpu_usage_percent", Value: usage, Unit: "%", Timestamp: now},
+			{Name: "load_avg_1m", Value: load, Unit: "", Timestamp: now},
+			{Name: "cpu_iowait_percent", Value: iowait, Unit: "%", Timestamp: now},
+		}
+	case "memory":
+		out, err := rmt.runRemoteCommand(params, "free -b 2>/dev/null || cat /proc/meminfo 2>/dev/null")
+		if err != nil {
+			return nil
+		}
+		total, used, available, swapPct := parseRemoteMemory(string(out))
+		usagePct := 0.0
+		if total > 0 {
+			usagePct = (used / total) * 100
+		}
+		return []ResourceMetric{
+			{Name: "memory_total_gb", Value: total / (1024 * 1024 * 1024), Unit: "GB", Timestamp: now},
+			{Name: "memory_used_gb", Value: used / (1024 * 1024 * 1024), Unit: "GB", Timestamp: now},
+			{Name: "memory_usage_percent", Value: clampPercent(usagePct), Unit: "%", Timestamp: now},
+			{Name: "memory_available_gb", Value: available / (1024 * 1024 * 1024), Unit: "GB", Timestamp: now},
+			{Name: "swap_usage_percent", Value: swapPct, Unit: "%", Timestamp: now},
+		}
+	case "disk":
+		out, err := rmt.runRemoteCommand(params, "df -k / 2>/dev/null")
+		if err != nil {
+			return nil
+		}
+		total, used, inodes := parseRemoteDiskDF(string(out))
+		usagePct := 0.0
+		if total > 0 {
+			usagePct = (used / total) * 100
+		}
+		return []ResourceMetric{
+			{Name: "disk_total_gb", Value: total / (1024 * 1024 * 1024), Unit: "GB", Timestamp: now},
+			{Name: "disk_used_gb", Value: used / (1024 * 1024 * 1024), Unit: "GB", Timestamp: now},
+			{Name: "disk_usage_percent", Value: clampPercent(usagePct), Unit: "%", Timestamp: now},
+			{Name: "disk_inodes_percent", Value: inodes, Unit: "%", Timestamp: now},
+			{Name: "disk_io_read_mb_s", Value: 0, Unit: "MB/s", Timestamp: now},
+			{Name: "disk_io_write_mb_s", Value: 0, Unit: "MB/s", Timestamp: now},
+		}
+	case "network":
+		out, err := rmt.runRemoteCommand(params, "cat /proc/net/dev 2>/dev/null")
+		if err != nil {
+			return nil
+		}
+		inKBs, outKBs, pktIn, pktOut := parseRemoteNetwork(string(out))
+		return []ResourceMetric{
+			{Name: "network_bytes_in_sec", Value: inKBs, Unit: "KB/s", Timestamp: now},
+			{Name: "network_bytes_out_sec", Value: outKBs, Unit: "KB/s", Timestamp: now},
+			{Name: "network_packets_in_sec", Value: pktIn, Unit: "pkt/s", Timestamp: now},
+			{Name: "network_packets_out_sec", Value: pktOut, Unit: "pkt/s", Timestamp: now},
+			{Name: "network_connections", Value: 0, Unit: "", Timestamp: now},
+			{Name: "network_latency_ms", Value: 0, Unit: "ms", Timestamp: now},
+			{Name: "network_error_rate", Value: 0.0, Unit: "%", Timestamp: now},
+			{Name: "network_drop_rate", Value: 0.0, Unit: "%", Timestamp: now},
+		}
+	case "process":
+		out, err := rmt.runRemoteCommand(params, "ps -A -o state=,%cpu=,%mem= 2>/dev/null")
+		if err != nil {
+			return nil
+		}
+		total, running, topCPU, topMem := parseRemoteProcessStats(string(out))
+		return []ResourceMetric{
+			{Name: "total_processes", Value: total, Unit: "", Timestamp: now},
+			{Name: "running_processes", Value: running, Unit: "", Timestamp: now},
+			{Name: "sleeping_processes", Value: maxFloat(total-running, 0), Unit: "", Timestamp: now},
+			{Name: "zombie_processes", Value: 0, Unit: "", Timestamp: now},
+			{Name: "top_cpu_process", Value: topCPU, Unit: "%", Timestamp: now},
+			{Name: "top_memory_process", Value: topMem, Unit: "%", Timestamp: now},
+			{Name: "thread_count", Value: 0, Unit: "", Timestamp: now},
+			{Name: "open_file_descriptors", Value: 0, Unit: "", Timestamp: now},
+		}
+	default:
+		return nil
+	}
 }
 
 func isLocalTarget(target string) bool {
@@ -663,6 +781,237 @@ func sampleLocalLookupLatencyMS() float64 {
 		return 0
 	}
 	return float64(time.Since(start).Microseconds()) / 1000
+}
+
+func (rmt *ResourceMonitorTool) runRemoteCommand(params *ResourceMonitorParams, command string) ([]byte, error) {
+	if rmt.runCmd == nil {
+		rmt.runCmd = runResourceCommand
+	}
+	sshArgs, err := buildResourceSSHArgs(params, command)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	stdout, stderr, cmdErr := rmt.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = cmdErr.Error()
+		}
+		return nil, fmt.Errorf("remote command failed: %s", msg)
+	}
+	return stdout, nil
+}
+
+func runResourceCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildResourceSSHArgs(params *ResourceMonitorParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func parseRemoteCPU(raw string) (usage float64, iowait float64, load float64) {
+	lines := strings.Split(raw, "\n")
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "cpu(s):") && strings.Contains(lower, " id") {
+			idle := parsePercentField(lower, " id")
+			iowait = parsePercentField(lower, " wa")
+			if idle >= 0 {
+				usage = clampPercent(100 - idle)
+			}
+		}
+		if fields := strings.Fields(strings.TrimSpace(line)); len(fields) > 0 {
+			if v, err := strconv.ParseFloat(fields[0], 64); err == nil && v >= 0 {
+				load = v
+			}
+		}
+	}
+	return clampPercent(usage), clampPercent(iowait), load
+}
+
+func parsePercentField(line, key string) float64 {
+	idx := strings.Index(line, key)
+	if idx == -1 {
+		return -1
+	}
+	fragment := strings.TrimSpace(line[:idx])
+	lastComma := strings.LastIndex(fragment, ",")
+	if lastComma >= 0 {
+		fragment = fragment[lastComma+1:]
+	}
+	fragment = strings.TrimSpace(strings.TrimSuffix(fragment, "%"))
+	v, err := strconv.ParseFloat(fragment, 64)
+	if err != nil {
+		return -1
+	}
+	return v
+}
+
+func parseRemoteMemory(raw string) (total, used, available, swapPct float64) {
+	lines := strings.Split(raw, "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		switch strings.TrimSuffix(fields[0], ":") {
+		case "Mem":
+			total, _ = strconv.ParseFloat(fields[1], 64)
+			used, _ = strconv.ParseFloat(fields[2], 64)
+			if len(fields) > 6 {
+				available, _ = strconv.ParseFloat(fields[6], 64)
+			}
+			total = total
+			used = used
+			available = available
+			return total, used, available, 0
+		case "MemTotal":
+			kv := parseMeminfoValue(fields)
+			total = kv
+		case "MemAvailable":
+			available = parseMeminfoValue(fields)
+		case "MemFree":
+			if available == 0 {
+				available = parseMeminfoValue(fields)
+			}
+		case "SwapTotal":
+			swapTotal := parseMeminfoValue(fields)
+			if swapTotal > 0 {
+				swapPct = -swapTotal
+			}
+		case "SwapFree":
+			swapFree := parseMeminfoValue(fields)
+			if swapPct < 0 {
+				swapTotal := -swapPct
+				swapPct = ((swapTotal - swapFree) / swapTotal) * 100
+			}
+		}
+	}
+	if total > 0 && available >= 0 {
+		used = total - available
+	}
+	return total, maxFloat(used, 0), maxFloat(available, 0), clampPercent(maxFloat(swapPct, 0))
+}
+
+func parseMeminfoValue(fields []string) float64 {
+	if len(fields) < 2 {
+		return 0
+	}
+	v, err := strconv.ParseFloat(fields[1], 64)
+	if err != nil {
+		return 0
+	}
+	if len(fields) > 2 && strings.EqualFold(fields[2], "kB") {
+		return v * 1024
+	}
+	return v
+}
+
+func parseRemoteDiskDF(raw string) (total, used, pct float64) {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	if len(lines) < 2 {
+		return 0, 0, 0
+	}
+	fields := strings.Fields(lines[1])
+	if len(fields) < 5 {
+		return 0, 0, 0
+	}
+	totalKB, err1 := strconv.ParseFloat(fields[1], 64)
+	usedKB, err2 := strconv.ParseFloat(fields[2], 64)
+	pctStr := strings.TrimSuffix(fields[4], "%")
+	p, err3 := strconv.ParseFloat(pctStr, 64)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return 0, 0, 0
+	}
+	return totalKB * 1024, usedKB * 1024, clampPercent(p)
+}
+
+func parseRemoteNetwork(raw string) (inKBs, outKBs, pktIn, pktOut float64) {
+	lines := strings.Split(raw, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Inter-") || strings.HasPrefix(line, "face") {
+			continue
+		}
+		parts := strings.Split(line, ":")
+		if len(parts) != 2 {
+			continue
+		}
+		iface := strings.TrimSpace(parts[0])
+		if iface == "lo" {
+			continue
+		}
+		fields := strings.Fields(parts[1])
+		if len(fields) < 10 {
+			continue
+		}
+		rxBytes, _ := strconv.ParseFloat(fields[0], 64)
+		rxPkts, _ := strconv.ParseFloat(fields[1], 64)
+		txBytes, _ := strconv.ParseFloat(fields[8], 64)
+		txPkts, _ := strconv.ParseFloat(fields[9], 64)
+		inKBs += rxBytes / 1024
+		outKBs += txBytes / 1024
+		pktIn += rxPkts
+		pktOut += txPkts
+	}
+	return inKBs, outKBs, pktIn, pktOut
+}
+
+func parseRemoteProcessStats(raw string) (total, running, topCPU, topMem float64) {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		total++
+		if strings.HasPrefix(fields[0], "R") {
+			running++
+		}
+		cpuV, errCPU := strconv.ParseFloat(fields[1], 64)
+		if errCPU == nil && cpuV > topCPU {
+			topCPU = cpuV
+		}
+		memV, errMem := strconv.ParseFloat(fields[2], 64)
+		if errMem == nil && memV > topMem {
+			topMem = memV
+		}
+	}
+	return total, running, topCPU, topMem
 }
 
 func clampPercent(v float64) float64 {

@@ -1,8 +1,10 @@
 package secops
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,6 +85,23 @@ func TestLogAnalyzeTool_ValidateParams(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &LogAnalyzeParams{
+				Source:     LogSourceSyslog,
+				RemoteHost: "10.0.0.100",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &LogAnalyzeParams{
+				Source:     LogSourceSyslog,
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -126,6 +145,47 @@ func TestLogAnalyzeTool_Execute(t *testing.T) {
 
 	if analyzeResult.TotalCount == 0 {
 		t.Error("expected non-zero total count")
+	}
+}
+
+func TestLogAnalyzeTool_Execute_RemoteViaSSH(t *testing.T) {
+	tool := NewLogAnalyzeTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(
+			"Mar 22 10:01:01 server1 nginx[123]: ERROR Connection refused\n" +
+				"Mar 22 10:02:01 server1 nginx[123]: INFO Ready\n",
+		), nil, nil
+	}
+
+	result, err := tool.Execute(&LogAnalyzeParams{
+		Source:          LogSourceSyslog,
+		Keyword:         "error",
+		Limit:           10,
+		RemoteHost:      "10.0.0.100",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	lr, ok := result.(*LogAnalyzeResult)
+	if !ok {
+		t.Fatal("expected LogAnalyzeResult")
+	}
+	if lr.TotalCount == 0 || lr.FilteredCount == 0 {
+		t.Fatalf("expected remote log entries, got %+v", lr)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.100") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
 	}
 }
 

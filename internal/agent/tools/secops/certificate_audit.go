@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
@@ -10,7 +11,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,69 +21,76 @@ import (
 // CertificateAuditParams 证书审计参数
 type CertificateAuditParams struct {
 	// 证书来源
-	Paths          []string `json:"paths,omitempty"`          // 证书文件路径
-	SearchDirs     []string `json:"search_dirs,omitempty"`    // 搜索目录
-	ServicePorts   []string `json:"service_ports,omitempty"`  // 服务端口
+	Paths        []string `json:"paths,omitempty"`         // 证书文件路径
+	SearchDirs   []string `json:"search_dirs,omitempty"`   // 搜索目录
+	ServicePorts []string `json:"service_ports,omitempty"` // 服务端口
 
 	// 检查选项
-	CheckExpiry    bool `json:"check_expiry,omitempty"`       // 检查过期
+	CheckExpiry      bool `json:"check_expiry,omitempty"`       // 检查过期
 	CheckKeyStrength bool `json:"check_key_strength,omitempty"` // 检查密钥强度
-	CheckChain     bool `json:"check_chain,omitempty"`        // 检查证书链
-	CheckRevocation bool `json:"check_revocation,omitempty"`  // 检查撤销
+	CheckChain       bool `json:"check_chain,omitempty"`        // 检查证书链
+	CheckRevocation  bool `json:"check_revocation,omitempty"`   // 检查撤销
 
 	// 警告阈值
-	ExpiryWarningDays int `json:"expiry_warning_days,omitempty"` // 默认 30 天
-	MinKeyLength      int `json:"min_key_length,omitempty"`      // 最小密钥长度，默认 2048
+	ExpiryWarningDays int    `json:"expiry_warning_days,omitempty"` // 默认 30 天
+	MinKeyLength      int    `json:"min_key_length,omitempty"`      // 最小密钥长度，默认 2048
+	RemoteHost        string `json:"remote_host,omitempty"`
+	RemoteUser        string `json:"remote_user,omitempty"`
+	RemotePort        int    `json:"remote_port,omitempty"`
+	RemoteKeyPath     string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump   string `json:"remote_proxy_jump,omitempty"`
 }
 
 // CertificateInfo 证书信息
 type CertificateInfo struct {
-	Path            string    `json:"path"`
-	Subject         string    `json:"subject"`
-	Issuer          string    `json:"issuer"`
-	NotBefore       time.Time `json:"not_before"`
-	NotAfter        time.Time `json:"not_after"`
-	SerialNumber    string    `json:"serial_number"`
-	KeyType         string    `json:"key_type"`        // RSA, ECDSA, etc.
-	KeyLength       int       `json:"key_length"`      // bits
-	SignatureAlg    string    `json:"signature_alg"`
-	IsSelfSigned    bool      `json:"is_self_signed"`
-	SANs            []string  `json:"sans"`            // Subject Alternative Names
-	Status          string    `json:"status"`          // valid, expired, expiring_soon
-	DaysUntilExpiry int       `json:"days_until_expiry"`
+	Path            string       `json:"path"`
+	Subject         string       `json:"subject"`
+	Issuer          string       `json:"issuer"`
+	NotBefore       time.Time    `json:"not_before"`
+	NotAfter        time.Time    `json:"not_after"`
+	SerialNumber    string       `json:"serial_number"`
+	KeyType         string       `json:"key_type"`   // RSA, ECDSA, etc.
+	KeyLength       int          `json:"key_length"` // bits
+	SignatureAlg    string       `json:"signature_alg"`
+	IsSelfSigned    bool         `json:"is_self_signed"`
+	SANs            []string     `json:"sans"`   // Subject Alternative Names
+	Status          string       `json:"status"` // valid, expired, expiring_soon
+	DaysUntilExpiry int          `json:"days_until_expiry"`
 	Issues          []*CertIssue `json:"issues,omitempty"`
 }
 
 // CertIssue 证书问题
 type CertIssue struct {
-	Type        string `json:"type"`        // expiry, weak_key, self_signed, chain_error
-	Severity    string `json:"severity"`    // critical, warning, info
+	Type        string `json:"type"`     // expiry, weak_key, self_signed, chain_error
+	Severity    string `json:"severity"` // critical, warning, info
 	Description string `json:"description"`
 	Remediation string `json:"remediation"`
 }
 
 // CertificateAuditResult 证书审计结果
 type CertificateAuditResult struct {
-	Timestamp        time.Time         `json:"timestamp"`
-	TotalCertificates int              `json:"total_certificates"`
-	ValidCertificates int              `json:"valid_certificates"`
-	ExpiredCertificates int            `json:"expired_certificates"`
-	ExpiringCertificates int           `json:"expiring_certificates"`
-	WeakCertificates int               `json:"weak_certificates"`
-	SelfSignedCerts  int               `json:"self_signed_certs"`
-	Certificates     []*CertificateInfo `json:"certificates"`
-	Issues           []*CertIssue      `json:"issues,omitempty"`
+	Timestamp            time.Time          `json:"timestamp"`
+	TotalCertificates    int                `json:"total_certificates"`
+	ValidCertificates    int                `json:"valid_certificates"`
+	ExpiredCertificates  int                `json:"expired_certificates"`
+	ExpiringCertificates int                `json:"expiring_certificates"`
+	WeakCertificates     int                `json:"weak_certificates"`
+	SelfSignedCerts      int                `json:"self_signed_certs"`
+	Certificates         []*CertificateInfo `json:"certificates"`
+	Issues               []*CertIssue       `json:"issues,omitempty"`
 }
 
 // CertificateAuditTool 证书审计工具
 type CertificateAuditTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewCertificateAuditTool 创建证书审计工具
 func NewCertificateAuditTool(registry *SecOpsToolRegistry) *CertificateAuditTool {
 	return &CertificateAuditTool{
 		registry: registry,
+		runCmd:   runCertCommand,
 	}
 }
 
@@ -135,6 +145,15 @@ func (cat *CertificateAuditTool) ValidateParams(params interface{}) error {
 
 	if p.ExpiryWarningDays < 0 {
 		return fmt.Errorf("expiry warning days must be positive")
+	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
 	}
 
 	return nil
@@ -233,7 +252,7 @@ func (cat *CertificateAuditTool) collectCertificates(params *CertificateAuditPar
 
 	// 从服务端口收集
 	for _, service := range params.ServicePorts {
-		cert := cat.fetchCertificateFromService(service)
+		cert := cat.fetchCertificateFromService(service, params)
 		appendCert(cert)
 	}
 
@@ -360,7 +379,7 @@ func (cat *CertificateAuditTool) CheckRSAKeyStrength(key *rsa.PublicKey) bool {
 	return key.N.BitLen() >= 2048
 }
 
-func (cat *CertificateAuditTool) fetchCertificateFromService(service string) *CertificateInfo {
+func (cat *CertificateAuditTool) fetchCertificateFromService(service string, params *CertificateAuditParams) *CertificateInfo {
 	target := strings.TrimSpace(service)
 	if target == "" {
 		return nil
@@ -368,6 +387,9 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string) *Ce
 
 	if !strings.Contains(target, ":") {
 		target = net.JoinHostPort("127.0.0.1", target)
+	}
+	if params != nil && strings.TrimSpace(params.RemoteHost) != "" {
+		return cat.fetchCertificateFromServiceRemote(target, params)
 	}
 
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
@@ -386,6 +408,100 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string) *Ce
 	}
 
 	return cat.certificateToInfo(target, state.PeerCertificates[0])
+}
+
+func (cat *CertificateAuditTool) fetchCertificateFromServiceRemote(target string, params *CertificateAuditParams) *CertificateInfo {
+	if cat.runCmd == nil {
+		cat.runCmd = runCertCommand
+	}
+	sshArgs, err := buildCertSSHArgs(params, buildRemoteTLSFetchCommand(target))
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	stdout, _, cmdErr := cat.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(stdout) == 0 {
+		return nil
+	}
+	cert := parseFirstCertificateFromText(stdout)
+	if cert == nil {
+		return nil
+	}
+	return cat.certificateToInfo(target, cert)
+}
+
+func parseFirstCertificateFromText(data []byte) *x509.Certificate {
+	rest := data
+	for len(rest) > 0 {
+		block, remaining := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = remaining
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err == nil {
+			return cert
+		}
+	}
+	return nil
+}
+
+func buildRemoteTLSFetchCommand(target string) string {
+	host := target
+	if h, _, err := net.SplitHostPort(target); err == nil && strings.TrimSpace(h) != "" {
+		host = h
+	}
+	return "echo | openssl s_client -servername " + shellQuoteCert(host) + " -connect " + shellQuoteCert(target) + " 2>/dev/null"
+}
+
+func runCertCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildCertSSHArgs(params *CertificateAuditParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func shellQuoteCert(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }
 
 func (cat *CertificateAuditTool) certificateToInfo(path string, cert *x509.Certificate) *CertificateInfo {

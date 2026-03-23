@@ -2,11 +2,14 @@ package secops
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,10 +59,15 @@ type LogAnalyzeParams struct {
 	GroupSize   int    `json:"group_size,omitempty"`   // 聚合大小
 
 	// 其他选项
-	Limit          int  `json:"limit,omitempty"`           // 返回最大条数
-	Offset         int  `json:"offset,omitempty"`          // 偏移
-	IncludeContext int  `json:"include_context,omitempty"` // 包含上下文行数
-	CaseSensitive  bool `json:"case_sensitive,omitempty"`
+	Limit           int    `json:"limit,omitempty"`           // 返回最大条数
+	Offset          int    `json:"offset,omitempty"`          // 偏移
+	IncludeContext  int    `json:"include_context,omitempty"` // 包含上下文行数
+	CaseSensitive   bool   `json:"case_sensitive,omitempty"`
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // LogEntry 日志条目
@@ -121,6 +129,7 @@ type LogAnalyzeTool struct {
 	readFile func(string) ([]byte, error)
 	glob     func(string) ([]string, error)
 	now      func() time.Time
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewLogAnalyzeTool 创建日志分析工具
@@ -130,6 +139,7 @@ func NewLogAnalyzeTool(registry *SecOpsToolRegistry) *LogAnalyzeTool {
 		readFile: os.ReadFile,
 		glob:     filepath.Glob,
 		now:      time.Now,
+		runCmd:   runLogCommand,
 	}
 }
 
@@ -179,6 +189,15 @@ func (lat *LogAnalyzeTool) ValidateParams(params interface{}) error {
 	if p.Pattern != "" {
 		if _, err := regexp.Compile(p.Pattern); err != nil {
 			return fmt.Errorf("invalid regex pattern: %w", err)
+		}
+	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
 		}
 	}
 
@@ -241,6 +260,10 @@ func (lat *LogAnalyzeTool) analyzeLogs(params *LogAnalyzeParams) (*LogAnalyzeRes
 }
 
 func (lat *LogAnalyzeTool) readLogs(params *LogAnalyzeParams) ([]*LogEntry, error) {
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		return lat.readLogsRemote(params)
+	}
+
 	patterns := sourcePatterns(params.Source)
 	if override := strings.TrimSpace(sourcePatternsOverride(params.Source)); override != "" {
 		patterns = splitCSV(override)
@@ -279,6 +302,54 @@ func (lat *LogAnalyzeTool) readLogs(params *LogAnalyzeParams) ([]*LogEntry, erro
 	}
 
 	return entries, nil
+}
+
+func (lat *LogAnalyzeTool) readLogsRemote(params *LogAnalyzeParams) ([]*LogEntry, error) {
+	if lat.runCmd == nil {
+		lat.runCmd = runLogCommand
+	}
+	patterns := sourcePatterns(params.Source)
+	if override := strings.TrimSpace(sourcePatternsOverride(params.Source)); override != "" {
+		patterns = splitCSV(override)
+	}
+	safePatterns := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if isSafeRemoteGlob(p) {
+			safePatterns = append(safePatterns, p)
+		}
+	}
+	if len(safePatterns) == 0 {
+		return []*LogEntry{}, nil
+	}
+	cmdParts := make([]string, 0, len(safePatterns))
+	for _, p := range safePatterns {
+		cmdParts = append(cmdParts, "for f in "+p+"; do [ -f \"$f\" ] && tail -n 2000 \"$f\"; done")
+	}
+	remoteCmd := strings.Join(cmdParts, "; ")
+	sshArgs, err := buildLogAnalyzeSSHArgs(params, remoteCmd)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	stdout, stderr, cmdErr := lat.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = cmdErr.Error()
+		}
+		return nil, fmt.Errorf("remote log read failed: %s", msg)
+	}
+	return lat.parseLogLines(stdout, params.Source), nil
+}
+
+func isSafeRemoteGlob(p string) bool {
+	re := regexp.MustCompile(`^[A-Za-z0-9_./*\-]+$`)
+	return re.MatchString(p)
 }
 
 func sourcePatterns(source LogSource) []string {
@@ -578,4 +649,43 @@ func (lat *LogAnalyzeTool) extractPatterns(entries []*LogEntry) []*Pattern {
 	}
 
 	return patterns
+}
+
+func runLogCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildLogAnalyzeSSHArgs(params *LogAnalyzeParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
 }

@@ -29,6 +29,7 @@ import (
 	agenttools "github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/mcp"
 	"github.com/chenchunrun/SecOps/internal/app"
+	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/commands"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/fsext"
@@ -214,6 +215,8 @@ type UI struct {
 	// custom commands & mcp commands
 	customCommands []commands.CustomCommand
 	mcpPrompts     []commands.MCPPrompt
+	runMode        dialog.RunMode
+	agentMode      dialog.AgentMode
 
 	// forceCompactMode tracks whether compact mode is forced by user toggle
 	forceCompactMode bool
@@ -305,6 +308,19 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		notifyWindowFocused: true,
 		initialSessionID:    initialSessionID,
 		continueLastSession: continueLast,
+		runMode:             dialog.RunModeAuto,
+		agentMode:           dialog.AgentModeAuto,
+	}
+
+	if cfg := com.Config(); cfg != nil && cfg.Options != nil {
+		switch strings.TrimSpace(cfg.Options.ActiveAgent) {
+		case config.AgentCoder:
+			ui.agentMode = dialog.AgentModeCoder
+		case config.AgentOpsAgent:
+			ui.agentMode = dialog.AgentModeOps
+		case config.AgentSecurityExpertAgent:
+			ui.agentMode = dialog.AgentModeSecurity
+		}
 	}
 
 	status := NewStatus(com, ui)
@@ -1295,6 +1311,27 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			}
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionShowRemoteDenies:
+		cmds = append(cmds, m.showRecentRemoteDenials())
+		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionSetRunMode:
+		m.runMode = msg.Mode
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Run mode set to "+string(msg.Mode))))
+		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionSetAgentMode:
+		m.agentMode = msg.Mode
+		if msg.Mode == dialog.AgentModeAuto {
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent mode set to auto")))
+			m.dialog.CloseDialog(dialog.CommandsID)
+			break
+		}
+		target := string(msg.Mode)
+		if err := m.switchActiveAgent(context.Background(), target, true); err != nil {
+			cmds = append(cmds, util.ReportError(err))
+		} else {
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent switched to "+target)))
+		}
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionNewSession:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
@@ -1552,6 +1589,54 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	}
 
 	return tea.Batch(cmds...)
+}
+
+func (m *UI) showRecentRemoteDenials() tea.Cmd {
+	return func() tea.Msg {
+		if m.com == nil || m.com.App == nil || m.com.App.AuditStore == nil {
+			return util.NewWarnMsg("Audit store unavailable")
+		}
+
+		events, err := m.com.App.AuditStore.ListEvents(&audit.AuditFilter{
+			EventType: audit.EventTypePermissionDenied,
+		})
+		if err != nil {
+			return util.NewErrorMsg(fmt.Errorf("failed to read audit events: %w", err))
+		}
+
+		count := 0
+		var latest *audit.AuditEvent
+		for _, e := range events {
+			if e == nil || e.Action != "remote_policy_deny" {
+				continue
+			}
+			count++
+			latest = e
+		}
+
+		if count == 0 || latest == nil {
+			return util.NewInfoMsg("No remote policy denials found")
+		}
+
+		policyRule := "-"
+		if latest.Details != nil {
+			if v, ok := latest.Details["policy_rule"]; ok {
+				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+					policyRule = s
+				}
+			}
+		}
+
+		msg := fmt.Sprintf(
+			"Remote denials: %d | latest: %s | target: %s | profile: %s | rule: %s",
+			count,
+			latest.Timestamp.Local().Format("01-02 15:04:05"),
+			cmp.Or(strings.TrimSpace(latest.TargetHost), "-"),
+			cmp.Or(strings.TrimSpace(latest.TargetID), "-"),
+			policyRule,
+		)
+		return util.NewInfoMsg(msg)
+	}
 }
 
 // substituteArgs replaces $ARG_NAME placeholders in content with actual values.
@@ -2870,7 +2955,17 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 
 	// Capture session ID to avoid race with main goroutine updating m.session.
 	sessionID := m.session.ID
+	targetAgent, content := routeAgentByMode(content, m.agentMode)
+	content = applyRunModePrefix(content, m.runMode)
 	cmds = append(cmds, func() tea.Msg {
+		if targetAgent != "" {
+			if err := m.switchActiveAgent(context.Background(), targetAgent, false); err != nil {
+				return util.InfoMsg{
+					Type: util.InfoTypeError,
+					Msg:  err.Error(),
+				}
+			}
+		}
 		_, err := m.com.App.AgentCoordinator.Run(context.Background(), sessionID, content, attachments...)
 		if err != nil {
 			isCancelErr := errors.Is(err, context.Canceled)
@@ -2886,6 +2981,108 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 		return nil
 	})
 	return tea.Batch(cmds...)
+}
+
+func applyRunModePrefix(content string, mode dialog.RunMode) string {
+	trimmed := strings.TrimSpace(content)
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "/fast") || strings.HasPrefix(lower, "/deep") {
+		return content
+	}
+
+	switch mode {
+	case dialog.RunModeFast:
+		return "/fast " + content
+	case dialog.RunModeDeep:
+		return "/deep " + content
+	default:
+		return content
+	}
+}
+
+func routeAgentByMode(content string, mode dialog.AgentMode) (targetAgent string, normalized string) {
+	explicit, stripped := parseAgentDirective(content)
+	if explicit != "" {
+		return explicit, stripped
+	}
+
+	switch mode {
+	case dialog.AgentModeCoder:
+		return config.AgentCoder, content
+	case dialog.AgentModeOps:
+		return config.AgentOpsAgent, content
+	case dialog.AgentModeSecurity:
+		return config.AgentSecurityExpertAgent, content
+	case dialog.AgentModeAuto:
+		return inferAgentForPrompt(content), content
+	default:
+		return "", content
+	}
+}
+
+func parseAgentDirective(content string) (targetAgent string, normalized string) {
+	trimmed := strings.TrimSpace(content)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lower, "/ops"):
+		return config.AgentOpsAgent, strings.TrimSpace(trimmed[len("/ops"):])
+	case strings.HasPrefix(lower, "/sec"):
+		return config.AgentSecurityExpertAgent, strings.TrimSpace(trimmed[len("/sec"):])
+	case strings.HasPrefix(lower, "/coder"):
+		return config.AgentCoder, strings.TrimSpace(trimmed[len("/coder"):])
+	default:
+		return "", content
+	}
+}
+
+func inferAgentForPrompt(content string) string {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	// Lightweight local heuristic only. Never call external models in routing.
+	securityHints := []string{
+		"漏洞", "cve", "威胁", "入侵", "恶意", "合规", "审计", "加固", "弱口令", "风险评估", "security", "audit", "compliance",
+	}
+	for _, k := range securityHints {
+		if strings.Contains(lower, k) {
+			return config.AgentSecurityExpertAgent
+		}
+	}
+
+	opsHints := []string{
+		"告警", "发布", "重启", "扩容", "降级", "回滚", "监控", "网络", "备份", "恢复", "运维", "incident", "deploy", "rollback", "monitor",
+	}
+	for _, k := range opsHints {
+		if strings.Contains(lower, k) {
+			return config.AgentOpsAgent
+		}
+	}
+
+	return config.AgentCoder
+}
+
+func (m *UI) switchActiveAgent(ctx context.Context, target string, persist bool) error {
+	if target == "" || m.com == nil || m.com.Config() == nil {
+		return nil
+	}
+	cfg := m.com.Config()
+	if cfg.Options == nil {
+		return fmt.Errorf("configuration options not initialized")
+	}
+	if strings.TrimSpace(cfg.Options.ActiveAgent) == target {
+		return nil
+	}
+	if m.isAgentBusy() {
+		return fmt.Errorf("agent is busy, switch rejected")
+	}
+	cfg.Options.ActiveAgent = target
+	if persist {
+		if err := m.com.Store().SetConfigField(config.ScopeGlobal, "options.active_agent", target); err != nil {
+			return fmt.Errorf("failed to persist active agent: %w", err)
+		}
+	}
+	if err := m.com.App.InitCoderAgent(ctx); err != nil {
+		return fmt.Errorf("failed to switch active agent: %w", err)
+	}
+	return nil
 }
 
 const cancelTimerDuration = 2 * time.Second
@@ -3010,7 +3207,7 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 	hasTodos := hasSession && hasIncompleteTodos(m.session.Todos)
 	hasQueue := m.promptQueue > 0
 
-	commands, err := dialog.NewCommands(m.com, sessionID, hasSession, hasTodos, hasQueue, m.customCommands, m.mcpPrompts)
+	commands, err := dialog.NewCommands(m.com, sessionID, hasSession, hasTodos, hasQueue, m.runMode, m.agentMode, m.customCommands, m.mcpPrompts)
 	if err != nil {
 		return util.ReportError(err)
 	}

@@ -579,3 +579,36 @@ func TestSplunkExporter_TLSRequired(t *testing.T) {
 		t.Errorf("expected TLS error message, got %v", err)
 	}
 }
+
+func TestRedactEvent_PreservesRemotePolicyDenyFields(t *testing.T) {
+	event := &AuditEvent{
+		ID:           "evt-remote-1",
+		EventType:    EventTypePermissionDenied,
+		SessionID:    "sess-1",
+		Action:       "remote_policy_deny",
+		Transport:    "ssh",
+		TargetHost:   "ops@10.0.0.12",
+		TargetEnv:    "prod",
+		TargetID:     "prod-web",
+		ResourcePath: "ssh://ops@10.0.0.12",
+		Details: map[string]interface{}{
+			"policy_type":   "allow_list",
+			"policy_rule":   "systemctl status *",
+			"policy_result": "deny",
+		},
+	}
+
+	redacted := redactEvent(event)
+	if redacted.Transport != "ssh" {
+		t.Fatalf("expected transport ssh, got %q", redacted.Transport)
+	}
+	if redacted.TargetHost != "ops@10.0.0.12" {
+		t.Fatalf("expected target host preserved, got %q", redacted.TargetHost)
+	}
+	if redacted.TargetID != "prod-web" {
+		t.Fatalf("expected target id preserved, got %q", redacted.TargetID)
+	}
+	if redacted.Details["policy_result"] != "deny" {
+		t.Fatalf("expected policy_result deny, got %#v", redacted.Details["policy_result"])
+	}
+}

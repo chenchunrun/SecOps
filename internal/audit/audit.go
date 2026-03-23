@@ -50,6 +50,10 @@ type AuditEvent struct {
 	ResourceType string `json:"resource_type"` // 资源类型
 	ResourceName string `json:"resource_name"` // 资源名称
 	ResourcePath string `json:"resource_path"` // 资源路径
+	Transport    string `json:"transport,omitempty"`    // local / ssh / docker
+	TargetHost   string `json:"target_host,omitempty"`  // remote target host/user@host
+	TargetEnv    string `json:"target_env,omitempty"`   // prod / staging / dev
+	TargetID     string `json:"target_id,omitempty"`    // profile id or target group
 
 	// 结果信息
 	Result   AuditResult `json:"result"`
@@ -214,6 +218,15 @@ func (b *AuditEventBuilder) WithResource(resourceType, resourceName, resourcePat
 	b.event.ResourceType = resourceType
 	b.event.ResourceName = resourceName
 	b.event.ResourcePath = resourcePath
+	return b
+}
+
+// WithRemoteTarget sets transport and remote target metadata.
+func (b *AuditEventBuilder) WithRemoteTarget(transport, targetHost, targetEnv, targetID string) *AuditEventBuilder {
+	b.event.Transport = transport
+	b.event.TargetHost = targetHost
+	b.event.TargetEnv = targetEnv
+	b.event.TargetID = targetID
 	return b
 }
 

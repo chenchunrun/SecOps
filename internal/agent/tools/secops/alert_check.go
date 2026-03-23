@@ -1,33 +1,45 @@
 package secops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // AlertCheckParams for checking alerts
 type AlertCheckParams struct {
-	System    string `json:"system"` // prometheus, grafana, datadog, pagerduty
-	Filter    string `json:"filter"`
-	Status    string `json:"status"` // firing, resolved, acknowledged
-	TimeRange string `json:"time_range"`
-	Endpoint  string `json:"endpoint,omitempty"`
-	APIToken  string `json:"api_token,omitempty"`
+	System          string `json:"system"` // prometheus, grafana, datadog, pagerduty
+	Filter          string `json:"filter"`
+	Status          string `json:"status"` // firing, resolved, acknowledged
+	TimeRange       string `json:"time_range"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	APIToken        string `json:"api_token,omitempty"`
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // AlertCheckTool 告警检查工具
 type AlertCheckTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewAlertCheckTool 创建告警检查工具
 func NewAlertCheckTool(registry *SecOpsToolRegistry) *AlertCheckTool {
-	return &AlertCheckTool{registry: registry}
+	return &AlertCheckTool{
+		registry: registry,
+		runCmd:   runAlertCommand,
+	}
 }
 
 // Type 实现 Tool.Type
@@ -70,6 +82,8 @@ type AlertCheckResult struct {
 	Resolved     int         `json:"resolved"`
 	Acknowledged int         `json:"acknowledged"`
 	Alerts       []AlertInfo `json:"alerts"`
+	DataSource   string      `json:"data_source,omitempty"`   // live, fallback_sample
+	FallbackReason string    `json:"fallback_reason,omitempty"`
 }
 
 // ValidateParams 实现 Tool.ValidateParams
@@ -101,6 +115,15 @@ func (act *AlertCheckTool) ValidateParams(params interface{}) error {
 	if p.Status != "" && !validStatuses[p.Status] {
 		return fmt.Errorf("unsupported status: %s", p.Status)
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	return nil
 }
@@ -128,13 +151,41 @@ func (act *AlertCheckTool) performCheck(params *AlertCheckParams) *AlertCheckRes
 
 	switch params.System {
 	case "prometheus":
-		result.Alerts = act.getPrometheusAlerts(params)
+		if alerts := act.queryPrometheusAlerts(params); len(alerts) > 0 {
+			result.Alerts = alerts
+			result.DataSource = "live"
+		} else {
+			result.Alerts = act.getPrometheusAlerts(params)
+			result.DataSource = "fallback_sample"
+			result.FallbackReason = "prometheus alerts unavailable; returned built-in sample alerts"
+		}
 	case "grafana":
-		result.Alerts = act.getGrafanaAlerts(params)
+		if alerts := act.queryGrafanaAlerts(params); len(alerts) > 0 {
+			result.Alerts = alerts
+			result.DataSource = "live"
+		} else {
+			result.Alerts = act.getGrafanaAlerts(params)
+			result.DataSource = "fallback_sample"
+			result.FallbackReason = "grafana alerts unavailable; returned built-in sample alerts"
+		}
 	case "datadog":
-		result.Alerts = act.getDatadogAlerts(params)
+		if alerts := act.queryDatadogAlerts(params); len(alerts) > 0 {
+			result.Alerts = alerts
+			result.DataSource = "live"
+		} else {
+			result.Alerts = act.getDatadogAlerts(params)
+			result.DataSource = "fallback_sample"
+			result.FallbackReason = "datadog alerts unavailable; returned built-in sample alerts"
+		}
 	case "pagerduty":
-		result.Alerts = act.getPagerDutyAlerts(params)
+		if alerts := act.queryPagerDutyAlerts(params); len(alerts) > 0 {
+			result.Alerts = alerts
+			result.DataSource = "live"
+		} else {
+			result.Alerts = act.getPagerDutyAlerts(params)
+			result.DataSource = "fallback_sample"
+			result.FallbackReason = "pagerduty alerts unavailable; returned built-in sample alerts"
+		}
 	}
 
 	result.Alerts = act.applyAlertFilters(result.Alerts, params)
@@ -409,6 +460,11 @@ func (act *AlertCheckTool) resolveToken(params *AlertCheckParams, key string) st
 }
 
 func (act *AlertCheckTool) queryPrometheusAlerts(params *AlertCheckParams) []AlertInfo {
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		if alerts := act.queryPrometheusAlertsRemote(params); len(alerts) > 0 {
+			return alerts
+		}
+	}
 	base := act.resolveEndpoint(params, "SECOPS_PROMETHEUS_ENDPOINT")
 	if base == "" {
 		return nil
@@ -481,6 +537,11 @@ func (act *AlertCheckTool) queryPrometheusAlerts(params *AlertCheckParams) []Ale
 }
 
 func (act *AlertCheckTool) queryGrafanaAlerts(params *AlertCheckParams) []AlertInfo {
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		if alerts := act.queryGrafanaAlertsRemote(params); len(alerts) > 0 {
+			return alerts
+		}
+	}
 	base := act.resolveEndpoint(params, "SECOPS_GRAFANA_ENDPOINT")
 	if base == "" {
 		return nil
@@ -706,4 +767,180 @@ func defaultIfEmpty(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func (act *AlertCheckTool) queryPrometheusAlertsRemote(params *AlertCheckParams) []AlertInfo {
+	base := act.resolveEndpoint(params, "SECOPS_PROMETHEUS_ENDPOINT")
+	if base == "" {
+		base = "http://127.0.0.1:9090"
+	}
+	payload, err := act.runRemoteHTTPGet(params, base+"/api/v1/alerts", nil)
+	if err != nil || len(payload) == 0 {
+		return nil
+	}
+	var resp struct {
+		Data struct {
+			Alerts []struct {
+				Labels      map[string]string `json:"labels"`
+				Annotations map[string]string `json:"annotations"`
+				State       string            `json:"state"`
+				ActiveAt    string            `json:"activeAt"`
+			} `json:"alerts"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return nil
+	}
+	alerts := make([]AlertInfo, 0, len(resp.Data.Alerts))
+	for i, a := range resp.Data.Alerts {
+		firedAt := time.Now()
+		if t, err := time.Parse(time.RFC3339, a.ActiveAt); err == nil {
+			firedAt = t
+		}
+		name := defaultIfEmpty(a.Labels["alertname"], fmt.Sprintf("prometheus-alert-%d", i+1))
+		msg := defaultIfEmpty(a.Annotations["summary"], a.Annotations["description"])
+		msg = defaultIfEmpty(msg, name)
+		alerts = append(alerts, AlertInfo{
+			ID:          fmt.Sprintf("prom-%d", i+1),
+			Name:        name,
+			Status:      normalizeAlertStatus(a.State),
+			Severity:    defaultIfEmpty(strings.ToLower(a.Labels["severity"]), "warning"),
+			FiredAt:     firedAt,
+			Message:     msg,
+			Labels:      a.Labels,
+			Annotations: a.Annotations,
+		})
+	}
+	return alerts
+}
+
+func (act *AlertCheckTool) queryGrafanaAlertsRemote(params *AlertCheckParams) []AlertInfo {
+	base := act.resolveEndpoint(params, "SECOPS_GRAFANA_ENDPOINT")
+	if base == "" {
+		base = "http://127.0.0.1:3000"
+	}
+	token := act.resolveToken(params, "SECOPS_GRAFANA_TOKEN")
+	headers := map[string]string{}
+	if token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
+	paths := []string{
+		"/api/alertmanager/grafana/api/v2/alerts",
+		"/api/alerts",
+	}
+	for _, p := range paths {
+		payload, err := act.runRemoteHTTPGet(params, base+p, headers)
+		if err != nil || len(payload) == 0 {
+			continue
+		}
+		var v2 []struct {
+			Labels      map[string]string `json:"labels"`
+			Annotations map[string]string `json:"annotations"`
+			Status      struct {
+				State string `json:"state"`
+			} `json:"status"`
+			StartsAt string `json:"startsAt"`
+		}
+		if err := json.Unmarshal(payload, &v2); err != nil {
+			continue
+		}
+		alerts := make([]AlertInfo, 0, len(v2))
+		for i, a := range v2 {
+			t := time.Now()
+			if tt, err := time.Parse(time.RFC3339, a.StartsAt); err == nil {
+				t = tt
+			}
+			name := defaultIfEmpty(a.Labels["alertname"], fmt.Sprintf("grafana-alert-%d", i+1))
+			msg := defaultIfEmpty(a.Annotations["summary"], a.Annotations["description"])
+			msg = defaultIfEmpty(msg, name)
+			alerts = append(alerts, AlertInfo{
+				ID:          fmt.Sprintf("grafana-%d", i+1),
+				Name:        name,
+				Status:      normalizeAlertStatus(a.Status.State),
+				Severity:    defaultIfEmpty(strings.ToLower(a.Labels["severity"]), "warning"),
+				FiredAt:     t,
+				Message:     msg,
+				Labels:      a.Labels,
+				Annotations: a.Annotations,
+			})
+		}
+		return alerts
+	}
+	return nil
+}
+
+func (act *AlertCheckTool) runRemoteHTTPGet(params *AlertCheckParams, urlStr string, headers map[string]string) ([]byte, error) {
+	if act.runCmd == nil {
+		act.runCmd = runAlertCommand
+	}
+	remoteCmd := buildRemoteCurlCommand(urlStr, headers)
+	sshArgs, err := buildAlertSSHArgs(params, remoteCmd)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	stdout, stderr, cmdErr := act.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = cmdErr.Error()
+		}
+		return nil, fmt.Errorf("remote curl failed: %s", msg)
+	}
+	return stdout, nil
+}
+
+func buildRemoteCurlCommand(urlStr string, headers map[string]string) string {
+	parts := []string{"curl", "-fsSL", shellQuoteAlert(urlStr)}
+	for k, v := range headers {
+		parts = append(parts, "-H", shellQuoteAlert(k+": "+v))
+	}
+	return strings.Join(parts, " ")
+}
+
+func runAlertCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildAlertSSHArgs(params *AlertCheckParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func shellQuoteAlert(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }

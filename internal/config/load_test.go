@@ -144,6 +144,70 @@ func TestConfig_setDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateRemoteConfig(t *testing.T) {
+	t.Run("valid and normalized", func(t *testing.T) {
+		remote := &Remote{
+			DefaultProfile: " prod-web ",
+			Profiles: []RemoteProfile{
+				{
+					ID:              " prod-web ",
+					Host:            " 10.0.0.12 ",
+					User:            " ops ",
+					AllowedCommands: []string{" systemctl status * ", "   "},
+					DenyCommands:    []string{" *rm -rf* ", ""},
+				},
+			},
+		}
+
+		err := validateRemoteConfig(remote)
+		require.NoError(t, err)
+		require.Equal(t, "prod-web", remote.DefaultProfile)
+		require.Equal(t, "prod-web", remote.Profiles[0].ID)
+		require.Equal(t, "10.0.0.12", remote.Profiles[0].Host)
+		require.Equal(t, "ops", remote.Profiles[0].User)
+		require.Equal(t, []string{"systemctl status *"}, remote.Profiles[0].AllowedCommands)
+		require.Equal(t, []string{"*rm -rf*"}, remote.Profiles[0].DenyCommands)
+	})
+
+	t.Run("default profile missing", func(t *testing.T) {
+		remote := &Remote{
+			DefaultProfile: "prod-web",
+			Profiles: []RemoteProfile{
+				{ID: "staging-web", Host: "10.0.0.13"},
+			},
+		}
+
+		err := validateRemoteConfig(remote)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "default_profile")
+	})
+
+	t.Run("duplicate profile id", func(t *testing.T) {
+		remote := &Remote{
+			Profiles: []RemoteProfile{
+				{ID: "prod-web", Host: "10.0.0.12"},
+				{ID: "prod-web", Host: "10.0.0.13"},
+			},
+		}
+
+		err := validateRemoteConfig(remote)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "duplicate remote profile id")
+	})
+
+	t.Run("missing profile host", func(t *testing.T) {
+		remote := &Remote{
+			Profiles: []RemoteProfile{
+				{ID: "prod-web"},
+			},
+		}
+
+		err := validateRemoteConfig(remote)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing host")
+	})
+}
+
 func TestConfig_configureProviders(t *testing.T) {
 	knownProviders := []catwalk.Provider{
 		{
@@ -569,6 +633,49 @@ func TestConfig_setupAgentsWithNoDisabledTools(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, securityAgent.AllowedTools, "ls")
 	assert.Contains(t, securityAgent.AllowedTools, "security_scan")
+}
+
+func TestConfig_setupAgentsSecOpsIncludeAll18ToolsByDefault(t *testing.T) {
+	cfg := &Config{
+		Options: &Options{
+			DisabledTools: []string{},
+		},
+	}
+
+	cfg.SetupAgents()
+
+	secOpsTools := []string{
+		"log_analyze",
+		"monitoring_query",
+		"compliance_check",
+		"certificate_audit",
+		"security_scan",
+		"configuration_audit",
+		"network_diagnostic",
+		"database_query",
+		"backup_check",
+		"replication_status",
+		"secret_audit",
+		"rotation_check",
+		"access_review",
+		"infrastructure_query",
+		"deployment_status",
+		"alert_check",
+		"incident_timeline",
+		"resource_monitor",
+	}
+
+	opsAgent, ok := cfg.Agents[AgentOpsAgent]
+	require.True(t, ok)
+	for _, tool := range secOpsTools {
+		assert.Contains(t, opsAgent.AllowedTools, tool)
+	}
+
+	securityAgent, ok := cfg.Agents[AgentSecurityExpertAgent]
+	require.True(t, ok)
+	for _, tool := range secOpsTools {
+		assert.Contains(t, securityAgent.AllowedTools, tool)
+	}
 }
 
 func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {

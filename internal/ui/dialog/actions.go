@@ -54,6 +54,7 @@ type (
 	ActionToggleNotifications         struct{}
 	ActionToggleTransparentBackground struct{}
 	ActionInitializeProject           struct{}
+	ActionShowRemoteDenies            struct{}
 	ActionSummarize                   struct {
 		SessionID string
 	}
@@ -86,6 +87,31 @@ type (
 	// ActionDisableDockerMCP is a message to disable Docker MCP.
 	ActionDisableDockerMCP struct{}
 )
+
+type RunMode string
+
+const (
+	RunModeAuto RunMode = "auto"
+	RunModeFast RunMode = "fast"
+	RunModeDeep RunMode = "deep"
+)
+
+type ActionSetRunMode struct {
+	Mode RunMode
+}
+
+type AgentMode string
+
+const (
+	AgentModeAuto     AgentMode = "auto"
+	AgentModeCoder    AgentMode = "coder"
+	AgentModeOps      AgentMode = "ops_agent"
+	AgentModeSecurity AgentMode = "security_expert_agent"
+)
+
+type ActionSetAgentMode struct {
+	Mode AgentMode
+}
 
 // Messages for API key input dialog.
 type (

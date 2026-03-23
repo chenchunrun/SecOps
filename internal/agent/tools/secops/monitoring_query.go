@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -42,8 +43,13 @@ type MonitoringQueryParams struct {
 	EndTime   time.Time `json:"end_time"`
 
 	// 聚合选项
-	Step        time.Duration `json:"step,omitempty"`
-	Aggregation string        `json:"aggregation,omitempty"` // avg, sum, max, min, p99 等
+	Step            time.Duration `json:"step,omitempty"`
+	Aggregation     string        `json:"aggregation,omitempty"` // avg, sum, max, min, p99 等
+	RemoteHost      string        `json:"remote_host,omitempty"`
+	RemoteUser      string        `json:"remote_user,omitempty"`
+	RemotePort      int           `json:"remote_port,omitempty"`
+	RemoteKeyPath   string        `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string        `json:"remote_proxy_jump,omitempty"`
 }
 
 // MetricPoint 指标数据点
@@ -97,6 +103,7 @@ type Alert struct {
 type MonitoringQueryTool struct {
 	registry *SecOpsToolRegistry
 	client   *http.Client
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewMonitoringQueryTool 创建监控查询工具
@@ -104,6 +111,7 @@ func NewMonitoringQueryTool(registry *SecOpsToolRegistry) *MonitoringQueryTool {
 	return &MonitoringQueryTool{
 		registry: registry,
 		client:   &http.Client{Timeout: 30 * time.Second},
+		runCmd:   runMonitoringCommand,
 	}
 }
 
@@ -157,6 +165,15 @@ func (mqt *MonitoringQueryTool) ValidateParams(params interface{}) error {
 
 	if p.Step < 0 {
 		return fmt.Errorf("step cannot be negative")
+	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
 	}
 
 	switch p.System {
@@ -252,14 +269,11 @@ func (mqt *MonitoringQueryTool) queryPrometheus(ctx context.Context, params *Mon
 	q.Set("step", strconv.FormatFloat(step.Seconds(), 'f', -1, 64))
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
+	headers := map[string]string{}
 	if params.Credential != "" {
-		req.Header.Set("Authorization", "Bearer "+params.Credential)
+		headers["Authorization"] = "Bearer " + params.Credential
 	}
-	body, err := mqt.doRequest(req)
+	body, err := mqt.requestBytes(ctx, params, http.MethodGet, u.String(), headers, "")
 	if err != nil {
 		return err
 	}
@@ -338,15 +352,12 @@ func (mqt *MonitoringQueryTool) queryDatadog(ctx context.Context, params *Monito
 	q.Set("to", strconv.FormatInt(params.EndTime.Unix(), 10))
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
+	headers := map[string]string{}
 	if params.Credential != "" {
-		req.Header.Set("DD-API-KEY", params.Credential)
-		req.Header.Set("DD-APPLICATION-KEY", params.Credential)
+		headers["DD-API-KEY"] = params.Credential
+		headers["DD-APPLICATION-KEY"] = params.Credential
 	}
-	body, err := mqt.doRequest(req)
+	body, err := mqt.requestBytes(ctx, params, http.MethodGet, u.String(), headers, "")
 	if err != nil {
 		return err
 	}
@@ -406,15 +417,13 @@ func (mqt *MonitoringQueryTool) queryNewRelic(ctx context.Context, params *Monit
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return err
+	headers := map[string]string{
+		"Content-Type": "application/json",
 	}
-	req.Header.Set("Content-Type", "application/json")
 	if params.Credential != "" {
-		req.Header.Set("Api-Key", params.Credential)
+		headers["Api-Key"] = params.Credential
 	}
-	body, err := mqt.doRequest(req)
+	body, err := mqt.requestBytes(ctx, params, http.MethodPost, u, headers, string(bodyBytes))
 	if err != nil {
 		return err
 	}
@@ -467,22 +476,18 @@ func (mqt *MonitoringQueryTool) queryInfluxDB(ctx context.Context, params *Monit
 	q.Set("epoch", "ms")
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
+	headers := map[string]string{}
 	if params.Credential != "" {
-		req.Header.Set("Authorization", "Token "+params.Credential)
+		headers["Authorization"] = "Token " + params.Credential
 	}
-
-	body, err := mqt.doRequest(req)
+	body, err := mqt.requestBytes(ctx, params, http.MethodGet, u.String(), headers, "")
 	if err != nil {
 		return err
 	}
 
 	var payload struct {
 		Results []struct {
-			Error string `json:"error"`
+			Error  string `json:"error"`
 			Series []struct {
 				Name    string            `json:"name"`
 				Tags    map[string]string `json:"tags"`
@@ -731,6 +736,95 @@ func (mqt *MonitoringQueryTool) doRequest(req *http.Request) ([]byte, error) {
 		return nil, fmt.Errorf("query failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return body, nil
+}
+
+func (mqt *MonitoringQueryTool) requestBytes(ctx context.Context, params *MonitoringQueryParams, method, urlStr string, headers map[string]string, body string) ([]byte, error) {
+	if params != nil && strings.TrimSpace(params.RemoteHost) != "" {
+		return mqt.requestBytesRemote(ctx, params, method, urlStr, headers, body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, urlStr, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	return mqt.doRequest(req)
+}
+
+func (mqt *MonitoringQueryTool) requestBytesRemote(ctx context.Context, params *MonitoringQueryParams, method, urlStr string, headers map[string]string, body string) ([]byte, error) {
+	if mqt.runCmd == nil {
+		mqt.runCmd = runMonitoringCommand
+	}
+	curlParts := []string{"curl", "-fsSL", "-X", shellQuoteMonitoring(method)}
+	for k, v := range headers {
+		curlParts = append(curlParts, "-H", shellQuoteMonitoring(k+": "+v))
+	}
+	if strings.TrimSpace(body) != "" {
+		curlParts = append(curlParts, "--data-raw", shellQuoteMonitoring(body))
+	}
+	curlParts = append(curlParts, shellQuoteMonitoring(urlStr))
+	remoteCmd := strings.Join(curlParts, " ")
+
+	sshArgs, err := buildMonitoringSSHArgs(params, remoteCmd)
+	if err != nil {
+		return nil, err
+	}
+	stdout, stderr, cmdErr := mqt.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = cmdErr.Error()
+		}
+		return nil, fmt.Errorf("remote monitoring request failed: %s", msg)
+	}
+	return stdout, nil
+}
+
+func runMonitoringCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildMonitoringSSHArgs(params *MonitoringQueryParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func shellQuoteMonitoring(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }
 
 // calculateStats 计算统计信息

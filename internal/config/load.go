@@ -70,6 +70,10 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 		}
 	}
 
+	if err := validateRemoteConfig(cfg.Remote); err != nil {
+		return nil, fmt.Errorf("invalid remote config: %w", err)
+	}
+
 	if !isInsideWorktree() {
 		const depth = 2
 		const items = 100
@@ -110,6 +114,66 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 	}
 	store.SetupAgents()
 	return store, nil
+}
+
+func validateRemoteConfig(remote *Remote) error {
+	if remote == nil {
+		return nil
+	}
+
+	remote.DefaultProfile = strings.TrimSpace(remote.DefaultProfile)
+	seen := make(map[string]struct{}, len(remote.Profiles))
+
+	for i := range remote.Profiles {
+		p := &remote.Profiles[i]
+		p.ID = strings.TrimSpace(p.ID)
+		p.Host = strings.TrimSpace(p.Host)
+		p.User = strings.TrimSpace(p.User)
+		p.Env = strings.TrimSpace(p.Env)
+		p.ProxyJump = strings.TrimSpace(p.ProxyJump)
+		p.Auth.Type = strings.TrimSpace(p.Auth.Type)
+		p.Auth.KeyPath = strings.TrimSpace(p.Auth.KeyPath)
+		p.AllowedCommands = compactTrimmedStrings(p.AllowedCommands)
+		p.DenyCommands = compactTrimmedStrings(p.DenyCommands)
+
+		if p.ID == "" {
+			return fmt.Errorf("remote profile at index %d is missing id", i)
+		}
+		if p.Host == "" {
+			return fmt.Errorf("remote profile %q is missing host", p.ID)
+		}
+		if p.Port < 0 || p.Port > 65535 {
+			return fmt.Errorf("remote profile %q has invalid port: %d", p.ID, p.Port)
+		}
+
+		if _, exists := seen[p.ID]; exists {
+			return fmt.Errorf("duplicate remote profile id: %q", p.ID)
+		}
+		seen[p.ID] = struct{}{}
+	}
+
+	if remote.DefaultProfile != "" {
+		if _, exists := seen[remote.DefaultProfile]; !exists {
+			return fmt.Errorf("remote default_profile %q not found in remote.profiles", remote.DefaultProfile)
+		}
+	}
+
+	return nil
+}
+
+func compactTrimmedStrings(items []string) []string {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 // mustMarshalConfig marshals the config to JSON bytes, returning empty JSON on
@@ -397,6 +461,9 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 	}
 	if c.LSP == nil {
 		c.LSP = make(map[string]LSPConfig)
+	}
+	if c.Remote == nil {
+		c.Remote = &Remote{}
 	}
 
 	// Apply defaults to LSP configurations

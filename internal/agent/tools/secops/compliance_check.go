@@ -1,9 +1,11 @@
 package secops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -90,6 +92,13 @@ type ComplianceCheckParams struct {
 
 	// 输出选项
 	IncludeRemediation bool `json:"include_remediation,omitempty"`
+
+	// 远程检查选项
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // ComplianceRule 合规规则
@@ -152,12 +161,14 @@ type Recommendation struct {
 // ComplianceCheckTool 合规检查工具
 type ComplianceCheckTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 // NewComplianceCheckTool 创建合规检查工具
 func NewComplianceCheckTool(registry *SecOpsToolRegistry) *ComplianceCheckTool {
 	return &ComplianceCheckTool{
 		registry: registry,
+		runCmd:   runComplianceCommand,
 	}
 }
 
@@ -213,6 +224,15 @@ func (cct *ComplianceCheckTool) ValidateParams(params interface{}) error {
 	if p.Timeout < 0 {
 		return fmt.Errorf("timeout cannot be negative")
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	for _, category := range p.Categories {
 		if strings.TrimSpace(category) == "" {
@@ -265,7 +285,7 @@ func (cct *ComplianceCheckTool) runComplianceCheck(params *ComplianceCheckParams
 
 	// 执行检查
 	for _, rule := range rules {
-		cct.checkRule(rule, params.Full)
+		cct.checkRule(rule, params.Full, params)
 		result.Rules = append(result.Rules, rule)
 
 		// 统计
@@ -555,57 +575,57 @@ func (cct *ComplianceCheckTool) filterRulesByID(rules []*ComplianceRule, ruleIDs
 }
 
 // checkRule 检查单个规则
-func (cct *ComplianceCheckTool) checkRule(rule *ComplianceRule, full bool) {
+func (cct *ComplianceCheckTool) checkRule(rule *ComplianceRule, full bool, params *ComplianceCheckParams) {
 	rule.LastChecked = time.Now()
-	cct.evaluateRule(rule)
+	cct.evaluateRule(rule, params)
 	if rule.Status == StatusFailed && full {
 		rule.Evidence = "Detailed check: " + rule.Evidence
 	}
 }
 
-func (cct *ComplianceCheckTool) evaluateRule(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evaluateRule(rule *ComplianceRule, params *ComplianceCheckParams) {
 	switch rule.ID {
 	case "cis_1_1":
-		cct.evalCISFilesystem(rule)
+		cct.evalCISFilesystem(rule, params)
 	case "cis_2_1":
-		cct.evalCISXWindow(rule)
+		cct.evalCISXWindow(rule, params)
 	case "cis_3_1":
-		cct.evalCISIPForward(rule)
+		cct.evalCISIPForward(rule, params)
 	case "pci_2_1":
 		cct.evalPCIDefaults(rule)
 	case "soc2_cc1":
-		cct.evalSOC2AccessControl(rule)
+		cct.evalSOC2AccessControl(rule, params)
 	case "hipaa_164_308":
-		cct.evalHIPAASafeguards(rule)
+		cct.evalHIPAASafeguards(rule, params)
 	case "gdpr_30_1":
-		cct.evalGDPRDataAccessRecords(rule)
+		cct.evalGDPRDataAccessRecords(rule, params)
 	case "gdpr_32_1":
-		cct.evalGDPREncryption(rule)
+		cct.evalGDPREncryption(rule, params)
 	case "gdpr_5_1_e":
-		cct.evalGDPRRetention(rule)
+		cct.evalGDPRRetention(rule, params)
 	case "iso27001_5_1":
-		cct.evalISO27001Policy(rule)
+		cct.evalISO27001Policy(rule, params)
 	case "iso27001_8_15":
-		cct.evalISO27001Logging(rule)
+		cct.evalISO27001Logging(rule, params)
 	case "iso27001_8_3":
-		cct.evalISO27001AccessControl(rule)
+		cct.evalISO27001AccessControl(rule, params)
 	case "docker_bench_1_1":
-		cct.evalDockerBenchDaemonConfig(rule)
+		cct.evalDockerBenchDaemonConfig(rule, params)
 	case "docker_bench_1_2":
-		cct.evalDockerBenchSocketPermissions(rule)
+		cct.evalDockerBenchSocketPermissions(rule, params)
 	case "docker_bench_1_3":
-		cct.evalDockerBenchIPForward(rule)
+		cct.evalDockerBenchIPForward(rule, params)
 	}
 }
 
-func (cct *ComplianceCheckTool) evalCISFilesystem(rule *ComplianceRule) {
-	info, err := os.Stat("/etc/fstab")
+func (cct *ComplianceCheckTool) evalCISFilesystem(rule *ComplianceRule, params *ComplianceCheckParams) {
+	info, err := cct.statPath(params, "/etc/fstab")
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot verify /etc/fstab: %v", err)
 		return
 	}
-	mode := info.Mode().Perm()
+	mode := info.Perm
 	if mode&0o002 != 0 {
 		rule.Status = StatusFailed
 		rule.Evidence = fmt.Sprintf("/etc/fstab is world-writable (%#o)", mode)
@@ -615,14 +635,14 @@ func (cct *ComplianceCheckTool) evalCISFilesystem(rule *ComplianceRule) {
 	rule.Evidence = fmt.Sprintf("/etc/fstab permissions are restricted (%#o)", mode)
 }
 
-func (cct *ComplianceCheckTool) evalCISXWindow(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalCISXWindow(rule *ComplianceRule, params *ComplianceCheckParams) {
 	xPaths := []string{
 		"/usr/bin/Xorg",
 		"/usr/bin/startx",
 		"/usr/X11/bin/Xorg",
 	}
 	for _, p := range xPaths {
-		if _, err := os.Stat(p); err == nil {
+		if _, err := cct.statPath(params, p); err == nil {
 			rule.Status = StatusWarning
 			rule.Evidence = fmt.Sprintf("X Window component detected: %s", p)
 			return
@@ -632,8 +652,8 @@ func (cct *ComplianceCheckTool) evalCISXWindow(rule *ComplianceRule) {
 	rule.Evidence = "X Window System binaries not detected"
 }
 
-func (cct *ComplianceCheckTool) evalCISIPForward(rule *ComplianceRule) {
-	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
+func (cct *ComplianceCheckTool) evalCISIPForward(rule *ComplianceRule, params *ComplianceCheckParams) {
+	data, err := cct.readFile(params, "/proc/sys/net/ipv4/ip_forward")
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot read ip_forward: %v", err)
@@ -672,7 +692,7 @@ func (cct *ComplianceCheckTool) evalPCIDefaults(rule *ComplianceRule) {
 	rule.Evidence = "No obvious vendor default credentials detected"
 }
 
-func (cct *ComplianceCheckTool) evalSOC2AccessControl(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalSOC2AccessControl(rule *ComplianceRule, params *ComplianceCheckParams) {
 	type target struct {
 		path    string
 		maxPerm os.FileMode
@@ -682,13 +702,13 @@ func (cct *ComplianceCheckTool) evalSOC2AccessControl(rule *ComplianceRule) {
 		{path: "/etc/shadow", maxPerm: 0o640},
 	}
 	for _, t := range targets {
-		info, err := os.Stat(t.path)
+		info, err := cct.statPath(params, t.path)
 		if err != nil {
 			rule.Status = StatusWarning
 			rule.Evidence = fmt.Sprintf("cannot verify %s: %v", t.path, err)
 			return
 		}
-		perm := info.Mode().Perm()
+		perm := info.Perm
 		if perm > t.maxPerm {
 			rule.Status = StatusFailed
 			rule.Evidence = fmt.Sprintf("%s permissions too open (%#o > %#o)", t.path, perm, t.maxPerm)
@@ -699,45 +719,45 @@ func (cct *ComplianceCheckTool) evalSOC2AccessControl(rule *ComplianceRule) {
 	rule.Evidence = "Critical account files have restricted permissions"
 }
 
-func (cct *ComplianceCheckTool) evalHIPAASafeguards(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalHIPAASafeguards(rule *ComplianceRule, params *ComplianceCheckParams) {
 	auditCandidates := []string{
 		"/var/log/audit/audit.log",
 		"/var/log/auth.log",
 		"/var/log/secure",
 	}
 	for _, p := range auditCandidates {
-		info, err := os.Stat(p)
+		info, err := cct.statPath(params, p)
 		if err != nil {
 			continue
 		}
-		if info.Size() == 0 {
+		if info.Size == 0 {
 			continue
 		}
 		rule.Status = StatusPassed
-		rule.Evidence = fmt.Sprintf("audit trace available: %s (%s)", p, strconv.FormatInt(info.Size(), 10))
+		rule.Evidence = fmt.Sprintf("audit trace available: %s (%s)", p, strconv.FormatInt(info.Size, 10))
 		return
 	}
 	rule.Status = StatusWarning
 	rule.Evidence = "audit trail files not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalGDPRDataAccessRecords(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalGDPRDataAccessRecords(rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range gdprDataAccessLogPaths {
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() || info.Size() == 0 {
+		info, err := cct.statPath(params, path)
+		if err != nil || info.IsDir || info.Size == 0 {
 			continue
 		}
 		rule.Status = StatusPassed
-		rule.Evidence = fmt.Sprintf("data access records available: %s (%s)", path, strconv.FormatInt(info.Size(), 10))
+		rule.Evidence = fmt.Sprintf("data access records available: %s (%s)", path, strconv.FormatInt(info.Size, 10))
 		return
 	}
 	rule.Status = StatusWarning
 	rule.Evidence = "personal data access records not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalGDPREncryption(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalGDPREncryption(rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range gdprEncryptionConfigPaths {
-		data, err := os.ReadFile(path)
+		data, err := cct.readFile(params, path)
 		if err != nil || len(data) == 0 {
 			continue
 		}
@@ -755,9 +775,9 @@ func (cct *ComplianceCheckTool) evalGDPREncryption(rule *ComplianceRule) {
 	rule.Evidence = "encryption configuration not found"
 }
 
-func (cct *ComplianceCheckTool) evalGDPRRetention(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalGDPRRetention(rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range gdprRetentionPolicyPaths {
-		data, err := os.ReadFile(path)
+		data, err := cct.readFile(params, path)
 		if err != nil || len(data) == 0 {
 			continue
 		}
@@ -787,49 +807,49 @@ func (cct *ComplianceCheckTool) evalGDPRRetention(rule *ComplianceRule) {
 	rule.Evidence = "data retention policy not found"
 }
 
-func (cct *ComplianceCheckTool) evalISO27001Policy(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalISO27001Policy(rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range iso27001PolicyPaths {
-		info, err := os.Stat(path)
+		info, err := cct.statPath(params, path)
 		if err != nil {
 			continue
 		}
-		if info.IsDir() || info.Size() == 0 {
+		if info.IsDir || info.Size == 0 {
 			continue
 		}
 		rule.Status = StatusPassed
-		rule.Evidence = fmt.Sprintf("security policy present: %s (%s)", path, strconv.FormatInt(info.Size(), 10))
+		rule.Evidence = fmt.Sprintf("security policy present: %s (%s)", path, strconv.FormatInt(info.Size, 10))
 		return
 	}
 	rule.Status = StatusWarning
 	rule.Evidence = "security policy file not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalISO27001Logging(rule *ComplianceRule) {
+func (cct *ComplianceCheckTool) evalISO27001Logging(rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range iso27001AuditLogPaths {
-		info, err := os.Stat(path)
+		info, err := cct.statPath(params, path)
 		if err != nil {
 			continue
 		}
-		if info.IsDir() || info.Size() == 0 {
+		if info.IsDir || info.Size == 0 {
 			continue
 		}
 		rule.Status = StatusPassed
-		rule.Evidence = fmt.Sprintf("audit log available: %s (%s)", path, strconv.FormatInt(info.Size(), 10))
+		rule.Evidence = fmt.Sprintf("audit log available: %s (%s)", path, strconv.FormatInt(info.Size, 10))
 		return
 	}
 	rule.Status = StatusWarning
 	rule.Evidence = "audit logs not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalISO27001AccessControl(rule *ComplianceRule) {
-	info, err := os.Stat(iso27001AccessControlPath)
+func (cct *ComplianceCheckTool) evalISO27001AccessControl(rule *ComplianceRule, params *ComplianceCheckParams) {
+	info, err := cct.statPath(params, iso27001AccessControlPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot verify %s: %v", iso27001AccessControlPath, err)
 		return
 	}
 
-	mode := info.Mode().Perm()
+	mode := info.Perm
 	// Accept common secure modes such as 0o600 and 0o640.
 	if mode > 0o640 {
 		rule.Status = StatusFailed
@@ -841,8 +861,8 @@ func (cct *ComplianceCheckTool) evalISO27001AccessControl(rule *ComplianceRule) 
 	rule.Evidence = fmt.Sprintf("%s permissions are restricted (%#o)", iso27001AccessControlPath, mode)
 }
 
-func (cct *ComplianceCheckTool) evalDockerBenchDaemonConfig(rule *ComplianceRule) {
-	data, err := os.ReadFile(dockerBenchDaemonConfigPath)
+func (cct *ComplianceCheckTool) evalDockerBenchDaemonConfig(rule *ComplianceRule, params *ComplianceCheckParams) {
+	data, err := cct.readFile(params, dockerBenchDaemonConfigPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot read %s: %v", dockerBenchDaemonConfigPath, err)
@@ -876,15 +896,15 @@ func (cct *ComplianceCheckTool) evalDockerBenchDaemonConfig(rule *ComplianceRule
 	rule.Evidence = fmt.Sprintf("daemon config %s does not enable core hardening controls", dockerBenchDaemonConfigPath)
 }
 
-func (cct *ComplianceCheckTool) evalDockerBenchSocketPermissions(rule *ComplianceRule) {
-	info, err := os.Stat(dockerBenchSocketPath)
+func (cct *ComplianceCheckTool) evalDockerBenchSocketPermissions(rule *ComplianceRule, params *ComplianceCheckParams) {
+	info, err := cct.statPath(params, dockerBenchSocketPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot verify %s: %v", dockerBenchSocketPath, err)
 		return
 	}
 
-	mode := info.Mode().Perm()
+	mode := info.Perm
 	if mode&0o022 != 0 {
 		rule.Status = StatusFailed
 		rule.Evidence = fmt.Sprintf("docker socket permissions are too open (%#o)", mode)
@@ -895,8 +915,8 @@ func (cct *ComplianceCheckTool) evalDockerBenchSocketPermissions(rule *Complianc
 	rule.Evidence = fmt.Sprintf("docker socket permissions are restricted (%#o)", mode)
 }
 
-func (cct *ComplianceCheckTool) evalDockerBenchIPForward(rule *ComplianceRule) {
-	data, err := os.ReadFile(dockerBenchIPForwardPath)
+func (cct *ComplianceCheckTool) evalDockerBenchIPForward(rule *ComplianceRule, params *ComplianceCheckParams) {
+	data, err := cct.readFile(params, dockerBenchIPForwardPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot read %s: %v", dockerBenchIPForwardPath, err)
@@ -974,4 +994,106 @@ func (cct *ComplianceCheckTool) generateRecommendations(result *ComplianceCheckR
 	}
 
 	return recommendations
+}
+
+type compliancePathInfo struct {
+	IsDir bool
+	Size  int64
+	Perm  os.FileMode
+}
+
+func (cct *ComplianceCheckTool) statPath(params *ComplianceCheckParams, path string) (*compliancePathInfo, error) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		return &compliancePathInfo{
+			IsDir: info.IsDir(),
+			Size:  info.Size(),
+			Perm:  info.Mode().Perm(),
+		}, nil
+	}
+	cmd := "stat -c '%F|%s|%a' " + shellQuoteCompliance(path)
+	out, err := cct.runRemoteCommand(params, cmd)
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(strings.TrimSpace(out), "|")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid stat output: %s", strings.TrimSpace(out))
+	}
+	size, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stat size: %w", err)
+	}
+	permInt, err := strconv.ParseUint(strings.TrimSpace(parts[2]), 8, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid stat perm: %w", err)
+	}
+	return &compliancePathInfo{
+		IsDir: strings.Contains(strings.ToLower(parts[0]), "directory"),
+		Size:  size,
+		Perm:  os.FileMode(permInt),
+	}, nil
+}
+
+func (cct *ComplianceCheckTool) readFile(params *ComplianceCheckParams, path string) ([]byte, error) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return os.ReadFile(path)
+	}
+	out, err := cct.runRemoteCommand(params, "cat "+shellQuoteCompliance(path))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(out), nil
+}
+
+func (cct *ComplianceCheckTool) runRemoteCommand(params *ComplianceCheckParams, remoteCommand string) (string, error) {
+	if params == nil {
+		return "", fmt.Errorf("remote params are required")
+	}
+	if cct.runCmd == nil {
+		cct.runCmd = runComplianceCommand
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return "", fmt.Errorf("remote_host is required")
+	}
+	target := host
+	if user := strings.TrimSpace(params.RemoteUser); user != "" {
+		target = user + "@" + host
+	}
+
+	args := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		args = append(args, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		args = append(args, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		args = append(args, "-J", jump)
+	}
+	args = append(args, target, "sh", "-lc", remoteCommand)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := cct.runCmd(ctx, "ssh", args...)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func shellQuoteCompliance(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
+}
+
+func runComplianceCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.Output()
 }

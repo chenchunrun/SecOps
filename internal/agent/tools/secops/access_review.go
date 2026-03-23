@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,9 +14,14 @@ import (
 
 // AccessReviewParams for auditing user/group access
 type AccessReviewParams struct {
-	SystemType string `json:"system_type"` // "aws", "gcp", "linux", "database"
-	ReviewType string `json:"review_type"` // "users", "permissions", "service_accounts"
-	Target     string `json:"target"`
+	SystemType      string `json:"system_type"` // "aws", "gcp", "linux", "database"
+	ReviewType      string `json:"review_type"` // "users", "permissions", "service_accounts"
+	Target          string `json:"target"`
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // AccessEntry 访问条目
@@ -34,16 +40,22 @@ type AccessReviewResult struct {
 	HighRiskCount int
 	StaleCount    int
 	TotalCount    int
+	DataSource    string `json:"data_source,omitempty"`     // live, fallback_sample
+	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 
 // AccessReviewTool 访问审计工具
 type AccessReviewTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewAccessReviewTool 创建访问审计工具
 func NewAccessReviewTool(registry *SecOpsToolRegistry) *AccessReviewTool {
-	return &AccessReviewTool{registry: registry}
+	return &AccessReviewTool{
+		registry: registry,
+		runCmd:   runAccessCommand,
+	}
 }
 
 // Type 实现 Tool.Type
@@ -95,6 +107,15 @@ func (art *AccessReviewTool) ValidateParams(params interface{}) error {
 	if p.ReviewType != "" && !validReviewTypes[p.ReviewType] {
 		return fmt.Errorf("unsupported review_type: %s", p.ReviewType)
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	return nil
 }
@@ -123,8 +144,11 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 	case "aws":
 		if entries := art.getAWSAccessEntries(params); len(entries) > 0 {
 			result.Entries = entries
+			result.DataSource = "live"
 			break
 		}
+		result.DataSource = "fallback_sample"
+		result.FallbackReason = "aws iam data unavailable; returned built-in sample entries"
 		result.Entries = []AccessEntry{
 			{
 				Principal:  "user:admin@example.com",
@@ -171,8 +195,11 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 	case "gcp":
 		if entries := art.getGCPAccessEntries(params); len(entries) > 0 {
 			result.Entries = entries
+			result.DataSource = "live"
 			break
 		}
+		result.DataSource = "fallback_sample"
+		result.FallbackReason = "gcp iam data unavailable; returned built-in sample entries"
 		result.Entries = []AccessEntry{
 			{
 				Principal:  "user:admin@example.com",
@@ -195,8 +222,11 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 	case "linux":
 		if entries := art.getLinuxAccessEntries(params); len(entries) > 0 {
 			result.Entries = entries
+			result.DataSource = "live"
 			break
 		}
+		result.DataSource = "fallback_sample"
+		result.FallbackReason = "linux account data unavailable; returned built-in sample entries"
 		result.Entries = []AccessEntry{
 			{
 				Principal:  "user:root",
@@ -225,6 +255,8 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 		}
 
 	case "database":
+		result.DataSource = "fallback_sample"
+		result.FallbackReason = "database access review uses built-in sample entries when no provider is configured"
 		result.Entries = []AccessEntry{
 			{
 				Principal:  "user:app_readonly",
@@ -259,6 +291,9 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 				Risk:       "medium",
 			},
 		}
+	}
+	if result.DataSource == "" {
+		result.DataSource = "live"
 	}
 
 	result.TotalCount = len(result.Entries)
@@ -365,6 +400,10 @@ func (art *AccessReviewTool) getGCPAccessEntries(params *AccessReviewParams) []A
 }
 
 func (art *AccessReviewTool) getLinuxAccessEntries(params *AccessReviewParams) []AccessEntry {
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		return art.getLinuxAccessEntriesRemote(params)
+	}
+
 	passwdPath := strings.TrimSpace(os.Getenv("SECOPS_LINUX_PASSWD_PATH"))
 	if passwdPath == "" {
 		passwdPath = "/etc/passwd"
@@ -420,6 +459,55 @@ func (art *AccessReviewTool) getLinuxAccessEntries(params *AccessReviewParams) [
 	return entries
 }
 
+func (art *AccessReviewTool) getLinuxAccessEntriesRemote(params *AccessReviewParams) []AccessEntry {
+	passwdRaw, err := art.runRemoteCommand(params, "cat /etc/passwd 2>/dev/null")
+	if err != nil || strings.TrimSpace(passwdRaw) == "" {
+		return nil
+	}
+	sudoersRaw, _ := art.runRemoteCommand(params, "cat /etc/sudoers /etc/sudoers.d/* 2>/dev/null")
+
+	lines := strings.Split(passwdRaw, "\n")
+	entries := make([]AccessEntry, 0)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, ":")
+		if len(fields) < 7 {
+			continue
+		}
+		user := fields[0]
+		uid, _ := strconv.Atoi(fields[2])
+		shell := fields[6]
+		if strings.Contains(shell, "nologin") || strings.Contains(shell, "false") {
+			continue
+		}
+
+		perm := "shell:user"
+		resource := "ssh://" + formatAccessRemoteTarget(params.RemoteUser, params.RemoteHost) + "/etc/passwd"
+		risk := "low"
+
+		if uid == 0 || user == "root" {
+			perm = "sudo ALL=(ALL) NOPASSWD: ALL"
+			risk = "high"
+		} else if strings.Contains(sudoersRaw, user) {
+			perm = "sudo privilege"
+			risk = "medium"
+		}
+
+		entries = append(entries, AccessEntry{
+			Principal:  "user:" + user,
+			Permission: perm,
+			Resource:   resource,
+			AgeDays:    0,
+			LastUsed:   time.Now().Format("2006-01-02 15:04"),
+			Risk:       risk,
+		})
+	}
+	return entries
+}
+
 func readLinuxSudoers() string {
 	paths := []string{"/etc/sudoers"}
 	if override := strings.TrimSpace(os.Getenv("SECOPS_LINUX_SUDOERS_PATH")); override != "" {
@@ -461,4 +549,75 @@ func formatRFC3339OrNow(v string) string {
 		return t.Format("2006-01-02 15:04")
 	}
 	return time.Now().Format("2006-01-02 15:04")
+}
+
+func (art *AccessReviewTool) runRemoteCommand(params *AccessReviewParams, command string) (string, error) {
+	if art.runCmd == nil {
+		art.runCmd = runAccessCommand
+	}
+	sshArgs, err := buildAccessSSHArgs(params, command)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	stdout, stderr, cmdErr := art.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = cmdErr.Error()
+		}
+		return "", fmt.Errorf("remote command failed: %s", msg)
+	}
+	return string(stdout), nil
+}
+
+func runAccessCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildAccessSSHArgs(params *AccessReviewParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func formatAccessRemoteTarget(user, host string) string {
+	host = strings.TrimSpace(host)
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return host
+	}
+	return user + "@" + host
 }

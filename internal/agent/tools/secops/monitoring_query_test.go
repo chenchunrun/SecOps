@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,6 +114,31 @@ func TestMonitoringQueryTool_ValidateParams(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &MonitoringQueryParams{
+				System:     SystemPrometheus,
+				Endpoint:   "http://localhost:9090",
+				Query:      "up",
+				StartTime:  now.Add(-1 * time.Hour),
+				EndTime:    now,
+				RemoteHost: "10.0.0.70",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &MonitoringQueryParams{
+				System:     SystemPrometheus,
+				Endpoint:   "http://localhost:9090",
+				Query:      "up",
+				StartTime:  now.Add(-1 * time.Hour),
+				EndTime:    now,
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -168,6 +194,44 @@ func TestMonitoringQueryTool_Execute(t *testing.T) {
 	}
 }
 
+func TestMonitoringQueryTool_ExecuteRemotePrometheus(t *testing.T) {
+	tool := NewMonitoringQueryTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(`{"status":"success","data":{"result":[{"metric":{"__name__":"cpu_usage","instance":"remote"},"values":[[1700000000,"0.92"],[1700000600,"0.96"]]}]}}`), nil, nil
+	}
+
+	now := time.Now()
+	result, err := tool.Execute(&MonitoringQueryParams{
+		System:          SystemPrometheus,
+		Endpoint:        "http://127.0.0.1:9090",
+		Metric:          "cpu_usage",
+		StartTime:       now.Add(-1 * time.Hour),
+		EndTime:         now,
+		RemoteHost:      "10.0.0.70",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	qr := result.(*MonitoringQueryResult)
+	if len(qr.Series) == 0 || len(qr.Series[0].Points) == 0 {
+		t.Fatalf("expected remote series points, got %+v", qr.Series)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.70") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
+	}
+}
+
 func TestMonitoringQueryTool_ExecuteInfluxDB(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/query" {
@@ -192,15 +256,15 @@ func TestMonitoringQueryTool_ExecuteInfluxDB(t *testing.T) {
 
 	now := time.Now()
 	params := &MonitoringQueryParams{
-		System:    SystemInfluxDB,
-		Endpoint:  ts.URL,
-		Database:  "metrics",
-		Metric:    "cpu_usage",
-		Field:     "usage",
+		System:      SystemInfluxDB,
+		Endpoint:    ts.URL,
+		Database:    "metrics",
+		Metric:      "cpu_usage",
+		Field:       "usage",
 		Aggregation: "mean",
-		StartTime: now.Add(-1 * time.Hour),
-		EndTime:   now,
-		Step:      30 * time.Second,
+		StartTime:   now.Add(-1 * time.Hour),
+		EndTime:     now,
+		Step:        30 * time.Second,
 	}
 
 	result, err := tool.Execute(params)

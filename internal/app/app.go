@@ -21,6 +21,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/agent"
 	"github.com/chenchunrun/SecOps/internal/agent/notify"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/mcp"
+	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/db"
 	"github.com/chenchunrun/SecOps/internal/event"
@@ -58,6 +59,7 @@ type App struct {
 	FileTracker filetracker.Service
 
 	AgentCoordinator agent.Coordinator
+	AuditStore       audit.AuditStore
 
 	LSPManager *lsp.Manager
 
@@ -94,6 +96,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
 		FileTracker: filetracker.NewService(q),
 		LSPManager:  lsp.NewManager(store),
+		AuditStore:  audit.NewInMemoryAuditStore(),
 
 		globalCtx: ctx,
 
@@ -104,6 +107,10 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 		tuiWG:              &sync.WaitGroup{},
 		agentNotifications: pubsub.NewBroker[notify.Notification](),
 	}
+
+	// Register runtime-global audit sink so tool-level audit events (e.g. remote
+	// policy denials) are persisted under the current app lifecycle.
+	audit.SetGlobalStore(app.AuditStore)
 
 	app.setupEvents()
 

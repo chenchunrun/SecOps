@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -9,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -58,6 +60,23 @@ func TestCertificateAuditTool_ValidateParams(t *testing.T) {
 			params: &CertificateAuditParams{
 				Paths:        []string{"/etc/ssl/certs/cert.pem"},
 				MinKeyLength: 512,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &CertificateAuditParams{
+				ServicePorts: []string{"443"},
+				RemoteHost:   "10.0.0.80",
+				RemotePort:   70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &CertificateAuditParams{
+				ServicePorts: []string{"443"},
+				RemoteUser:   "ops",
 			},
 			wantErr: true,
 		},
@@ -176,34 +195,34 @@ func TestCertificateAuditTool_AuditCertificate(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name          string
-		cert          *CertificateInfo
-		params        *CertificateAuditParams
+		name           string
+		cert           *CertificateInfo
+		params         *CertificateAuditParams
 		expectedStatus string
 	}{
 		{
 			name: "valid certificate",
 			cert: &CertificateInfo{
-				NotAfter:   now.AddDate(1, 0, 0),
-				KeyLength:  2048,
+				NotAfter:     now.AddDate(1, 0, 0),
+				KeyLength:    2048,
 				SignatureAlg: "SHA256-RSA",
-				Issues:     make([]*CertIssue, 0),
+				Issues:       make([]*CertIssue, 0),
 			},
 			params: &CertificateAuditParams{
-				CheckExpiry:      true,
-				CheckKeyStrength: true,
+				CheckExpiry:       true,
+				CheckKeyStrength:  true,
 				ExpiryWarningDays: 30,
-				MinKeyLength:     2048,
+				MinKeyLength:      2048,
 			},
 			expectedStatus: "valid",
 		},
 		{
 			name: "expiring certificate",
 			cert: &CertificateInfo{
-				NotAfter:   now.AddDate(0, 0, 15),
-				KeyLength:  2048,
+				NotAfter:     now.AddDate(0, 0, 15),
+				KeyLength:    2048,
 				SignatureAlg: "SHA256-RSA",
-				Issues:     make([]*CertIssue, 0),
+				Issues:       make([]*CertIssue, 0),
 			},
 			params: &CertificateAuditParams{
 				CheckExpiry:       true,
@@ -216,16 +235,16 @@ func TestCertificateAuditTool_AuditCertificate(t *testing.T) {
 		{
 			name: "expired certificate",
 			cert: &CertificateInfo{
-				NotAfter:   now.AddDate(-1, 0, 0),
-				KeyLength:  2048,
+				NotAfter:     now.AddDate(-1, 0, 0),
+				KeyLength:    2048,
 				SignatureAlg: "SHA256-RSA",
-				Issues:     make([]*CertIssue, 0),
+				Issues:       make([]*CertIssue, 0),
 			},
 			params: &CertificateAuditParams{
-				CheckExpiry:      true,
-				CheckKeyStrength: true,
+				CheckExpiry:       true,
+				CheckKeyStrength:  true,
 				ExpiryWarningDays: 30,
-				MinKeyLength:     2048,
+				MinKeyLength:      2048,
 			},
 			expectedStatus: "expired",
 		},
@@ -260,6 +279,52 @@ func TestCertificateAuditTool_DaysUntilExpiry(t *testing.T) {
 
 	if cert.DaysUntilExpiry < 29 || cert.DaysUntilExpiry > 31 {
 		t.Errorf("expected days until expiry around 30, got %d", cert.DaysUntilExpiry)
+	}
+}
+
+func TestCertificateAuditTool_Execute_RemoteService(t *testing.T) {
+	tool := NewCertificateAuditTool(nil)
+	certPath := writeTestCertificate(t, t.TempDir())
+	pemBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatalf("read cert pem: %v", err)
+	}
+
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return pemBytes, nil, nil
+	}
+
+	result, err := tool.Execute(&CertificateAuditParams{
+		ServicePorts:      []string{"443"},
+		CheckExpiry:       true,
+		CheckKeyStrength:  true,
+		RemoteHost:        "10.0.0.80",
+		RemoteUser:        "ops",
+		RemotePort:        2222,
+		RemoteKeyPath:     "/tmp/id_ed25519",
+		RemoteProxyJump:   "bastion",
+		ExpiryWarningDays: 30,
+		MinKeyLength:      2048,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	ar, ok := result.(*CertificateAuditResult)
+	if !ok {
+		t.Fatal("expected CertificateAuditResult")
+	}
+	if ar.TotalCertificates == 0 {
+		t.Fatal("expected remote certificate to be collected")
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.80") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
 	}
 }
 

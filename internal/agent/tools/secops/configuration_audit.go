@@ -2,10 +2,12 @@ package secops
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +32,11 @@ type ConfigAuditParams struct {
 	CheckPerformance bool              `json:"check_performance"`      // 检查性能配置
 	Deep           bool                `json:"deep,omitempty"`         // 深度检查
 	CustomRules    []string            `json:"custom_rules,omitempty"` // 自定义规则
+	RemoteHost     string              `json:"remote_host,omitempty"`
+	RemoteUser     string              `json:"remote_user,omitempty"`
+	RemotePort     int                 `json:"remote_port,omitempty"`
+	RemoteKeyPath  string              `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string             `json:"remote_proxy_jump,omitempty"`
 }
 
 // ConfigAuditRule 配置审计规则
@@ -114,6 +121,15 @@ func (cat *ConfigurationAuditTool) ValidateParams(params interface{}) error {
 			return fmt.Errorf("invalid target: %s", target)
 		}
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	return nil
 }
@@ -134,6 +150,9 @@ func (cat *ConfigurationAuditTool) Execute(params interface{}) (interface{}, err
 		SystemInfo:      "Linux 5.10.0",
 		Rules:           make([]*ConfigAuditRule, 0),
 		Recommendations: make([]string, 0),
+	}
+	if strings.TrimSpace(p.RemoteHost) != "" {
+		result.SystemInfo = "remote:" + formatAuditRemoteTarget(p.RemoteUser, p.RemoteHost)
 	}
 
 	// 为每个目标执行审计
@@ -368,7 +387,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 
 	switch rule.ID {
 	case "SSH-001":
-		v, ok := readSSHDConfigValue("PermitRootLogin")
+		v, ok := readSSHDConfigValueForParams(params, "PermitRootLogin")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -383,7 +402,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set PermitRootLogin no in sshd_config"
 		}
 	case "SSH-002":
-		v, ok := readSSHDConfigValue("PasswordAuthentication")
+		v, ok := readSSHDConfigValueForParams(params, "PasswordAuthentication")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -398,7 +417,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set PasswordAuthentication no in sshd_config"
 		}
 	case "SSH-003":
-		v, ok := readSSHDConfigValue("KexAlgorithms")
+		v, ok := readSSHDConfigValueForParams(params, "KexAlgorithms")
 		if !ok || strings.TrimSpace(v) == "" {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -411,7 +430,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Status = "pass"
 		}
 	case "SUDO-001":
-		v, ok := hasSudoLogOutput()
+		v, ok := hasSudoLogOutputForParams(params)
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -426,7 +445,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Enable sudo log_output in sudoers or sudoers.d"
 		}
 	case "SUDO-002":
-		v, ok := hasSudoNoPassword()
+		v, ok := hasSudoNoPasswordForParams(params)
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -441,7 +460,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.CurrentValue = "none"
 		}
 	case "FW-001":
-		enabled, current := firewallEnabled()
+		enabled, current := firewallEnabledForParams(params)
 		rule.CurrentValue = current
 		if strings.EqualFold(current, "unknown") {
 			rule.Status = "warning"
@@ -454,7 +473,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Enable host firewall (ufw/firewalld/iptables policy)"
 		}
 	case "FW-002":
-		ok, current := defaultInboundDrop()
+		ok, current := defaultInboundDropForParams(params)
 		rule.CurrentValue = current
 		if strings.EqualFold(current, "unknown") {
 			rule.Status = "warning"
@@ -467,7 +486,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set default inbound policy to DROP/deny"
 		}
 	case "FP-001", "FP-002":
-		mode, ok := readFileMode(rule.Parameter)
+		mode, ok := readFileModeForParams(params, rule.Parameter)
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "missing"
@@ -481,7 +500,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = fmt.Sprintf("Set %s permissions to %s", rule.Parameter, rule.RecommendedValue)
 		}
 	case "KER-001":
-		v, ok := readSysctlValue("kernel.randomize_va_space")
+		v, ok := readSysctlValueForParams(params, "kernel.randomize_va_space")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -495,7 +514,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set kernel.randomize_va_space=2"
 		}
 	case "SYS-001":
-		v, ok := readSysctlValue("net.ipv4.ip_forward")
+		v, ok := readSysctlValueForParams(params, "net.ipv4.ip_forward")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -509,6 +528,218 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set net.ipv4.ip_forward=0 unless routing is required"
 		}
 	}
+}
+
+func readSSHDConfigValueForParams(params *ConfigAuditParams, key string) (string, bool) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return readSSHDConfigValue(key)
+	}
+	return remoteReadSSHDConfigValue(params, key)
+}
+
+func hasSudoLogOutputForParams(params *ConfigAuditParams) (bool, bool) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return hasSudoLogOutput()
+	}
+	lines, ok := readRemoteSudoPolicyLines(params)
+	if !ok {
+		return false, false
+	}
+	for _, line := range lines {
+		if strings.Contains(strings.ToLower(line), "log_output") {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func hasSudoNoPasswordForParams(params *ConfigAuditParams) (bool, bool) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return hasSudoNoPassword()
+	}
+	lines, ok := readRemoteSudoPolicyLines(params)
+	if !ok {
+		return false, false
+	}
+	for _, line := range lines {
+		if strings.Contains(strings.ToUpper(line), "NOPASSWD") {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func firewallEnabledForParams(params *ConfigAuditParams) (bool, string) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return firewallEnabled()
+	}
+
+	if out, ok := runRemoteCommand(params, "ufw status"); ok {
+		s := strings.ToLower(out)
+		if strings.Contains(s, "status: active") {
+			return true, "ufw:active"
+		}
+		if strings.Contains(s, "status: inactive") {
+			return false, "ufw:inactive"
+		}
+	}
+	if out, ok := runRemoteCommand(params, "firewall-cmd --state"); ok {
+		s := strings.TrimSpace(strings.ToLower(out))
+		if s == "running" {
+			return true, "firewalld:running"
+		}
+		return false, "firewalld:" + s
+	}
+	if out, ok := runRemoteCommand(params, "iptables -S"); ok {
+		if strings.Contains(out, "-P INPUT DROP") || strings.Contains(out, "-P INPUT REJECT") {
+			return true, "iptables:default_restrictive"
+		}
+		if strings.Contains(out, "-A INPUT") {
+			return true, "iptables:rules_present"
+		}
+		return false, "iptables:no_rules"
+	}
+	return false, "unknown"
+}
+
+func defaultInboundDropForParams(params *ConfigAuditParams) (bool, string) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return defaultInboundDrop()
+	}
+	if out, ok := runRemoteCommand(params, "ufw status verbose"); ok {
+		s := strings.ToLower(out)
+		if strings.Contains(s, "default: deny (incoming)") {
+			return true, "ufw:deny"
+		}
+		if strings.Contains(s, "default: allow (incoming)") {
+			return false, "ufw:allow"
+		}
+	}
+	if out, ok := runRemoteCommand(params, "iptables -S"); ok {
+		if strings.Contains(out, "-P INPUT DROP") || strings.Contains(out, "-P INPUT REJECT") {
+			return true, "iptables:drop"
+		}
+		if strings.Contains(out, "-P INPUT ACCEPT") {
+			return false, "iptables:accept"
+		}
+	}
+	return false, "unknown"
+}
+
+func readFileModeForParams(params *ConfigAuditParams, path string) (string, bool) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return readFileMode(path)
+	}
+	out, ok := runRemoteCommand(params, "stat -c '%a' "+auditShellQuote(path))
+	if !ok {
+		return "", false
+	}
+	mode := strings.TrimSpace(out)
+	if mode == "" {
+		return "", false
+	}
+	return mode, true
+}
+
+func readSysctlValueForParams(params *ConfigAuditParams, key string) (string, bool) {
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return readSysctlValue(key)
+	}
+	procPath := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
+	if out, ok := runRemoteCommand(params, "cat "+auditShellQuote(procPath)); ok {
+		v := strings.TrimSpace(out)
+		if v != "" {
+			return v, true
+		}
+	}
+	out, ok := runRemoteCommand(params, "sysctl -n "+auditShellQuote(key))
+	if !ok {
+		return "", false
+	}
+	v := strings.TrimSpace(out)
+	return v, v != ""
+}
+
+func remoteReadSSHDConfigValue(params *ConfigAuditParams, key string) (string, bool) {
+	paths := []string{
+		"/etc/ssh/sshd_config",
+		"/usr/local/etc/ssh/sshd_config",
+	}
+	lowerKey := strings.ToLower(strings.TrimSpace(key))
+	for _, path := range paths {
+		cmd := "awk 'tolower($1)==\"" + lowerKey + "\" {for (i=2; i<=NF; i++) printf $i (i==NF?\"\":\" \"); print \"\"}' " + auditShellQuote(path) + " | tail -n 1"
+		if out, ok := runRemoteCommand(params, cmd); ok {
+			v := strings.TrimSpace(out)
+			if v != "" {
+				return v, true
+			}
+		}
+	}
+	return "", false
+}
+
+func readRemoteSudoPolicyLines(params *ConfigAuditParams) ([]string, bool) {
+	cmd := "cat /etc/sudoers /etc/sudoers.d/* 2>/dev/null | sed -e 's/#.*$//' -e '/^\\s*$/d'"
+	out, ok := runRemoteCommand(params, cmd)
+	if !ok {
+		return nil, false
+	}
+	lines := make([]string, 0)
+	for _, line := range strings.Split(out, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		lines = append(lines, trimmed)
+	}
+	return lines, len(lines) > 0
+}
+
+func runRemoteCommand(params *ConfigAuditParams, remoteCommand string) (string, bool) {
+	if params == nil {
+		return "", false
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return "", false
+	}
+
+	target := formatAuditRemoteTarget(params.RemoteUser, host)
+	args := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		args = append(args, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		args = append(args, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		args = append(args, "-J", jump)
+	}
+	args = append(args, target, "sh", "-lc", remoteCommand)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ssh", args...).CombinedOutput()
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
+}
+
+func formatAuditRemoteTarget(user, host string) string {
+	u := strings.TrimSpace(user)
+	h := strings.TrimSpace(host)
+	if u == "" {
+		return h
+	}
+	return u + "@" + h
+}
+
+func auditShellQuote(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }
 
 // calculateScore 计算审计评分

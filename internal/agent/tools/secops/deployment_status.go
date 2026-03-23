@@ -1,9 +1,11 @@
 package secops
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -11,11 +13,15 @@ import (
 // DeploymentStatusTool 部署状态检查工具
 type DeploymentStatusTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewDeploymentStatusTool 创建部署状态检查工具
 func NewDeploymentStatusTool(registry *SecOpsToolRegistry) *DeploymentStatusTool {
-	return &DeploymentStatusTool{registry: registry}
+	return &DeploymentStatusTool{
+		registry: registry,
+		runCmd:   runDeploymentCommand,
+	}
 }
 
 // Type 实现 Tool.Type
@@ -40,11 +46,16 @@ func (dst *DeploymentStatusTool) RequiredCapabilities() []string {
 
 // DeploymentStatusParams 部署状态检查参数
 type DeploymentStatusParams struct {
-	Platform   string `json:"platform"`   // kubernetes, aws, gcp, azure
-	Namespace  string `json:"namespace"`  // for kubernetes
-	Deployment string `json:"deployment"` // deployment name
-	Env        string `json:"env"`        // environment: production, staging, dev
-	Target     string `json:"target"`     // cluster or target identifier
+	Platform        string `json:"platform"`   // kubernetes, aws, gcp, azure
+	Namespace       string `json:"namespace"`  // for kubernetes
+	Deployment      string `json:"deployment"` // deployment name
+	Env             string `json:"env"`        // environment: production, staging, dev
+	Target          string `json:"target"`     // cluster or target identifier
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // ReplicaStatus 副本状态
@@ -130,6 +141,8 @@ type DeploymentStatusResult struct {
 	Version         string            `json:"version,omitempty"`
 	PreviousVersion string            `json:"previous_version,omitempty"`
 	Error           string            `json:"error,omitempty"`
+	DataSource      string            `json:"data_source,omitempty"`   // live, fallback_sample
+	FallbackReason  string            `json:"fallback_reason,omitempty"`
 }
 
 // ValidateParams 实现 Tool.ValidateParams
@@ -155,6 +168,15 @@ func (dst *DeploymentStatusTool) ValidateParams(params interface{}) error {
 
 	if p.Deployment == "" {
 		return fmt.Errorf("deployment is required")
+	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
 	}
 
 	return nil
@@ -200,6 +222,7 @@ func (dst *DeploymentStatusTool) performCheck(params *DeploymentStatusParams) *D
 // getK8sDeploymentStatus 获取 Kubernetes 部署状态
 func (dst *DeploymentStatusTool) getK8sDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
 	if live := dst.getK8sDeploymentStatusFromKubectl(params); live != nil {
+		live.DataSource = "live"
 		return live
 	}
 
@@ -245,6 +268,8 @@ func (dst *DeploymentStatusTool) getK8sDeploymentStatus(params *DeploymentStatus
 			MetricsFailed:   0,
 			Recommendation:  "none",
 		},
+		DataSource:     "fallback_sample",
+		FallbackReason: "kubernetes deployment status unavailable; returned built-in sample status",
 	}
 
 	return result
@@ -288,6 +313,7 @@ func (dst *DeploymentStatusTool) getK8sCanaryStatus(params *DeploymentStatusPara
 // getAWSDeploymentStatus 获取 AWS 部署状态
 func (dst *DeploymentStatusTool) getAWSDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
 	if live := dst.getAWSDeploymentStatusFromCLI(params); live != nil {
+		live.DataSource = "live"
 		return live
 	}
 	return &DeploymentStatusResult{
@@ -318,12 +344,15 @@ func (dst *DeploymentStatusTool) getAWSDeploymentStatus(params *DeploymentStatus
 			Paused:     false,
 			Progress:   "Deployment complete",
 		},
+		DataSource:     "fallback_sample",
+		FallbackReason: "aws deployment status unavailable; returned built-in sample status",
 	}
 }
 
 // getGCPDDeploymentStatus 获取 GCP 部署状态
 func (dst *DeploymentStatusTool) getGCPDDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
 	if live := dst.getGCPDeploymentStatusFromCLI(params); live != nil {
+		live.DataSource = "live"
 		return live
 	}
 	return &DeploymentStatusResult{
@@ -354,12 +383,15 @@ func (dst *DeploymentStatusTool) getGCPDDeploymentStatus(params *DeploymentStatu
 			Paused:     false,
 			Progress:   "Deployment complete",
 		},
+		DataSource:     "fallback_sample",
+		FallbackReason: "gcp deployment status unavailable; returned built-in sample status",
 	}
 }
 
 // getAzureDeploymentStatus 获取 Azure 部署状态
 func (dst *DeploymentStatusTool) getAzureDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
 	if live := dst.getAzureDeploymentStatusFromCLI(params); live != nil {
+		live.DataSource = "live"
 		return live
 	}
 	return &DeploymentStatusResult{
@@ -390,21 +422,19 @@ func (dst *DeploymentStatusTool) getAzureDeploymentStatus(params *DeploymentStat
 			Paused:     false,
 			Progress:   "Deployment complete",
 		},
+		DataSource:     "fallback_sample",
+		FallbackReason: "azure deployment status unavailable; returned built-in sample status",
 	}
 }
 
 func (dst *DeploymentStatusTool) getK8sDeploymentStatusFromKubectl(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		return nil
-	}
-
 	namespace := strings.TrimSpace(params.Namespace)
 	if namespace == "" {
 		namespace = "default"
 	}
 
 	args := []string{"get", "deployment", params.Deployment, "-n", namespace, "-o", "json"}
-	out, err := exec.Command("kubectl", args...).Output()
+	out, err := dst.commandOutput(params, "kubectl", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -503,7 +533,8 @@ func (dst *DeploymentStatusTool) getK8sRolloutInfo(params *DeploymentStatusParam
 		Paused:     false,
 		Progress:   "Deployment is complete",
 	}
-	out, err := exec.Command("kubectl", "rollout", "status", "deployment/"+params.Deployment, "-n", namespace).CombinedOutput()
+	stdout, stderr, err := dst.commandRun(params, "kubectl", "rollout", "status", "deployment/"+params.Deployment, "-n", namespace)
+	out := append(append([]byte(nil), stdout...), stderr...)
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {
@@ -525,11 +556,12 @@ func (dst *DeploymentStatusTool) getK8sRolloutInfo(params *DeploymentStatusParam
 }
 
 func (dst *DeploymentStatusTool) getK8sRecentEvents(params *DeploymentStatusParams, namespace string) []Event {
-	out, err := exec.Command(
+	out, err := dst.commandOutput(
+		params,
 		"kubectl", "get", "events", "-n", namespace,
 		"--field-selector", "involvedObject.kind=Deployment,involvedObject.name="+params.Deployment,
 		"-o", "json",
-	).Output()
+	)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -642,10 +674,6 @@ func (dst *DeploymentStatusTool) estimateCanaryAnalysis(result *DeploymentStatus
 }
 
 func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if _, err := exec.LookPath("aws"); err != nil {
-		return nil
-	}
-
 	cluster := strings.TrimSpace(params.Target)
 	if cluster == "" {
 		cluster = "default"
@@ -657,7 +685,7 @@ func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(params *Deploymen
 		"--services", params.Deployment,
 		"--output", "json",
 	}
-	out, err := exec.Command("aws", args...).Output()
+	out, err := dst.commandOutput(params, "aws", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -717,19 +745,16 @@ func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(params *Deploymen
 			Paused:     false,
 			Progress:   rolloutProgress,
 		},
+		DataSource: "live",
 	}
 }
 
 func (dst *DeploymentStatusTool) getGCPDeploymentStatusFromCLI(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if _, err := exec.LookPath("gcloud"); err != nil {
-		return nil
-	}
-
 	args := []string{"run", "services", "describe", params.Deployment, "--format=json"}
 	if region := strings.TrimSpace(params.Target); region != "" {
 		args = append(args, "--region", region)
 	}
-	out, err := exec.Command("gcloud", args...).Output()
+	out, err := dst.commandOutput(params, "gcloud", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -801,25 +826,23 @@ func (dst *DeploymentStatusTool) getGCPDeploymentStatusFromCLI(params *Deploymen
 			Paused:     false,
 			Progress:   "Deployment complete",
 		},
+		DataSource: "live",
 	}
 }
 
 func (dst *DeploymentStatusTool) getAzureDeploymentStatusFromCLI(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if _, err := exec.LookPath("az"); err != nil {
-		return nil
-	}
-
 	resourceGroup := strings.TrimSpace(params.Target)
 	if resourceGroup == "" {
 		return nil
 	}
 
-	out, err := exec.Command(
+	out, err := dst.commandOutput(
+		params,
 		"az", "webapp", "show",
 		"--name", params.Deployment,
 		"--resource-group", resourceGroup,
 		"--output", "json",
-	).Output()
+	)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -866,6 +889,7 @@ func (dst *DeploymentStatusTool) getAzureDeploymentStatusFromCLI(params *Deploym
 			Paused:     false,
 			Progress:   "Deployment complete",
 		},
+		DataSource: "live",
 	}
 }
 
@@ -881,4 +905,84 @@ func emptyAs(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func (dst *DeploymentStatusTool) commandOutput(params *DeploymentStatusParams, name string, args ...string) ([]byte, error) {
+	stdout, stderr, err := dst.commandRun(params, name, args...)
+	if err != nil {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, fmt.Errorf("%s command failed: %s", name, msg)
+	}
+	return stdout, nil
+}
+
+func (dst *DeploymentStatusTool) commandRun(params *DeploymentStatusParams, name string, args ...string) ([]byte, []byte, error) {
+	if dst.runCmd == nil {
+		dst.runCmd = runDeploymentCommand
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if params != nil && strings.TrimSpace(params.RemoteHost) != "" {
+		sshArgs, err := buildDeploymentSSHArgs(params, name, args...)
+		if err != nil {
+			return nil, nil, err
+		}
+		return dst.runCmd(ctx, "ssh", sshArgs...)
+	}
+	return dst.runCmd(ctx, name, args...)
+}
+
+func runDeploymentCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildDeploymentSSHArgs(params *DeploymentStatusParams, name string, args ...string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, shellQuoteDeployment(name))
+	for _, arg := range args {
+		parts = append(parts, shellQuoteDeployment(arg))
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", strings.Join(parts, " "))
+	return sshArgs, nil
+}
+
+func shellQuoteDeployment(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }

@@ -113,7 +113,7 @@ DOC
     rm -f "$archive_path"
     (
       cd "$DIST_DIR"
-      ditto -c -k --sequesterRsrc --keepParent "$pkg_name" "${pkg_name}.zip"
+      COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$pkg_name" "${pkg_name}.zip"
     )
   else
     cat > "$work_dir/install.sh" <<'SH'

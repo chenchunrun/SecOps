@@ -2,28 +2,41 @@ package secops
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // IncidentTimelineParams for generating incident timeline
 type IncidentTimelineParams struct {
-	IncidentID string          `json:"incident_id"`
-	Events     []TimelineEvent `json:"events,omitempty"`
+	IncidentID      string          `json:"incident_id"`
+	Events          []TimelineEvent `json:"events,omitempty"`
+	RemoteHost      string          `json:"remote_host,omitempty"`
+	RemoteUser      string          `json:"remote_user,omitempty"`
+	RemotePort      int             `json:"remote_port,omitempty"`
+	RemoteKeyPath   string          `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string          `json:"remote_proxy_jump,omitempty"`
+	EventsFilePath  string          `json:"events_file_path,omitempty"`
 }
 
 // IncidentTimelineTool 事件时间线工具
 type IncidentTimelineTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewIncidentTimelineTool 创建事件时间线工具
 func NewIncidentTimelineTool(registry *SecOpsToolRegistry) *IncidentTimelineTool {
-	return &IncidentTimelineTool{registry: registry}
+	return &IncidentTimelineTool{
+		registry: registry,
+		runCmd:   runIncidentCommand,
+	}
 }
 
 // Type 实现 Tool.Type
@@ -67,6 +80,8 @@ type IncidentTimelineResult struct {
 	RootCause  string          `json:"root_cause,omitempty"`
 	Impact     string          `json:"impact,omitempty"`
 	Status     string          `json:"status"` // open, mitigated, resolved, closed
+	DataSource string          `json:"data_source,omitempty"`     // input_events, external_file, external_remote, fallback_template
+	FallbackReason string      `json:"fallback_reason,omitempty"`
 }
 
 // ValidateParams 实现 Tool.ValidateParams
@@ -78,6 +93,15 @@ func (itt *IncidentTimelineTool) ValidateParams(params interface{}) error {
 
 	if p.IncidentID == "" {
 		return fmt.Errorf("incident_id is required")
+	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
 	}
 
 	return nil
@@ -100,14 +124,28 @@ func (itt *IncidentTimelineTool) Execute(params interface{}) (interface{}, error
 // performTimeline 生成事件时间线
 func (itt *IncidentTimelineTool) performTimeline(params *IncidentTimelineParams) *IncidentTimelineResult {
 	if len(params.Events) > 0 {
-		return itt.buildTimelineFromEvents(params)
+		out := itt.buildTimelineFromEvents(params)
+		out.DataSource = "input_events"
+		return out
 	}
 
 	if events := itt.loadExternalIncidentEvents(params.IncidentID); len(events) > 0 {
-		return itt.buildTimelineFromEvents(&IncidentTimelineParams{
+		out := itt.buildTimelineFromEvents(&IncidentTimelineParams{
 			IncidentID: params.IncidentID,
 			Events:     events,
 		})
+		out.DataSource = "external_file"
+		return out
+	}
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		if events := itt.loadExternalIncidentEventsRemote(params); len(events) > 0 {
+			out := itt.buildTimelineFromEvents(&IncidentTimelineParams{
+				IncidentID: params.IncidentID,
+				Events:     events,
+			})
+			out.DataSource = "external_remote"
+			return out
+		}
 	}
 
 	result := &IncidentTimelineResult{
@@ -126,6 +164,8 @@ func (itt *IncidentTimelineTool) performTimeline(params *IncidentTimelineParams)
 	default:
 		result = itt.getGenericIncidentTimeline(params.IncidentID)
 	}
+	result.DataSource = "fallback_template"
+	result.FallbackReason = "external incident events unavailable; returned built-in timeline template"
 
 	return result
 }
@@ -201,6 +241,30 @@ func parseIncidentEventJSONL(data []byte, incidentID string) []TimelineEvent {
 	return events
 }
 
+func (itt *IncidentTimelineTool) loadExternalIncidentEventsRemote(params *IncidentTimelineParams) []TimelineEvent {
+	path := strings.TrimSpace(params.EventsFilePath)
+	if path == "" {
+		path = strings.TrimSpace(os.Getenv("SECOPS_INCIDENT_EVENTS_FILE"))
+	}
+	if path == "" {
+		return nil
+	}
+	content, err := itt.readRemoteFile(params, path)
+	if err != nil || len(content) == 0 {
+		return nil
+	}
+	events := make([]TimelineEvent, 0)
+	if parsed, ok := parseIncidentEventArray(content, params.IncidentID); ok {
+		events = append(events, parsed...)
+	} else {
+		events = append(events, parseIncidentEventJSONL(content, params.IncidentID)...)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp.Before(events[j].Timestamp)
+	})
+	return events
+}
+
 func toTimelineEvent(r timelineEventRecord) TimelineEvent {
 	ts := time.Now()
 	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(r.Timestamp)); err == nil {
@@ -214,6 +278,27 @@ func toTimelineEvent(r timelineEventRecord) TimelineEvent {
 		Severity:    strings.TrimSpace(r.Severity),
 		Metadata:    r.Metadata,
 	}
+}
+
+func (itt *IncidentTimelineTool) readRemoteFile(params *IncidentTimelineParams, path string) ([]byte, error) {
+	if itt.runCmd == nil {
+		itt.runCmd = runIncidentCommand
+	}
+	sshArgs, err := buildIncidentSSHArgs(params, "cat "+shellQuoteIncident(path))
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	stdout, stderr, cmdErr := itt.runCmd(ctx, "ssh", sshArgs...)
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = cmdErr.Error()
+		}
+		return nil, fmt.Errorf("remote file read failed: %s", msg)
+	}
+	return stdout, nil
 }
 
 func (itt *IncidentTimelineTool) buildTimelineFromEvents(params *IncidentTimelineParams) *IncidentTimelineResult {
@@ -277,6 +362,52 @@ func (itt *IncidentTimelineTool) buildTimelineFromEvents(params *IncidentTimelin
 	}
 
 	return result
+}
+
+func runIncidentCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildIncidentSSHArgs(params *IncidentTimelineParams, remoteCmd string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func shellQuoteIncident(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }
 
 // getDatabaseIncidentTimeline 数据库事件时间线

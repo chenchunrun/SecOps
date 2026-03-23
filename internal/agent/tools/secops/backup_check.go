@@ -1,17 +1,25 @@
 package secops
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // BackupCheckParams for checking backup status
 type BackupCheckParams struct {
-	SystemType string `json:"system_type"` // mysql, postgresql, k8s, files
-	Target     string `json:"target"`      // host or cluster name
+	SystemType      string `json:"system_type"` // mysql, postgresql, k8s, files
+	Target          string `json:"target"`      // host or cluster name
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // BackupCheckResult 备份检查结果
@@ -27,11 +35,15 @@ type BackupCheckResult struct {
 // BackupCheckTool 备份检查工具
 type BackupCheckTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 }
 
 // NewBackupCheckTool 创建备份检查工具
 func NewBackupCheckTool(registry *SecOpsToolRegistry) *BackupCheckTool {
-	return &BackupCheckTool{registry: registry}
+	return &BackupCheckTool{
+		registry: registry,
+		runCmd:   runBackupCommand,
+	}
 }
 
 // Type 实现 Tool.Type
@@ -78,6 +90,15 @@ func (bct *BackupCheckTool) ValidateParams(params interface{}) error {
 	if p.Target == "" {
 		return fmt.Errorf("target is required")
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKeyPath) != "" || strings.TrimSpace(p.RemoteProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	return nil
 }
@@ -105,7 +126,23 @@ func (bct *BackupCheckTool) performCheck(params *BackupCheckParams) *BackupCheck
 		Issues:     []string{},
 	}
 
-	latest, sizeGB, found := bct.findLatestBackup(params)
+	var (
+		latest time.Time
+		sizeGB float64
+		found  bool
+		err    error
+	)
+	if strings.TrimSpace(params.RemoteHost) != "" {
+		latest, sizeGB, found, err = bct.findLatestBackupRemote(params)
+		if err != nil {
+			result.LastBackupTime = "unknown"
+			result.AgeHours = 0
+			result.Issues = []string{fmt.Sprintf("Remote backup discovery failed: %v", err)}
+			return result
+		}
+	} else {
+		latest, sizeGB, found = bct.findLatestBackup(params)
+	}
 	if !found {
 		result.LastBackupTime = "unknown"
 		result.AgeHours = 0
@@ -199,6 +236,92 @@ func (bct *BackupCheckTool) findLatestBackup(params *BackupCheckParams) (time.Ti
 	return latest, float64(latestSize) / (1024 * 1024 * 1024), true
 }
 
+func (bct *BackupCheckTool) findLatestBackupRemote(params *BackupCheckParams) (time.Time, float64, bool, error) {
+	if bct.runCmd == nil {
+		bct.runCmd = runBackupCommand
+	}
+
+	candidates := backupPathCandidates(params)
+	quoted := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		quoted = append(quoted, shellQuoteBackup(c))
+	}
+	if len(quoted) == 0 {
+		return time.Time{}, 0, false, nil
+	}
+
+	findExpr := " \\( -iname '*backup*' -o -iname '*dump*' -o -iname '*snapshot*' -o -name '*.sql' -o -name '*.dump' -o -name '*.bak' -o -name '*.tar' -o -name '*.gz' -o -name '*.tgz' -o -name '*.zip' -o -name '*.snap' \\) "
+	remoteScript := "for p in " + strings.Join(quoted, " ") + "; do " +
+		"if [ -f \"$p\" ]; then " +
+		"find \"$p\" -maxdepth 0 -type f" + findExpr + "-exec stat -f '%m|%z|%N' {} \\; 2>/dev/null || " +
+		"find \"$p\" -maxdepth 0 -type f" + findExpr + "-exec stat -c '%Y|%s|%n' {} \\; 2>/dev/null; " +
+		"elif [ -d \"$p\" ]; then " +
+		"find \"$p\" -type f" + findExpr + "-exec stat -f '%m|%z|%N' {} \\; 2>/dev/null || " +
+		"find \"$p\" -type f" + findExpr + "-exec stat -c '%Y|%s|%n' {} \\; 2>/dev/null; fi; done"
+
+	sshArgs, err := buildBackupSSHArgs(params, remoteScript)
+	if err != nil {
+		return time.Time{}, 0, false, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	stdout, stderr, cmdErr := bct.runCmd(ctx, "ssh", sshArgs...)
+	errMsg := ""
+	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
+		errMsg = strings.TrimSpace(string(stderr))
+		if errMsg == "" {
+			errMsg = cmdErr.Error()
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(stdout)), "\n")
+	latest := time.Time{}
+	var latestSize int64
+	found := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		epoch, epochErr := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+		size, sizeErr := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		if epochErr != nil || sizeErr != nil {
+			continue
+		}
+		if epoch < 0 || size < 0 {
+			continue
+		}
+		t := time.Unix(epoch, 0)
+		if !found || t.After(latest) {
+			found = true
+			latest = t
+			latestSize = size
+		}
+	}
+
+	if !found {
+		if cmdErr != nil {
+			if errMsg == "" {
+				errMsg = cmdErr.Error()
+			}
+			return time.Time{}, 0, false, fmt.Errorf("ssh backup query failed: %s", errMsg)
+		}
+		return time.Time{}, 0, false, nil
+	}
+
+	return latest, float64(latestSize) / (1024 * 1024 * 1024), true, nil
+}
+
 func backupPathCandidates(params *BackupCheckParams) []string {
 	candidates := make([]string, 0, 4)
 	if strings.TrimSpace(params.Target) != "" {
@@ -230,4 +353,52 @@ func isBackupFile(path string) bool {
 	default:
 		return false
 	}
+}
+
+func runBackupCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil, nil
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return out, ee.Stderr, err
+	}
+	return out, nil, err
+}
+
+func buildBackupSSHArgs(params *BackupCheckParams, remoteScript string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteScript)
+	return sshArgs, nil
+}
+
+func shellQuoteBackup(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }

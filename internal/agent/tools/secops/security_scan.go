@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -48,6 +49,11 @@ type SecurityScanParams struct {
 	Severity   string      `json:"severity,omitempty"`  // 最小严重级别
 	Full       bool        `json:"full,omitempty"`
 	FixVulns   bool        `json:"fix_vulns,omitempty"`
+	RemoteHost string      `json:"remote_host,omitempty"`
+	RemoteUser string      `json:"remote_user,omitempty"`
+	RemotePort int         `json:"remote_port,omitempty"`
+	RemoteKey  string      `json:"remote_key_path,omitempty"`
+	ProxyJump  string      `json:"remote_proxy_jump,omitempty"`
 }
 
 // Vulnerability 漏洞信息
@@ -170,6 +176,15 @@ func (sst *SecurityScanTool) ValidateParams(params interface{}) error {
 	if !validTargets[p.Target] {
 		return fmt.Errorf("unsupported target: %s", p.Target)
 	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(p.RemoteHost) == "" {
+		if strings.TrimSpace(p.RemoteUser) != "" || p.RemotePort > 0 ||
+			strings.TrimSpace(p.RemoteKey) != "" || strings.TrimSpace(p.ProxyJump) != "" {
+			return fmt.Errorf("remote_host is required when remote ssh options are set")
+		}
+	}
 
 	return nil
 }
@@ -255,7 +270,7 @@ func (sst *SecurityScanTool) scanWithTrivy(ctx context.Context, params *Security
 	}
 	args = append(args, params.TargetPath)
 
-	stdout, stderr, err := sst.execScanner(ctx, "trivy", args...)
+	stdout, stderr, err := sst.execScanner(ctx, params, "trivy", args...)
 	if err != nil {
 		return fmt.Errorf("trivy scan failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}
@@ -277,7 +292,7 @@ func (sst *SecurityScanTool) scanWithGrype(ctx context.Context, params *Security
 	if sev := strings.TrimSpace(strings.ToLower(params.Severity)); sev != "" {
 		args = append(args, "--only-fixed=false", "--fail-on", sev)
 	}
-	stdout, stderr, err := sst.execScanner(ctx, "grype", args...)
+	stdout, stderr, err := sst.execScanner(ctx, params, "grype", args...)
 	if err != nil {
 		return fmt.Errorf("grype scan failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}
@@ -298,7 +313,7 @@ func (sst *SecurityScanTool) scanWithNuclei(ctx context.Context, params *Securit
 		target = "file://" + params.TargetPath
 	}
 	args := []string{"-target", target, "-jsonl", "-silent"}
-	stdout, stderr, err := sst.execScanner(ctx, "nuclei", args...)
+	stdout, stderr, err := sst.execScanner(ctx, params, "nuclei", args...)
 	if err != nil {
 		return fmt.Errorf("nuclei scan failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}
@@ -314,7 +329,7 @@ func (sst *SecurityScanTool) scanWithNuclei(ctx context.Context, params *Securit
 // scanWithClamAV ClamAV 扫描
 func (sst *SecurityScanTool) scanWithClamAV(ctx context.Context, params *SecurityScanParams, result *ScanResult) error {
 	args := []string{"-r", "--infected", "--no-summary", params.TargetPath}
-	stdout, stderr, err := sst.execScanner(ctx, "clamscan", args...)
+	stdout, stderr, err := sst.execScanner(ctx, params, "clamscan", args...)
 	if err != nil {
 		return fmt.Errorf("clamav scan failed: %w (%s)", err, strings.TrimSpace(string(stderr)))
 	}
@@ -351,11 +366,62 @@ func runCommand(ctx context.Context, name string, args ...string) ([]byte, []byt
 	return out, nil, err
 }
 
-func (sst *SecurityScanTool) execScanner(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+func (sst *SecurityScanTool) execScanner(ctx context.Context, params *SecurityScanParams, name string, args ...string) ([]byte, []byte, error) {
 	if sst.runCmd == nil {
 		sst.runCmd = runCommand
 	}
+
+	if params != nil && strings.TrimSpace(params.RemoteHost) != "" {
+		sshArgs, err := buildSecurityScanSSHArgs(params, name, args...)
+		if err != nil {
+			return nil, nil, err
+		}
+		return sst.runCmd(ctx, "ssh", sshArgs...)
+	}
+
 	return sst.runCmd(ctx, name, args...)
+}
+
+func buildSecurityScanSSHArgs(params *SecurityScanParams, name string, args ...string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKey); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.ProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, shellQuoteScan(name))
+	for _, arg := range args {
+		parts = append(parts, shellQuoteScan(arg))
+	}
+	sshArgs = append(sshArgs, target, "sh", "-lc", strings.Join(parts, " "))
+	return sshArgs, nil
+}
+
+func shellQuoteScan(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }
 
 func parseTrivyOutput(out []byte) ([]*Vulnerability, *ScanStats, error) {

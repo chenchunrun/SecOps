@@ -49,6 +49,23 @@ func TestConfigurationAuditTool_ValidateParams(t *testing.T) {
 			params:  "invalid",
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &ConfigAuditParams{
+				Targets:    []ConfigAuditTarget{ConfigSSH},
+				RemoteHost: "10.0.0.2",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote user without remote host",
+			params: &ConfigAuditParams{
+				Targets:    []ConfigAuditTarget{ConfigSSH},
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -320,5 +337,37 @@ func BenchmarkConfigurationAuditTool_Execute(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		tool.Execute(params)
+	}
+}
+
+func TestConfigurationAuditTool_Execute_RemoteSystemInfo(t *testing.T) {
+	tool := NewConfigurationAuditTool(nil)
+
+	params := &ConfigAuditParams{
+		Targets:    []ConfigAuditTarget{ConfigSSH},
+		RemoteHost: "10.0.0.2",
+		RemoteUser: "ops",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	auditResult, ok := result.(*ConfigAuditResult)
+	if !ok {
+		t.Fatal("expected ConfigAuditResult")
+	}
+	if auditResult.SystemInfo != "remote:ops@10.0.0.2" {
+		t.Fatalf("expected remote system info, got %q", auditResult.SystemInfo)
+	}
+}
+
+func TestFormatAuditRemoteTarget(t *testing.T) {
+	if got := formatAuditRemoteTarget("ops", "10.0.0.2"); got != "ops@10.0.0.2" {
+		t.Fatalf("unexpected target: %s", got)
+	}
+	if got := formatAuditRemoteTarget("", "10.0.0.2"); got != "10.0.0.2" {
+		t.Fatalf("unexpected target: %s", got)
 	}
 }

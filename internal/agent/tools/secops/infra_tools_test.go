@@ -1,6 +1,8 @@
 package secops
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,6 +134,27 @@ func TestDatabaseQueryTool_ValidateParams(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &DatabaseQueryParams{
+				System:     "mysql",
+				Host:       "localhost",
+				Query:      "SELECT 1",
+				RemoteHost: "10.0.0.8",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &DatabaseQueryParams{
+				System:     "mysql",
+				Host:       "localhost",
+				Query:      "SELECT 1",
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -207,6 +230,48 @@ func TestDatabaseQueryTool_Execute_AllSystems(t *testing.T) {
 	}
 }
 
+func TestDatabaseQueryTool_Execute_RemoteViaSSH(t *testing.T) {
+	tool := NewDatabaseQueryTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte("row1\nrow2\n"), nil, nil
+	}
+
+	params := &DatabaseQueryParams{
+		System:          "mysql",
+		Host:            "127.0.0.1",
+		Port:            3306,
+		Query:           "SELECT 1",
+		RemoteHost:      "10.0.0.8",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	}
+
+	result, err := tool.Execute(params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	qr, ok := result.(*DatabaseQueryResult)
+	if !ok {
+		t.Fatal("expected DatabaseQueryResult")
+	}
+	if qr.RowsAffected != 2 {
+		t.Fatalf("expected 2 rows, got %d", qr.RowsAffected)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	cmdline := strings.Join(gotArgs, " ")
+	if !strings.Contains(cmdline, "ops@10.0.0.8") || !strings.Contains(cmdline, "mysql") {
+		t.Fatalf("unexpected ssh args: %q", cmdline)
+	}
+}
+
 func TestBackupCheckTool_Type(t *testing.T) {
 	tool := NewBackupCheckTool(nil)
 	if tool.Type() != ToolTypeBackupCheck {
@@ -270,6 +335,25 @@ func TestBackupCheckTool_ValidateParams(t *testing.T) {
 		{
 			name:    "missing target",
 			params:  &BackupCheckParams{SystemType: "mysql"},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &BackupCheckParams{
+				SystemType: "mysql",
+				Target:     "/var/backups/mysql",
+				RemoteHost: "10.0.0.8",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &BackupCheckParams{
+				SystemType: "mysql",
+				Target:     "/var/backups/mysql",
+				RemoteUser: "ops",
+			},
 			wantErr: true,
 		},
 	}
@@ -362,6 +446,118 @@ func TestBackupCheckTool_Execute_RealBackupPath(t *testing.T) {
 	}
 }
 
+func TestBackupCheckTool_Execute_RemoteViaSSH(t *testing.T) {
+	tool := NewBackupCheckTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		now := time.Now().Unix()
+		return []byte(
+			fmt.Sprintf("%d|1073741824|/var/backups/mysql/latest.sql\n", now),
+		), nil, nil
+	}
+
+	result, err := tool.Execute(&BackupCheckParams{
+		SystemType:      "mysql",
+		Target:          "/var/backups/mysql",
+		RemoteHost:      "10.0.0.8",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	br, ok := result.(*BackupCheckResult)
+	if !ok {
+		t.Fatal("expected BackupCheckResult")
+	}
+	if br.Status != "ok" {
+		t.Fatalf("expected status ok, got %s", br.Status)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	cmdline := strings.Join(gotArgs, " ")
+	if !strings.Contains(cmdline, "ops@10.0.0.8") {
+		t.Fatalf("unexpected ssh args: %q", cmdline)
+	}
+}
+
+func TestDatabaseQueryTool_FallbackMarksDataSource(t *testing.T) {
+	tool := NewDatabaseQueryTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		return nil, []byte("forced failure"), fmt.Errorf("forced failure")
+	}
+
+	result, err := tool.Execute(&DatabaseQueryParams{
+		System: "mysql",
+		Host:   "127.0.0.1",
+		Port:   3306,
+		Query:  "SELECT 1",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	qr := result.(*DatabaseQueryResult)
+	if qr.DataSource != "fallback_sample" {
+		t.Fatalf("expected fallback_sample, got %s", qr.DataSource)
+	}
+	if qr.FallbackReason == "" {
+		t.Fatal("expected fallback_reason")
+	}
+}
+
+func TestBackupCheckTool_Execute_RemoteViaSSH_CommandErrorUnparseableOutput(t *testing.T) {
+	tool := NewBackupCheckTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		return []byte("permission denied line\n"), []byte("permission denied"), fmt.Errorf("exit status 1")
+	}
+
+	result, err := tool.Execute(&BackupCheckParams{
+		SystemType: "mysql",
+		Target:     "/var/backups/mysql",
+		RemoteHost: "10.0.0.8",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	br := result.(*BackupCheckResult)
+	if br.Status != "missing" {
+		t.Fatalf("expected missing status on remote error, got %s", br.Status)
+	}
+	if len(br.Issues) == 0 || !strings.Contains(strings.ToLower(br.Issues[0]), "remote backup discovery failed") {
+		t.Fatalf("expected remote failure issue, got %+v", br.Issues)
+	}
+}
+
+func TestBackupCheckTool_Execute_RemoteViaSSH_IgnoreMalformedLines(t *testing.T) {
+	tool := NewBackupCheckTool(nil)
+	now := time.Now().Unix()
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		return []byte(fmt.Sprintf("badline\nx|y|z\n-1|100|/x\n%d|2048|/ok.sql\n", now)), []byte(""), nil
+	}
+
+	result, err := tool.Execute(&BackupCheckParams{
+		SystemType: "mysql",
+		Target:     "/var/backups/mysql",
+		RemoteHost: "10.0.0.8",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	br := result.(*BackupCheckResult)
+	if br.Status != "ok" {
+		t.Fatalf("expected status ok, got %s", br.Status)
+	}
+	if br.LastBackupTime == "" || br.LastBackupTime == "unknown" {
+		t.Fatalf("expected valid latest backup time, got %s", br.LastBackupTime)
+	}
+}
+
 func TestReplicationStatusTool_Type(t *testing.T) {
 	tool := NewReplicationStatusTool(nil)
 	if tool.Type() != ToolTypeReplicationStatus {
@@ -412,6 +608,25 @@ func TestReplicationStatusTool_ValidateParams(t *testing.T) {
 			name: "missing host",
 			params: &ReplicationStatusParams{
 				System: "mysql",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &ReplicationStatusParams{
+				System:     "mysql",
+				Host:       "db-master.example.com",
+				RemoteHost: "10.0.0.2",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &ReplicationStatusParams{
+				System:     "mysql",
+				Host:       "db-master.example.com",
+				RemoteUser: "ops",
 			},
 			wantErr: true,
 		},
@@ -497,6 +712,102 @@ func TestReplicationStatusTool_Execute_FromStatusFile(t *testing.T) {
 	}
 }
 
+func TestReplicationStatusTool_Execute_RemoteViaSSH(t *testing.T) {
+	tool := NewReplicationStatusTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(
+			"Master_Host: mysql-primary.local\nSlave_IO_Running: Yes\nSlave_SQL_Running: Yes\nSeconds_Behind_Master: 5\n",
+		), nil, nil
+	}
+
+	result, err := tool.Execute(&ReplicationStatusParams{
+		System:          "mysql",
+		Host:            "db-master.example.com",
+		RemoteHost:      "10.0.0.9",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	repl, ok := result.(*ReplicationStatusResult)
+	if !ok {
+		t.Fatal("expected ReplicationStatusResult")
+	}
+	if !repl.IsReplicating || repl.LagSeconds != 5 {
+		t.Fatalf("unexpected replication result: %+v", repl)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	cmdline := strings.Join(gotArgs, " ")
+	if !strings.Contains(cmdline, "ops@10.0.0.9") || !strings.Contains(cmdline, "SHOW SLAVE STATUS") {
+		t.Fatalf("unexpected ssh args: %q", cmdline)
+	}
+}
+
+func TestReplicationStatusTool_Execute_RemotePostgresViaSSH(t *testing.T) {
+	tool := NewReplicationStatusTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte("2|7\n"), nil, nil
+	}
+
+	result, err := tool.Execute(&ReplicationStatusParams{
+		System:     "postgresql",
+		Host:       "pg-master.example.com",
+		RemoteHost: "10.0.0.11",
+		RemoteUser: "ops",
+		RemotePort: 2222,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	repl := result.(*ReplicationStatusResult)
+	if !repl.IsReplicating || repl.LagSeconds != 7 || len(repl.SlaveHosts) != 2 || repl.Status != "lagging" {
+		t.Fatalf("unexpected replication result: %+v", repl)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	cmdline := strings.Join(gotArgs, " ")
+	if !strings.Contains(cmdline, "ops@10.0.0.11") || !strings.Contains(cmdline, "pg_stat_replication") {
+		t.Fatalf("unexpected ssh args: %q", cmdline)
+	}
+}
+
+func TestReplicationStatusTool_FallbackMarksDataSource(t *testing.T) {
+	tool := NewReplicationStatusTool(nil)
+	t.Setenv("SECOPS_REPLICATION_STATUS_FILE", "")
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		return nil, []byte("forced failure"), fmt.Errorf("forced failure")
+	}
+
+	result, err := tool.Execute(&ReplicationStatusParams{
+		System: "mysql",
+		Host:   "db-master.example.com",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	rr := result.(*ReplicationStatusResult)
+	if rr.DataSource != "fallback_sample" {
+		t.Fatalf("expected fallback_sample, got %s", rr.DataSource)
+	}
+	if rr.FallbackReason == "" {
+		t.Fatal("expected fallback_reason")
+	}
+}
+
 func TestSecretAuditTool_Type(t *testing.T) {
 	tool := NewSecretAuditTool(nil)
 	if tool.Type() != ToolTypeSecretAudit {
@@ -563,6 +874,25 @@ func TestSecretAuditTool_ValidateParams(t *testing.T) {
 			params: &SecretAuditParams{
 				TargetPath: "/repo",
 				Severity:   "CRITICAL2",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &SecretAuditParams{
+				TargetPath: "/repo",
+				ScanType:   "pattern",
+				RemoteHost: "10.0.0.90",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &SecretAuditParams{
+				TargetPath: "/repo",
+				ScanType:   "pattern",
+				RemoteUser: "ops",
 			},
 			wantErr: true,
 		},
@@ -674,6 +1004,53 @@ func TestSecretAuditTool_SeverityFiltering(t *testing.T) {
 	}
 }
 
+func TestSecretAuditTool_Execute_RemoteViaSSH(t *testing.T) {
+	tool := NewSecretAuditTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		cmdline := strings.Join(args, " ")
+		if strings.Contains(cmdline, "find '/repo' -type f") {
+			return []byte("/repo/.env\n/repo/README.md\n"), nil, nil
+		}
+		if strings.Contains(cmdline, "head -c") && strings.Contains(cmdline, "/repo/.env") {
+			return []byte("AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\n"), nil, nil
+		}
+		if strings.Contains(cmdline, "head -c") && strings.Contains(cmdline, "/repo/README.md") {
+			return []byte("no secrets here\n"), nil, nil
+		}
+		return []byte(""), nil, nil
+	}
+
+	result, err := tool.Execute(&SecretAuditParams{
+		TargetPath:      "/repo",
+		ScanType:        "pattern",
+		RemoteHost:      "10.0.0.90",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	ar, ok := result.(*SecretAuditResult)
+	if !ok {
+		t.Fatal("expected SecretAuditResult")
+	}
+	if ar.TotalScanned == 0 || len(ar.Findings) == 0 {
+		t.Fatalf("expected remote scan findings, got %+v", ar)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.90") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
+	}
+}
+
 func TestSecretAuditTool_Redacted(t *testing.T) {
 	tests := []struct {
 		secretType string
@@ -780,6 +1157,25 @@ func TestRotationCheckTool_ValidateParams(t *testing.T) {
 			params: &RotationCheckParams{
 				SystemType: "aws",
 				KeyType:    "ssh_key",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &RotationCheckParams{
+				SystemType: "aws",
+				KeyType:    "api_key",
+				RemoteHost: "10.0.0.21",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &RotationCheckParams{
+				SystemType: "aws",
+				KeyType:    "api_key",
+				RemoteUser: "ops",
 			},
 			wantErr: true,
 		},
@@ -941,6 +1337,115 @@ func TestRotationCheckTool_Execute_FromTargetFile(t *testing.T) {
 	}
 }
 
+func TestRotationCheckTool_Execute_FromMetadataFileRemote(t *testing.T) {
+	tool := NewRotationCheckTool(nil)
+	var gotName string
+	var gotArgs []string
+	lastRotated := time.Now().Add(-6 * 24 * time.Hour).Format("2006-01-02")
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(`[
+			{
+				"system_type":"aws",
+				"key_type":"api_key",
+				"target_id":"svc-key-remote",
+				"last_rotated":"` + lastRotated + `",
+				"policy_days":20
+			}
+		]`), nil, nil
+	}
+
+	t.Setenv("SECOPS_ROTATION_METADATA_FILE", "/var/lib/secops/rotation.json")
+
+	result, err := tool.Execute(&RotationCheckParams{
+		SystemType:      "aws",
+		KeyType:         "api_key",
+		TargetID:        "svc-key-remote",
+		RemoteHost:      "10.0.0.21",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	rr := result.(*RotationCheckResult)
+	if rr.PolicyDays != 20 {
+		t.Fatalf("expected policy_days=20, got %d", rr.PolicyDays)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	cmdline := strings.Join(gotArgs, " ")
+	if !strings.Contains(cmdline, "ops@10.0.0.21") {
+		t.Fatalf("unexpected ssh args: %q", cmdline)
+	}
+}
+
+func TestRotationCheckTool_Execute_FromTargetFileRemote(t *testing.T) {
+	tool := NewRotationCheckTool(nil)
+	var gotName string
+	var gotArgs []string
+	t.Setenv("SECOPS_ROTATION_METADATA_FILE", "")
+	modTime := time.Now().Add(-32 * 24 * time.Hour).Unix()
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(fmt.Sprintf("%d\n", modTime)), nil, nil
+	}
+
+	result, err := tool.Execute(&RotationCheckParams{
+		SystemType:      "kubernetes",
+		KeyType:         "password",
+		TargetID:        "/etc/kubernetes/token",
+		RemoteHost:      "10.0.0.21",
+		RemoteUser:      "ops",
+		RemotePort:      2200,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	rr := result.(*RotationCheckResult)
+	if rr.PolicyDays != 30 {
+		t.Fatalf("expected policy_days=30, got %d", rr.PolicyDays)
+	}
+	if rr.Status == "unknown" {
+		t.Fatalf("expected non-unknown status, got %s", rr.Status)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.21") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
+	}
+}
+
+func TestRotationCheckTool_FallbackMarksDataSource(t *testing.T) {
+	tool := NewRotationCheckTool(nil)
+	t.Setenv("SECOPS_ROTATION_METADATA_FILE", "")
+	result, err := tool.Execute(&RotationCheckParams{
+		SystemType: "aws",
+		KeyType:    "api_key",
+		TargetID:   "/path/not/exist",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	rr := result.(*RotationCheckResult)
+	if rr.DataSource != "fallback_sample" {
+		t.Fatalf("expected fallback_sample, got %s", rr.DataSource)
+	}
+	if rr.FallbackReason == "" {
+		t.Fatal("expected fallback_reason")
+	}
+}
+
 func TestAccessReviewTool_Type(t *testing.T) {
 	tool := NewAccessReviewTool(nil)
 	if tool.Type() != ToolTypeAccessReview {
@@ -1018,6 +1523,25 @@ func TestAccessReviewTool_ValidateParams(t *testing.T) {
 			params: &AccessReviewParams{
 				SystemType: "aws",
 				ReviewType: "unknown",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &AccessReviewParams{
+				SystemType: "linux",
+				ReviewType: "users",
+				RemoteHost: "10.0.0.20",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &AccessReviewParams{
+				SystemType: "linux",
+				ReviewType: "users",
+				RemoteUser: "ops",
 			},
 			wantErr: true,
 		},
@@ -1153,6 +1677,71 @@ func TestAccessReviewTool_Execute_LinuxFromPasswdFile(t *testing.T) {
 	}
 	if ar.HighRiskCount == 0 {
 		t.Fatal("expected root account to be classified high risk")
+	}
+}
+
+func TestAccessReviewTool_Execute_LinuxRemoteViaSSH(t *testing.T) {
+	tool := NewAccessReviewTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		if strings.Contains(strings.Join(args, " "), "cat /etc/passwd") {
+			return []byte(
+				"root:x:0:0:root:/root:/bin/bash\n" +
+					"deploy:x:1001:1001::/home/deploy:/bin/bash\n",
+			), nil, nil
+		}
+		return []byte("deploy ALL=(ALL) NOPASSWD: /bin/systemctl\n"), nil, nil
+	}
+
+	result, err := tool.Execute(&AccessReviewParams{
+		SystemType:      "linux",
+		ReviewType:      "users",
+		Target:          "prod-linux",
+		RemoteHost:      "10.0.0.20",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	ar := result.(*AccessReviewResult)
+	if ar.TotalCount < 2 {
+		t.Fatalf("expected at least 2 entries, got %d", ar.TotalCount)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	cmdline := strings.Join(gotArgs, " ")
+	if !strings.Contains(cmdline, "ops@10.0.0.20") {
+		t.Fatalf("unexpected ssh args: %q", cmdline)
+	}
+}
+
+func TestAccessReviewTool_FallbackMarksDataSource(t *testing.T) {
+	tool := NewAccessReviewTool(nil)
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		return nil, []byte("forced failure"), fmt.Errorf("forced failure")
+	}
+
+	result, err := tool.Execute(&AccessReviewParams{
+		SystemType: "aws",
+		ReviewType: "users",
+		Target:     "prod-account",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	ar := result.(*AccessReviewResult)
+	if ar.DataSource != "fallback_sample" {
+		t.Fatalf("expected fallback_sample, got %s", ar.DataSource)
+	}
+	if ar.FallbackReason == "" {
+		t.Fatal("expected fallback_reason")
 	}
 }
 
@@ -1307,6 +1896,25 @@ func TestInfrastructureQueryTool_ValidateParams(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &InfrastructureQueryParams{
+				SystemType: "kubernetes",
+				QueryType:  "resources",
+				RemoteHost: "10.0.0.30",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &InfrastructureQueryParams{
+				SystemType: "kubernetes",
+				QueryType:  "resources",
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1348,6 +1956,10 @@ func TestInfrastructureQueryTool_Execute(t *testing.T) {
 
 	if iqResult.TerraformState.DriftDetected && len(iqResult.TerraformState.Resources) == 0 {
 		t.Log("drift detected with empty resources")
+	}
+
+	if iqResult.DataSource == "" {
+		t.Error("expected DataSource to be set")
 	}
 }
 
@@ -1526,6 +2138,54 @@ func TestInfrastructureQueryTool_TerraformOutputs(t *testing.T) {
 	}
 }
 
+func TestInfrastructureQueryTool_Execute_RemoteK8sViaSSH(t *testing.T) {
+	tool := NewInfrastructureQueryTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(`{
+  "items": [
+    {
+      "kind": "Deployment",
+      "metadata": {"name": "web-api", "namespace": "prod"},
+      "status": {"replicas": 3, "readyReplicas": 3},
+      "spec": {"replicas": 3}
+    }
+  ]
+}`), nil, nil
+	}
+
+	result, err := tool.Execute(&InfrastructureQueryParams{
+		SystemType:      "kubernetes",
+		QueryType:       "resources",
+		Target:          "prod",
+		RemoteHost:      "10.0.0.30",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	ir, ok := result.(*InfrastructureQueryResult)
+	if !ok {
+		t.Fatal("expected InfrastructureQueryResult")
+	}
+	if len(ir.Resources) == 0 {
+		t.Fatal("expected resources from remote kubectl output")
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	cmdline := strings.Join(gotArgs, " ")
+	if !strings.Contains(cmdline, "ops@10.0.0.30") || !strings.Contains(cmdline, "kubectl") {
+		t.Fatalf("unexpected ssh args: %q", cmdline)
+	}
+}
+
 // DeploymentStatusTool tests
 
 func TestDeploymentStatusTool_Type(t *testing.T) {
@@ -1604,6 +2264,25 @@ func TestDeploymentStatusTool_ValidateParams(t *testing.T) {
 			params:  &DeploymentStatusParams{Platform: "kubernetes"},
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &DeploymentStatusParams{
+				Platform:   "kubernetes",
+				Deployment: "web-api",
+				RemoteHost: "10.0.0.40",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &DeploymentStatusParams{
+				Platform:   "kubernetes",
+				Deployment: "web-api",
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1649,6 +2328,10 @@ func TestDeploymentStatusTool_Execute(t *testing.T) {
 
 	if dsResult.Version == "" {
 		t.Error("expected Version in result")
+	}
+
+	if dsResult.DataSource == "" {
+		t.Error("expected DataSource to be set")
 	}
 }
 
@@ -1794,6 +2477,64 @@ func TestDeploymentStatusTool_Events(t *testing.T) {
 	}
 }
 
+func TestDeploymentStatusTool_Execute_RemoteK8sViaSSH(t *testing.T) {
+	tool := NewDeploymentStatusTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		cmdline := strings.Join(args, " ")
+		switch {
+		case strings.Contains(cmdline, "get deployment"):
+			return []byte(`{
+  "metadata": {"labels": {"app.kubernetes.io/version": "v1.2.3"}, "annotations": {}},
+  "spec": {"replicas": 2, "strategy": {"type": "RollingUpdate"}},
+  "status": {
+    "replicas": 2,
+    "readyReplicas": 2,
+    "availableReplicas": 2,
+    "updatedReplicas": 2,
+    "conditions": [{"type":"Available","status":"True","reason":"MinimumReplicasAvailable","message":"ok"}]
+  }
+}`), nil, nil
+		case strings.Contains(cmdline, "rollout status"):
+			return []byte("deployment \"web-api\" successfully rolled out"), nil, nil
+		case strings.Contains(cmdline, "get events"):
+			return []byte(`{"items":[{"type":"Normal","reason":"ScalingReplicaSet","message":"scaled","lastTimestamp":"2026-03-23T09:00:00Z"}]}`), nil, nil
+		default:
+			return nil, []byte("unknown command"), fmt.Errorf("unknown command")
+		}
+	}
+
+	result, err := tool.Execute(&DeploymentStatusParams{
+		Platform:        "kubernetes",
+		Namespace:       "production",
+		Deployment:      "web-api",
+		RemoteHost:      "10.0.0.40",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	ds, ok := result.(*DeploymentStatusResult)
+	if !ok {
+		t.Fatal("expected DeploymentStatusResult")
+	}
+	if ds.Health == nil || ds.Health.Status != "healthy" {
+		t.Fatalf("expected healthy remote deployment, got %+v", ds.Health)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.40") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
+	}
+}
+
 // Benchmark new tools
 func BenchmarkInfrastructureQueryTool_Execute(b *testing.B) {
 	tool := NewInfrastructureQueryTool(nil)
@@ -1908,6 +2649,23 @@ func TestAlertCheckTool_ValidateParams(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "invalid remote port",
+			params: &AlertCheckParams{
+				System:     "prometheus",
+				RemoteHost: "10.0.0.60",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &AlertCheckParams{
+				System:     "prometheus",
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
+		{
 			name:    "invalid type",
 			params:  "invalid",
 			wantErr: true,
@@ -1951,6 +2709,10 @@ func TestAlertCheckTool_Execute(t *testing.T) {
 
 	if alertResult.Firing < 0 || alertResult.Resolved < 0 || alertResult.Acknowledged < 0 {
 		t.Error("expected non-negative alert counts")
+	}
+
+	if alertResult.DataSource == "" {
+		t.Error("expected DataSource to be set")
 	}
 }
 
@@ -2095,6 +2857,40 @@ func TestAlertCheckTool_FilterByTimeRange(t *testing.T) {
 	}
 }
 
+func TestAlertCheckTool_Execute_RemotePrometheus(t *testing.T) {
+	tool := NewAlertCheckTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(`{"status":"success","data":{"alerts":[{"labels":{"alertname":"RemoteCPUHigh","severity":"critical"},"annotations":{"summary":"remote cpu high"},"state":"firing","activeAt":"2026-03-23T10:00:00Z"}]}}`), nil, nil
+	}
+
+	result, err := tool.Execute(&AlertCheckParams{
+		System:          "prometheus",
+		Endpoint:        "http://127.0.0.1:9090",
+		RemoteHost:      "10.0.0.60",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	ar := result.(*AlertCheckResult)
+	if ar.Total != 1 || ar.Firing != 1 {
+		t.Fatalf("unexpected remote alert result: %+v", ar)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.60") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
+	}
+}
+
 // IncidentTimelineTool tests
 
 func TestIncidentTimelineTool_Type(t *testing.T) {
@@ -2139,6 +2935,23 @@ func TestIncidentTimelineTool_ValidateParams(t *testing.T) {
 		{
 			name:    "missing incident ID",
 			params:  &IncidentTimelineParams{},
+			wantErr: true,
+		},
+		{
+			name: "invalid remote port",
+			params: &IncidentTimelineParams{
+				IncidentID: "INC-001",
+				RemoteHost: "10.0.0.61",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &IncidentTimelineParams{
+				IncidentID: "INC-001",
+				RemoteUser: "ops",
+			},
 			wantErr: true,
 		},
 		{
@@ -2356,6 +3169,60 @@ func TestIncidentTimelineTool_Execute_FromExternalEventFileJSONL(t *testing.T) {
 	}
 }
 
+func TestIncidentTimelineTool_Execute_FromRemoteEventFile(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return []byte(`[
+{"incident_id":"INC-REMOTE-1","timestamp":"2026-03-23T10:00:00Z","type":"alert","actor":"prometheus","description":"remote incident"},
+{"incident_id":"INC-REMOTE-1","timestamp":"2026-03-23T10:05:00Z","type":"resolution","actor":"oncall","description":"resolved"}
+]`), nil, nil
+	}
+
+	result, err := tool.Execute(&IncidentTimelineParams{
+		IncidentID:      "INC-REMOTE-1",
+		RemoteHost:      "10.0.0.61",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+		EventsFilePath:  "/var/log/secops/incidents.json",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	tl := result.(*IncidentTimelineResult)
+	if len(tl.Events) != 2 || tl.Status != "resolved" {
+		t.Fatalf("unexpected remote timeline result: %+v", tl)
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.61") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
+	}
+}
+
+func TestIncidentTimelineTool_FallbackMarksDataSource(t *testing.T) {
+	tool := NewIncidentTimelineTool(nil)
+	t.Setenv("SECOPS_INCIDENT_EVENTS_FILE", "")
+
+	result, err := tool.Execute(&IncidentTimelineParams{IncidentID: "INC-UNKNOWN"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	tl := result.(*IncidentTimelineResult)
+	if tl.DataSource != "fallback_template" {
+		t.Fatalf("expected fallback_template, got %s", tl.DataSource)
+	}
+	if tl.FallbackReason == "" {
+		t.Fatal("expected fallback_reason")
+	}
+}
+
 // Benchmarks
 
 func BenchmarkAlertCheckTool_Execute(b *testing.B) {
@@ -2522,6 +3389,25 @@ func TestResourceMonitorTool_ValidateParams(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "invalid remote port",
+			params: &ResourceMonitorParams{
+				Target:     "localhost",
+				Metrics:    []string{"cpu"},
+				RemoteHost: "10.0.0.50",
+				RemotePort: 70000,
+			},
+			wantErr: true,
+		},
+		{
+			name: "remote option without host",
+			params: &ResourceMonitorParams{
+				Target:     "localhost",
+				Metrics:    []string{"cpu"},
+				RemoteUser: "ops",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2614,6 +3500,51 @@ func TestResourceMonitorTool_Execute_RemoteHost(t *testing.T) {
 	monResult := result.(*ResourceMonitorResult)
 	if monResult.Target != "db-server-01" {
 		t.Errorf("expected target db-server-01, got %v", monResult.Target)
+	}
+}
+
+func TestResourceMonitorTool_Execute_RemoteSSH(t *testing.T) {
+	tool := NewResourceMonitorTool(nil)
+	var gotName string
+	var gotArgs []string
+	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		cmdline := strings.Join(args, " ")
+		switch {
+		case strings.Contains(cmdline, "top -bn1"):
+			return []byte("top - 00:00:00 up 1 day, 1 user, load average: 1.25, 0.80, 0.50\n%Cpu(s): 5.0 us, 3.0 sy, 0.0 ni, 90.0 id, 2.0 wa\n1.25 0.80 0.50"), nil, nil
+		case strings.Contains(cmdline, "free -b"):
+			return []byte("              total        used        free      shared  buff/cache   available\nMem:     17179869184 8589934592 2147483648 0 0 8589934592\nSwap:     2147483648  1073741824 1073741824"), nil, nil
+		default:
+			return []byte(""), nil, nil
+		}
+	}
+
+	result, err := tool.Execute(&ResourceMonitorParams{
+		Target:          "remote-node",
+		Metrics:         []string{"cpu", "memory"},
+		Duration:        "1m",
+		Interval:        "1s",
+		RemoteHost:      "10.0.0.50",
+		RemoteUser:      "ops",
+		RemotePort:      2222,
+		RemoteKeyPath:   "/tmp/id_ed25519",
+		RemoteProxyJump: "bastion",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	monResult := result.(*ResourceMonitorResult)
+	if len(monResult.Metrics) == 0 {
+		t.Fatal("expected remote metrics")
+	}
+	if gotName != "ssh" {
+		t.Fatalf("expected ssh command, got %s", gotName)
+	}
+	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.50") {
+		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
 	}
 }
 

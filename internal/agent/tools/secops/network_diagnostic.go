@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -32,6 +33,11 @@ type NetworkDiagnosticParams struct {
 	PacketSize      int                   `json:"packet_size,omitempty"`   // 包大小
 	CheckLatency    bool                  `json:"check_latency,omitempty"` // 检查延迟
 	CheckPacketLoss bool                  `json:"check_packet_loss,omitempty"`
+	RemoteHost      string                `json:"remote_host,omitempty"`       // 远程诊断主机
+	RemoteUser      string                `json:"remote_user,omitempty"`       // SSH 用户
+	RemotePort      int                   `json:"remote_port,omitempty"`       // SSH 端口
+	RemoteKeyPath   string                `json:"remote_key_path,omitempty"`   // SSH 私钥路径
+	RemoteProxyJump string                `json:"remote_proxy_jump,omitempty"` // SSH 跳板机
 }
 
 // HopInfo 路由跳转信息
@@ -96,12 +102,14 @@ type NetworkDiagnosticResult struct {
 // NetworkDiagnosticTool 网络诊断工具
 type NetworkDiagnosticTool struct {
 	registry *SecOpsToolRegistry
+	runCmd   func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 // NewNetworkDiagnosticTool 创建网络诊断工具
 func NewNetworkDiagnosticTool(registry *SecOpsToolRegistry) *NetworkDiagnosticTool {
 	return &NetworkDiagnosticTool{
 		registry: registry,
+		runCmd:   runNetworkDiagCommand,
 	}
 }
 
@@ -154,6 +162,9 @@ func (ndt *NetworkDiagnosticTool) ValidateParams(params interface{}) error {
 
 	if p.Timeout > 300 {
 		return fmt.Errorf("timeout cannot exceed 300 seconds")
+	}
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 1 and 65535")
 	}
 
 	if p.Type == DiagnosticPortScan && len(p.Ports) == 0 {
@@ -222,9 +233,14 @@ func (ndt *NetworkDiagnosticTool) isValidType(t NetworkDiagnosticType) bool {
 // performTraceroute 执行 traceroute
 func (ndt *NetworkDiagnosticTool) performTraceroute(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
 	start := time.Now()
-	hops := ndt.runTracerouteCommand(params.Target, params.Timeout)
+	hops := ndt.runTracerouteCommand(params.Target, params.Timeout, params)
 	if len(hops) == 0 {
-		hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+		if strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
+			hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+		} else {
+			result.Status = "error"
+			result.Issues = append(result.Issues, "Traceroute returned no data")
+		}
 	}
 	result.Hops = hops
 	result.Duration = int(time.Since(start).Milliseconds())
@@ -233,9 +249,14 @@ func (ndt *NetworkDiagnosticTool) performTraceroute(params *NetworkDiagnosticPar
 // performMTR 执行 MTR
 func (ndt *NetworkDiagnosticTool) performMTR(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
 	start := time.Now()
-	hops := ndt.runMTRCommand(params.Target, params.Timeout)
+	hops := ndt.runMTRCommand(params.Target, params.Timeout, params)
 	if len(hops) == 0 {
-		hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+		if strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
+			hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+		} else {
+			result.Status = "error"
+			result.Issues = append(result.Issues, "MTR returned no data")
+		}
 	}
 	result.Hops = hops
 	result.PacketLoss = ndt.averageLoss(hops)
@@ -293,7 +314,12 @@ func (ndt *NetworkDiagnosticTool) performPing(params *NetworkDiagnosticParams, r
 	start := time.Now()
 	pingResult := ndt.runPing(params)
 	if pingResult == nil {
-		pingResult = ndt.fallbackPingViaTCP(params)
+		if strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
+			pingResult = ndt.fallbackPingViaTCP(params)
+		} else {
+			result.Status = "error"
+			result.Issues = append(result.Issues, "Ping returned no data")
+		}
 	}
 	result.PingResult = pingResult
 	if pingResult == nil {
@@ -301,6 +327,11 @@ func (ndt *NetworkDiagnosticTool) performPing(params *NetworkDiagnosticParams, r
 		result.Issues = append(result.Issues, "Ping failed")
 	}
 	result.Duration = int(time.Since(start).Milliseconds())
+}
+
+func networkDiagFallbackEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("SECOPS_NETWORK_DIAG_ALLOW_FALLBACK")))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 // analyzeResults 分析诊断结果
@@ -398,12 +429,11 @@ func (ndt *NetworkDiagnosticTool) analyzePing(result *NetworkDiagnosticResult) {
 	}
 }
 
-func (ndt *NetworkDiagnosticTool) runTracerouteCommand(target string, timeoutSec int) []*HopInfo {
+func (ndt *NetworkDiagnosticTool) runTracerouteCommand(target string, timeoutSec int, params *NetworkDiagnosticParams) []*HopInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "traceroute", "-n", "-q", "1", target)
-	out, err := cmd.Output()
+	out, err := ndt.runDiagnosticCommand(ctx, params, "traceroute", "-n", "-q", "1", target)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -432,12 +462,11 @@ func (ndt *NetworkDiagnosticTool) runTracerouteCommand(target string, timeoutSec
 	return hops
 }
 
-func (ndt *NetworkDiagnosticTool) runMTRCommand(target string, timeoutSec int) []*HopInfo {
+func (ndt *NetworkDiagnosticTool) runMTRCommand(target string, timeoutSec int, params *NetworkDiagnosticParams) []*HopInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "mtr", "--report", "--report-cycles", "3", "--no-dns", target)
-	out, err := cmd.Output()
+	out, err := ndt.runDiagnosticCommand(ctx, params, "mtr", "--report", "--report-cycles", "3", "--no-dns", target)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -486,8 +515,7 @@ func (ndt *NetworkDiagnosticTool) runPing(params *NetworkDiagnosticParams) *Ping
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ping", "-c", strconv.Itoa(count), params.Target)
-	out, err := cmd.Output()
+	out, err := ndt.runDiagnosticCommand(ctx, params, "ping", "-c", strconv.Itoa(count), params.Target)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -528,6 +556,76 @@ func (ndt *NetworkDiagnosticTool) runPing(params *NetworkDiagnosticParams) *Ping
 		Max:      max,
 		StdDev:   stddev,
 	}
+}
+
+func (ndt *NetworkDiagnosticTool) runDiagnosticCommand(
+	ctx context.Context,
+	params *NetworkDiagnosticParams,
+	name string,
+	args ...string,
+) ([]byte, error) {
+	runner := ndt.runCmd
+	if runner == nil {
+		runner = runNetworkDiagCommand
+	}
+
+	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
+		return runner(ctx, name, args...)
+	}
+
+	sshArgs, err := buildSSHCommandArgs(params, name, args...)
+	if err != nil {
+		return nil, err
+	}
+	return runner(ctx, "ssh", sshArgs...)
+}
+
+func buildSSHCommandArgs(params *NetworkDiagnosticParams, name string, args ...string) ([]string, error) {
+	if params == nil {
+		return nil, fmt.Errorf("remote params are required")
+	}
+	host := strings.TrimSpace(params.RemoteHost)
+	if host == "" {
+		return nil, fmt.Errorf("remote_host is required")
+	}
+
+	target := host
+	user := strings.TrimSpace(params.RemoteUser)
+	if user != "" {
+		target = user + "@" + host
+	}
+
+	sshArgs := []string{"-o", "BatchMode=yes"}
+	if params.RemotePort > 0 {
+		sshArgs = append(sshArgs, "-p", strconv.Itoa(params.RemotePort))
+	}
+	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
+		sshArgs = append(sshArgs, "-i", key)
+	}
+	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
+		sshArgs = append(sshArgs, "-J", jump)
+	}
+
+	remoteParts := make([]string, 0, len(args)+1)
+	remoteParts = append(remoteParts, shellQuote(name))
+	for _, arg := range args {
+		remoteParts = append(remoteParts, shellQuote(arg))
+	}
+	remoteCmd := strings.Join(remoteParts, " ")
+	sshArgs = append(sshArgs, target, "sh", "-lc", remoteCmd)
+	return sshArgs, nil
+}
+
+func shellQuote(v string) string {
+	if v == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
+}
+
+func runNetworkDiagCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.Output()
 }
 
 func (ndt *NetworkDiagnosticTool) lookupDNS(target string, timeoutSec int) []*DNSRecord {
