@@ -1,6 +1,7 @@
 package styles
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 
@@ -68,6 +69,12 @@ func newFgBaseHex() *string      { return newStrPtr(new(charmtone.Ash).Hex()) }
 func newFgMutedHex() *string     { return newStrPtr(new(charmtone.Squid).Hex()) }
 func newFgHalfMutedHex() *string { return newStrPtr(new(charmtone.Smoke).Hex()) }
 func newFgSubtleHex() *string    { return newStrPtr(new(charmtone.Oyster).Hex()) }
+
+func colorHex(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("#%02X%02X%02X", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+}
+
 
 type Styles struct {
 	WindowTooSmall lipgloss.Style
@@ -521,16 +528,16 @@ func DefaultStyles(theme ...Theme) Styles {
 		tertiary  = charmtone.Bok
 
 		// Backgrounds
-		bgBase        = charmtone.Pepper
-		bgBaseLighter = charmtone.BBQ
-		bgSubtle      = charmtone.Charcoal
-		bgOverlay     = charmtone.Iron
+		bgBase        color.Color = charmtone.Pepper
+		bgBaseLighter color.Color = charmtone.BBQ
+		bgSubtle      color.Color = charmtone.Charcoal
+		bgOverlay     color.Color = charmtone.Iron
 
 		// Foregrounds — adapt to terminal background via foregroundColorsForTheme.
 		fgBase, fgMuted, fgHalfMuted, fgSubtle = foregroundColorsForTheme(theme...)
 
 		// Borders
-		border      = charmtone.Charcoal
+		border      color.Color = charmtone.Charcoal
 		borderFocus = charmtone.Charple
 
 		// Status
@@ -554,6 +561,14 @@ func DefaultStyles(theme ...Theme) Styles {
 		red     = charmtone.Coral
 		redDark = charmtone.Sriracha
 	)
+
+	if !isDarkTheme {
+		bgBase = lipgloss.Color("#FFFFFF")
+		bgBaseLighter = lipgloss.Color("#F7F7F7")
+		bgSubtle = lipgloss.Color("#EFEFEF")
+		bgOverlay = lipgloss.Color("#FFFFFF")
+		border = lipgloss.Color("#CFCFCF")
+	}
 
 	normalBorder := lipgloss.NormalBorder()
 
@@ -847,7 +862,7 @@ func DefaultStyles(theme ...Theme) Styles {
 	}
 
 	// PlainMarkdown style - muted colors on subtle background for thinking content.
-	plainBg := new(bgBaseLighter.Hex())
+	plainBg := newStrPtr(colorHex(bgBaseLighter))
 	plainFg := newFgBaseHex()
 	s.PlainMarkdown = ansi.StyleConfig{
 		Document: ansi.StyleBlock{
@@ -1031,7 +1046,7 @@ func DefaultStyles(theme ...Theme) Styles {
 		Directory:        base.Foreground(primary),
 		File:             base.Foreground(fgBase),
 		DisabledFile:     base.Foreground(fgMuted),
-		DisabledSelected: base.Background(bgSubtle).Foreground(white),
+		DisabledSelected: base.Background(bgSubtle).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, white)),
 		Permission:       base.Foreground(fgMuted),
 		Selected:         base.Background(primary).Foreground(white),
 		FileSize:         base.Foreground(fgMuted),
@@ -1050,7 +1065,7 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.WindowTooSmall = s.Muted
 
 	// tag presets
-	s.TagBase = lipgloss.NewStyle().Padding(0, 1).Foreground(bgBase)
+	s.TagBase = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
 	s.TagError = s.TagBase.Background(red)
 	s.TagInfo = s.TagBase.Background(blueLight)
 
@@ -1110,12 +1125,12 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Tool.StateWaiting = base.Foreground(fgMuted)
 	s.Tool.StateCancelled = base.Foreground(fgMuted)
 
-	s.Tool.ErrorTag = base.Padding(0, 1).Background(red).Foreground(bgBase)
+	s.Tool.ErrorTag = base.Padding(0, 1).Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
 	s.Tool.ErrorMessage = base.Foreground(fgMuted)
 
 	// Diff and multi-edit styles
 	s.Tool.DiffTruncation = s.Muted.Background(bgBaseLighter).PaddingLeft(2)
-	s.Tool.NoteTag = base.Padding(0, 1).Background(info).Foreground(bgBase)
+	s.Tool.NoteTag = base.Padding(0, 1).Background(info).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
 	s.Tool.NoteMessage = base.Foreground(fgMuted)
 
 	// Job header styles
@@ -1128,11 +1143,11 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Tool.JobDescription = s.Muted
 
 	// Agent task styles
-	s.Tool.AgentTaskTag = base.Bold(true).Padding(0, 1).MarginLeft(2).Background(blueLight).Foreground(bgBase)
+	s.Tool.AgentTaskTag = base.Padding(0, 1).MarginLeft(2).Background(blueLight).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
 	s.Tool.AgentPrompt = s.Muted
 
 	// Agentic fetch styles
-	s.Tool.AgenticFetchPromptTag = base.Bold(true).Padding(0, 1).MarginLeft(2).Background(green).Foreground(border)
+	s.Tool.AgenticFetchPromptTag = base.Padding(0, 1).MarginLeft(2).Background(green).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, border))
 
 	// Todo styles
 	s.Tool.TodoRatio = base.Foreground(blueDark)
@@ -1158,13 +1173,13 @@ func DefaultStyles(theme ...Theme) Styles {
 
 	// Buttons: focused uses strong contrast on positive background.
 	s.ButtonFocus = lipgloss.NewStyle().
-		Foreground(bgBase).
+		Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).
 		Background(greenDark).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(greenDark)
 	s.ButtonBlur = lipgloss.NewStyle().
-		Foreground(white).
-		Background(bgSubtle).
+		Foreground(lipgloss.LightDark(isDarkTheme)(fgBase, white)).
+		Background(lipgloss.LightDark(isDarkTheme)(charmtone.Salt, bgSubtle)).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(border)
 
@@ -1176,7 +1191,7 @@ func DefaultStyles(theme ...Theme) Styles {
 		Foreground(lipgloss.LightDark(isDarkTheme)(blueDark, greenDark)).
 		SetString("::: ")
 	s.EditorPromptNormalBlurred = s.EditorPromptNormalFocused.Foreground(fgMuted)
-	s.EditorPromptYoloIconFocused = lipgloss.NewStyle().MarginRight(1).Foreground(bgBase).Background(charmtone.Citron).Bold(true).SetString(" ! ")
+	s.EditorPromptYoloIconFocused = lipgloss.NewStyle().MarginRight(1).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).Background(charmtone.Citron).SetString(" ! ")
 	s.EditorPromptYoloIconBlurred = s.EditorPromptYoloIconFocused.Foreground(charmtone.Pepper).Background(charmtone.Squid)
 	s.EditorPromptYoloDotsFocused = lipgloss.NewStyle().MarginRight(1).Foreground(charmtone.Zest).SetString(":::")
 	s.EditorPromptYoloDotsBlurred = s.EditorPromptYoloDotsFocused.Foreground(fgMuted)
@@ -1236,7 +1251,7 @@ func DefaultStyles(theme ...Theme) Styles {
 		BorderForeground(greenDark).BorderStyle(messageFocussedBorder)
 	s.Chat.Message.Thinking = lipgloss.NewStyle().MaxHeight(10)
 	s.Chat.Message.ErrorTag = lipgloss.NewStyle().Padding(0, 1).
-		Background(red).Foreground(bgBase)
+		Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
 	s.Chat.Message.ErrorTitle = lipgloss.NewStyle().Foreground(fgHalfMuted)
 	s.Chat.Message.ErrorDetails = lipgloss.NewStyle().Foreground(fgMuted)
 
@@ -1269,12 +1284,12 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Dialog.TitleError = base.Foreground(red)
 	s.Dialog.TitleAccent = base.Foreground(green).Bold(true)
 	s.Dialog.View = lipgloss.NewStyle().
-		Background(bgOverlay).
+		Background(lipgloss.LightDark(isDarkTheme)(charmtone.Salt, bgOverlay)).
 		Foreground(fgBase).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderFocus)
 	s.Dialog.PrimaryText = base.Padding(0, 1).Foreground(primary)
-	s.Dialog.SecondaryText = base.Padding(0, 1).Foreground(white)
+	s.Dialog.SecondaryText = base.Padding(0, 1).Foreground(lipgloss.LightDark(isDarkTheme)(fgMuted, white))
 	s.Dialog.HelpView = base.Padding(0, 1).AlignHorizontal(lipgloss.Left)
 	s.Dialog.Help.ShortKey = base.Foreground(fgBase)
 	s.Dialog.Help.ShortDesc = base.Foreground(fgMuted)
@@ -1320,16 +1335,16 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Dialog.Sessions.RenamingPlaceholder = base.Foreground(charmtone.Squid)
 
 	s.Status.Help = lipgloss.NewStyle().Padding(0, 1)
-	s.Status.SuccessIndicator = base.Foreground(bgSubtle).Background(green).Padding(0, 1).Bold(true).SetString("OKAY!")
+	s.Status.SuccessIndicator = base.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgSubtle)).Background(green).Padding(0, 1).SetString("OKAY!")
 	s.Status.InfoIndicator = s.Status.SuccessIndicator
 	s.Status.UpdateIndicator = s.Status.SuccessIndicator.SetString("HEY!")
-	s.Status.WarnIndicator = s.Status.SuccessIndicator.Foreground(bgOverlay).Background(yellow).SetString("WARNING")
-	s.Status.ErrorIndicator = s.Status.SuccessIndicator.Foreground(bgBase).Background(red).SetString("ERROR")
-	s.Status.SuccessMessage = base.Foreground(bgSubtle).Background(greenDark).Padding(0, 1)
+	s.Status.WarnIndicator = s.Status.SuccessIndicator.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgOverlay)).Background(yellow).SetString("WARNING")
+	s.Status.ErrorIndicator = s.Status.SuccessIndicator.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).Background(red).SetString("ERROR")
+	s.Status.SuccessMessage = base.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgSubtle)).Background(greenDark).Padding(0, 1)
 	s.Status.InfoMessage = s.Status.SuccessMessage
 	s.Status.UpdateMessage = s.Status.SuccessMessage
-	s.Status.WarnMessage = s.Status.SuccessMessage.Foreground(bgOverlay).Background(warning)
-	s.Status.ErrorMessage = s.Status.SuccessMessage.Foreground(bgBase).Background(red)
+	s.Status.WarnMessage = s.Status.SuccessMessage.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgOverlay)).Background(warning)
+	s.Status.ErrorMessage = s.Status.SuccessMessage.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).Background(red)
 
 	// Completions styles
 	s.Completions.Normal = base.Background(bgSubtle).Foreground(fgBase)
@@ -1337,11 +1352,11 @@ func DefaultStyles(theme ...Theme) Styles {
 	s.Completions.Match = base.Underline(true)
 
 	// Attachments styles
-	attachmentIconStyle := base.Foreground(bgBase).Background(green).Padding(0, 1)
+	attachmentIconStyle := base.Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase)).Background(green).Padding(0, 1)
 	s.Attachments.Image = attachmentIconStyle.SetString(ImageIcon)
 	s.Attachments.Text = attachmentIconStyle.SetString(TextIcon)
 	s.Attachments.Normal = base.Padding(0, 1).MarginRight(1).Background(fgMuted).Foreground(fgBase)
-	s.Attachments.Deleting = base.Padding(0, 1).Bold(true).Background(red).Foreground(bgBase)
+	s.Attachments.Deleting = base.Padding(0, 1).Background(red).Foreground(lipgloss.LightDark(isDarkTheme)(charmtone.Pepper, bgBase))
 
 	// Pills styles
 	s.Pills.Base = base.Padding(0, 1)

@@ -189,24 +189,25 @@ func supportsProgressBar() bool {
 // It checks the TERM_BACKGROUND env var (Wezterm, Ghostty) first, then falls back
 // to lipgloss.HasDarkBackground heuristics for other terminals.
 func detectTerminalTheme(stdin, stdout *os.File) styles.Theme {
-	// Terminals that explicitly declare their background color.
-	switch os.Getenv("TERM_BACKGROUND") {
-	case "light":
-		return styles.ThemeLight
-	case "dark":
-		return styles.ThemeDark
-	}
+	// Force a stable light theme for the main TUI regardless of terminal
+	// background detection to avoid unreadable dark-on-dark rendering.
+	return styles.ThemeLight
+}
 
-	// Fallback: use lipgloss's heuristic detection.
-	// This reads the terminal's background color via ANSI escape sequences.
-	if term.IsTerminal(stdout.Fd()) {
-		if lipgloss.HasDarkBackground(stdin, stdout) {
-			return styles.ThemeDark
-		}
-		return styles.ThemeLight
+func parseColorFGBG(value string) (int, bool) {
+	if value == "" {
+		return 0, false
 	}
-
-	return styles.ThemeDark // Default to dark.
+	parts := strings.Split(value, ";")
+	if len(parts) == 0 {
+		return 0, false
+	}
+	bgStr := strings.TrimSpace(parts[len(parts)-1])
+	bg, err := strconv.Atoi(bgStr)
+	if err != nil || bg < 0 {
+		return 0, false
+	}
+	return bg, true
 }
 
 func setupAppWithProgressBar(cmd *cobra.Command) (*app.App, error) {
