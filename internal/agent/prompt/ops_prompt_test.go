@@ -272,6 +272,14 @@ func TestOpsAgentPromptProhibitedCommands(t *testing.T) {
 	assert.Contains(t, tpl, "rm -rf /")
 }
 
+func TestOpsAgentPromptRoleBoundary(t *testing.T) {
+	tpl := readTemplateFile(t, "ops_agent.md.tpl")
+
+	assert.Contains(t, tpl, "Do not self-identify as a security expert")
+	assert.Contains(t, tpl, "hand off to SecurityExpertAgent")
+	assert.Contains(t, tpl, "Role Boundary")
+}
+
 func TestSecurityExpertAgentPromptDataClassification(t *testing.T) {
 	tpl := readTemplateFile(t, "security_expert_agent.md.tpl")
 

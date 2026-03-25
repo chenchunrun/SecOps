@@ -42,5 +42,28 @@ func TestRouteAgentByMode(t *testing.T) {
 	target, prompt = routeAgentByMode("任意任务", dialog.AgentModeOps)
 	require.Equal(t, config.AgentOpsAgent, target)
 	require.Equal(t, "任意任务", prompt)
+
+	target, prompt = routeAgentByMode("任意任务", dialog.AgentModeSecurity)
+	require.Equal(t, config.AgentSecurityExpertAgent, target)
+	require.Equal(t, "任意任务", prompt)
+
+	target, prompt = routeAgentByMode("任意任务", dialog.AgentModeCoder)
+	require.Equal(t, config.AgentCoder, target)
+	require.Equal(t, "任意任务", prompt)
 }
 
+func TestRouteAgentByMode_ExplicitDirectiveTakesPrecedence(t *testing.T) {
+	t.Parallel()
+
+	target, prompt := routeAgentByMode("/ops 请排查CPU告警", dialog.AgentModeSecurity)
+	require.Equal(t, config.AgentOpsAgent, target)
+	require.Equal(t, "请排查CPU告警", prompt)
+
+	target, prompt = routeAgentByMode("/sec 做漏洞复核", dialog.AgentModeOps)
+	require.Equal(t, config.AgentSecurityExpertAgent, target)
+	require.Equal(t, "做漏洞复核", prompt)
+
+	target, prompt = routeAgentByMode("/coder 写单元测试", dialog.AgentModeOps)
+	require.Equal(t, config.AgentCoder, target)
+	require.Equal(t, "写单元测试", prompt)
+}
