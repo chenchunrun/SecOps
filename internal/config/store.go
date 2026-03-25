@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -32,16 +33,65 @@ const encryptedMarker = "ENC:"
 // sensitivePrefixes is the list of key prefixes that identify sensitive values.
 var sensitivePrefixes = []string{"oauth", "refresh_token", "api_key", "secret", "access_token", "bearer"}
 
-// deriveKey creates a 32-byte AES key from the user's HOME directory and username.
-// It is deterministic per machine so the same key is regenerated on every restart.
-func deriveKey() ([]byte, error) {
-	home := os.Getenv("HOME")
-	user := os.Getenv("USER")
-	if home == "" || user == "" {
-		return nil, errors.New("HOME or USER env not set")
+func deriveKeyFromIdentity(homeDir, username string) ([]byte, error) {
+	if homeDir == "" || username == "" {
+		return nil, errors.New("home directory or username not set")
 	}
-	h := sha256.Sum256([]byte(home + ":" + user + ":crush-secrets-v1"))
+	h := sha256.Sum256([]byte(homeDir + ":" + username + ":crush-secrets-v1"))
 	return h[:], nil
+}
+
+func currentIdentity() (homeDir, username string) {
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		homeDir = h
+	}
+	if homeDir == "" {
+		homeDir = os.Getenv("HOME")
+	}
+
+	if u, err := user.Current(); err == nil && u != nil {
+		username = u.Username
+	}
+	if username == "" {
+		username = os.Getenv("USER")
+	}
+	if username == "" {
+		username = os.Getenv("LOGNAME")
+	}
+
+	return homeDir, username
+}
+
+func deriveKeyCandidates() [][]byte {
+	candidates := make([][]byte, 0, 2)
+	seen := map[string]struct{}{}
+
+	homeDir, username := currentIdentity()
+	if k, err := deriveKeyFromIdentity(homeDir, username); err == nil {
+		ks := string(k)
+		seen[ks] = struct{}{}
+		candidates = append(candidates, k)
+	}
+
+	// Compatibility with values encrypted by older builds.
+	legacyHome := os.Getenv("HOME")
+	legacyUser := os.Getenv("USER")
+	if k, err := deriveKeyFromIdentity(legacyHome, legacyUser); err == nil {
+		ks := string(k)
+		if _, exists := seen[ks]; !exists {
+			candidates = append(candidates, k)
+		}
+	}
+
+	return candidates
+}
+
+func deriveKey() ([]byte, error) {
+	keys := deriveKeyCandidates()
+	if len(keys) == 0 {
+		return nil, errors.New("no key material available")
+	}
+	return keys[0], nil
 }
 
 // encrypt encrypts a plaintext string using AES-256-GCM and returns a base64-encoded
@@ -77,28 +127,38 @@ func decrypt(encoded string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	key, err := deriveKey()
-	if err != nil {
-		return "", err
+	keys := deriveKeyCandidates()
+	if len(keys) == 0 {
+		return "", errors.New("no key material available")
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
+
+	var lastErr error
+	for _, key := range keys {
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		gcm, err := cipher.NewGCM(block)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		nonceSize := gcm.NonceSize()
+		if len(ciphertext) < nonceSize {
+			return "", errors.New("ciphertext too short")
+		}
+		nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
+		plaintext, err := gcm.Open(nil, nonce, ct, nil)
+		if err == nil {
+			return string(plaintext), nil
+		}
+		lastErr = err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
+	if lastErr == nil {
+		lastErr = errors.New("failed to decrypt config value")
 	}
-	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
-		return "", errors.New("ciphertext too short")
-	}
-	nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ct, nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
+	return "", lastErr
 }
 
 // isSensitive returns true if the given key name refers to a sensitive field
@@ -129,6 +189,7 @@ type ConfigStore struct {
 	config         *Config
 	workingDir     string
 	resolver       VariableResolver
+	globalCfgPath  string // ~/.config/crush/crush.json
 	globalDataPath string // ~/.local/share/crush/crush.json
 	workspacePath  string // .crush/crush.json
 	knownProviders []catwalk.Provider
@@ -170,6 +231,8 @@ func (s *ConfigStore) SetupAgents() {
 // configPath returns the file path for the given scope.
 func (s *ConfigStore) configPath(scope Scope) string {
 	switch scope {
+	case ScopeGlobalConfig:
+		return s.globalCfgPath
 	case ScopeWorkspace:
 		return s.workspacePath
 	default:

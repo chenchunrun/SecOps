@@ -13,6 +13,13 @@ SecOps feature-complete release candidate (RC1).
 - Hardened config persistence: provider/API key encrypted at rest (`ENC:`) and reloaded correctly after restart.
 - Completed SIEM security path: TLS required, credential redaction (13 patterns), retry with exponential backoff.
 - Fixed TUI permission dialog stability: no overflow deformation and no option-label jitter on selection changes.
+- Added bypass-intent guardrail in permission chain: High/Critical risk requests cannot bypass via `skip_requests`, `allowed_tools`, or session auto-approve.
+- Added configurable bypass markers:
+  - `permissions.bypass_intent_markers` (override defaults)
+  - `permissions.extra_bypass_intent_markers` (append defaults)
+- Added audit alert for suspected prompt/skill bypass attempts:
+  - `event_type=security_alert`
+  - `action=permission_bypass_intent_detected`
 
 ## End-to-End Coverage Added
 
@@ -67,4 +74,3 @@ Result: all passed.
    - `git push origin v0.0.0-secops-rc1`
 2. Publish GitHub release with this note.
 3. Gate production rollout on smoke checks in target environment (provider auth, sandbox backend, SIEM endpoint).
-

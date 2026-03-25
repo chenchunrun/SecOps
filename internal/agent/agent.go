@@ -66,6 +66,12 @@ var summaryPrompt []byte
 // Used to remove <think> tags from generated titles.
 var thinkTagRegex = regexp.MustCompile(`<think>.*?</think>`)
 
+const sessionAgentMaxRetries = 0
+
+func intPtr(v int) *int {
+	return &v
+}
+
 type SessionAgentCall struct {
 	SessionID        string
 	Prompt           string
@@ -253,6 +259,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
 		Files:            files,
 		Messages:         history,
+		MaxRetries:       intPtr(sessionAgentMaxRetries),
 		ProviderOptions:  call.ProviderOptions,
 		MaxOutputTokens:  &call.MaxOutputTokens,
 		TopP:             call.TopP,

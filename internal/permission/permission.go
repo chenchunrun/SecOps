@@ -2,15 +2,19 @@ package permission
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/csync"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/security"
 	"github.com/google/uuid"
 )
 
@@ -33,7 +37,7 @@ const (
 	DecisionAutoApprove PermissionDecision = "auto_approve"
 	DecisionUserConfirm PermissionDecision = "user_confirm"
 	DecisionAdminReview PermissionDecision = "admin_review"
-	DecisionDeny       PermissionDecision = "deny"
+	DecisionDeny        PermissionDecision = "deny"
 )
 
 // PermissionLevel defines the role hierarchy
@@ -42,8 +46,8 @@ type PermissionLevel string
 const (
 	LevelViewer   PermissionLevel = "viewer"
 	LevelOperator PermissionLevel = "operator"
-	LevelAdmin   PermissionLevel = "admin"
-	LevelAnalyst PermissionLevel = "analyst"
+	LevelAdmin    PermissionLevel = "admin"
+	LevelAnalyst  PermissionLevel = "analyst"
 )
 
 // ResourceType classifies resources being accessed
@@ -51,11 +55,11 @@ type ResourceType string
 
 const (
 	ResourceTypeFile     ResourceType = "file"
-	ResourceTypeNetwork ResourceType = "network"
-	ResourceTypeProcess ResourceType = "process"
+	ResourceTypeNetwork  ResourceType = "network"
+	ResourceTypeProcess  ResourceType = "process"
 	ResourceTypeDatabase ResourceType = "database"
-	ResourceTypeCommand ResourceType = "command"
-	ResourceTypeSystem  ResourceType = "system"
+	ResourceTypeCommand  ResourceType = "command"
+	ResourceTypeSystem   ResourceType = "system"
 )
 
 type CreatePermissionRequest struct {
@@ -79,35 +83,35 @@ type PermissionNotification struct {
 }
 
 type PermissionRequest struct {
-	ID           string `json:"id"`
-	SessionID    string `json:"session_id"`
-	ToolCallID   string `json:"tool_call_id"`
-	ToolName     string `json:"tool_name"`
-	Description  string `json:"description"`
-	Action       string `json:"action"`
-	Params       any    `json:"params"`
-	Path         string `json:"path"`
-	Transport    string `json:"transport,omitempty"`
-	TargetHost   string `json:"target_host,omitempty"`
-	TargetEnv    string `json:"target_env,omitempty"`
-	TargetID     string `json:"target_id,omitempty"`
+	ID          string `json:"id"`
+	SessionID   string `json:"session_id"`
+	ToolCallID  string `json:"tool_call_id"`
+	ToolName    string `json:"tool_name"`
+	Description string `json:"description"`
+	Action      string `json:"action"`
+	Params      any    `json:"params"`
+	Path        string `json:"path"`
+	Transport   string `json:"transport,omitempty"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetEnv   string `json:"target_env,omitempty"`
+	TargetID    string `json:"target_id,omitempty"`
 	// SecOps fields
-	RiskScore     int                `json:"risk_score"`
-	Severity      Severity           `json:"severity"`
-	Decision      PermissionDecision `json:"decision"`
-	ResourceType  ResourceType       `json:"resource_type"`
-	ResourcePath string            `json:"resource_path"`
-	UserID       string            `json:"user_id"`
-	Username     string            `json:"username"`
+	RiskScore    int                `json:"risk_score"`
+	Severity     Severity           `json:"severity"`
+	Decision     PermissionDecision `json:"decision"`
+	ResourceType ResourceType       `json:"resource_type"`
+	ResourcePath string             `json:"resource_path"`
+	UserID       string             `json:"user_id"`
+	Username     string             `json:"username"`
 	RequiredRole PermissionLevel    `json:"required_role"`
-	SourceIP     string            `json:"source_ip"`
-	RequestTime  time.Time         `json:"request_time"`
-	ApprovalID   string            `json:"approval_id"`
-	Reason       string            `json:"reason"`
-	RiskFactors  []string          `json:"risk_factors"`
-	ApprovedBy   string            `json:"approved_by"`
-	ApprovedAt   time.Time         `json:"approved_at"`
-	DeniedReason string            `json:"denied_reason"`
+	SourceIP     string             `json:"source_ip"`
+	RequestTime  time.Time          `json:"request_time"`
+	ApprovalID   string             `json:"approval_id"`
+	Reason       string             `json:"reason"`
+	RiskFactors  []string           `json:"risk_factors"`
+	ApprovedBy   string             `json:"approved_by"`
+	ApprovedAt   time.Time          `json:"approved_at"`
+	DeniedReason string             `json:"denied_reason"`
 }
 
 type Service interface {
@@ -139,6 +143,8 @@ type permissionService struct {
 	requestMu       sync.Mutex
 	activeRequest   *PermissionRequest
 	activeRequestMu sync.Mutex
+	assessor        *security.RiskAssessor
+	bypassMarkers   []string
 }
 
 func (s *permissionService) GrantPersistent(permission PermissionRequest) {
@@ -198,13 +204,18 @@ func (s *permissionService) Deny(permission PermissionRequest) {
 }
 
 func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRequest) (bool, error) {
-	if s.skip {
+	assessment, forceInteractive, bypassPhrases := s.evaluateRiskGate(opts)
+	if len(bypassPhrases) > 0 {
+		s.recordBypassAuditEvent(opts, assessment, bypassPhrases)
+	}
+
+	if s.skip && !forceInteractive {
 		return true, nil
 	}
 
 	// Check if the tool/action combination is in the allowlist
 	commandKey := opts.ToolName + ":" + opts.Action
-	if slices.Contains(s.allowedTools, commandKey) || slices.Contains(s.allowedTools, opts.ToolName) {
+	if !forceInteractive && (slices.Contains(s.allowedTools, commandKey) || slices.Contains(s.allowedTools, opts.ToolName)) {
 		return true, nil
 	}
 
@@ -219,7 +230,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	autoApprove := s.autoApproveSessions[opts.SessionID]
 	s.autoApproveSessionsMu.RUnlock()
 
-	if autoApprove {
+	if autoApprove && !forceInteractive {
 		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
 			ToolCallID: opts.ToolCallID,
 			Granted:    true,
@@ -253,6 +264,11 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		TargetHost:  opts.TargetHost,
 		TargetEnv:   opts.TargetEnv,
 		TargetID:    opts.TargetID,
+	}
+	if assessment != nil {
+		permission.RiskScore = assessment.Score
+		permission.RiskFactors = riskFactorNames(assessment.Factors)
+		permission.Severity = mapRiskLevelToSeverity(assessment.Level)
 	}
 
 	s.sessionPermissionsMu.RLock()
@@ -306,6 +322,16 @@ func (s *permissionService) SkipRequests() bool {
 }
 
 func NewPermissionService(workingDir string, skip bool, allowedTools []string) Service {
+	return NewPermissionServiceWithBypassMarkers(workingDir, skip, allowedTools, nil, nil)
+}
+
+func NewPermissionServiceWithBypassMarkers(
+	workingDir string,
+	skip bool,
+	allowedTools []string,
+	overrideMarkers []string,
+	extraMarkers []string,
+) Service {
 	return &permissionService{
 		Broker:              pubsub.NewBroker[PermissionRequest](),
 		notificationBroker:  pubsub.NewBroker[PermissionNotification](),
@@ -315,5 +341,172 @@ func NewPermissionService(workingDir string, skip bool, allowedTools []string) S
 		skip:                skip,
 		allowedTools:        allowedTools,
 		pendingRequests:     csync.NewMap[string, chan bool](),
+		assessor:            security.NewRiskAssessor(),
+		bypassMarkers:       mergeBypassIntentMarkers(overrideMarkers, extraMarkers),
 	}
+}
+
+func (s *permissionService) evaluateRiskGate(
+	opts CreatePermissionRequest,
+) (*security.RiskAssessment, bool, []string) {
+	assessor := s.assessor
+	if assessor == nil {
+		assessor = security.NewRiskAssessor()
+	}
+
+	candidates := permissionRiskCandidates(opts)
+	if len(candidates) == 0 {
+		return nil, false, nil
+	}
+
+	best := assessor.AssessCommand(candidates[0])
+	for _, candidate := range candidates[1:] {
+		current := assessor.AssessCommand(candidate)
+		if current.Score > best.Score {
+			best = current
+		}
+	}
+
+	forceInteractive := best.Level == security.RiskLevelHigh || best.Level == security.RiskLevelCritical
+	bypassPhrases := detectBypassIntent(candidates, s.bypassMarkers)
+	if len(bypassPhrases) > 0 {
+		forceInteractive = true
+	}
+	return best, forceInteractive, bypassPhrases
+}
+
+func permissionRiskCandidates(opts CreatePermissionRequest) []string {
+	candidates := make([]string, 0, 6)
+	addCandidate := func(v string) {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			candidates = append(candidates, v)
+		}
+	}
+
+	addCandidate(opts.ToolName)
+	addCandidate(opts.Action)
+	addCandidate(opts.Description)
+	addCandidate(opts.Path)
+
+	if raw, err := json.Marshal(opts.Params); err == nil {
+		addCandidate(string(raw))
+	}
+
+	return candidates
+}
+
+func detectBypassIntent(candidates []string, markers []string) []string {
+	if len(markers) == 0 {
+		markers = defaultBypassIntentMarkers()
+	}
+
+	seen := make(map[string]struct{})
+	for _, candidate := range candidates {
+		text := strings.ToLower(candidate)
+		for _, marker := range markers {
+			if strings.Contains(text, marker) {
+				seen[marker] = struct{}{}
+			}
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for marker := range seen {
+		out = append(out, marker)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func defaultBypassIntentMarkers() []string {
+	return []string{
+		"ignore previous instructions",
+		"bypass permission",
+		"disable permission",
+		"skip permission",
+		"turn off security",
+		"disable security",
+		"override guardrail",
+		"jailbreak",
+		"越过权限",
+		"绕过权限",
+		"关闭安全",
+	}
+}
+
+func mergeBypassIntentMarkers(override []string, extra []string) []string {
+	base := override
+	if len(base) == 0 {
+		base = defaultBypassIntentMarkers()
+	}
+
+	merged := make([]string, 0, len(base)+len(extra))
+	merged = append(merged, base...)
+	merged = append(merged, extra...)
+
+	uniq := make(map[string]struct{})
+	out := make([]string, 0, len(merged))
+	for _, marker := range merged {
+		normalized := strings.ToLower(strings.TrimSpace(marker))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := uniq[normalized]; exists {
+			continue
+		}
+		uniq[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+
+	if len(out) == 0 {
+		return defaultBypassIntentMarkers()
+	}
+	return out
+}
+
+func (s *permissionService) recordBypassAuditEvent(
+	opts CreatePermissionRequest,
+	assessment *security.RiskAssessment,
+	bypassPhrases []string,
+) {
+	riskScore := 0
+	riskLevel := string(security.RiskLevelLow)
+	if assessment != nil {
+		riskScore = assessment.Score
+		riskLevel = string(assessment.Level)
+	}
+	event := audit.NewAuditEventBuilder(audit.EventTypeSecurityAlert).
+		WithSession(opts.SessionID).
+		WithAction("permission_bypass_intent_detected").
+		WithResource(string(ResourceTypeCommand), opts.ToolName, opts.Path).
+		WithRiskScore(riskScore, riskLevel).
+		WithResult(audit.ResultDenied).
+		WithDetail("tool_call_id", opts.ToolCallID).
+		WithDetail("tool_name", opts.ToolName).
+		WithDetail("action", opts.Action).
+		WithDetail("bypass_phrases", bypassPhrases).
+		Build()
+	_ = audit.RecordGlobal(event)
+}
+
+func mapRiskLevelToSeverity(level security.RiskLevel) Severity {
+	switch level {
+	case security.RiskLevelCritical:
+		return SeverityCritical
+	case security.RiskLevelHigh:
+		return SeverityHigh
+	case security.RiskLevelMedium:
+		return SeverityMedium
+	default:
+		return SeverityLow
+	}
+}
+
+func riskFactorNames(factors []security.RiskFactor) []string {
+	names := make([]string, 0, len(factors))
+	for _, factor := range factors {
+		names = append(names, factor.Name)
+	}
+	return names
 }

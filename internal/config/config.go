@@ -59,9 +59,9 @@ const (
 )
 
 const (
-	AgentCoder string = "coder"
-	AgentTask  string = "task"
-	AgentOpsAgent string = "ops_agent"
+	AgentCoder               string = "coder"
+	AgentTask                string = "task"
+	AgentOpsAgent            string = "ops_agent"
 	AgentSecurityExpertAgent string = "security_expert_agent"
 )
 
@@ -214,8 +214,10 @@ func (c Completions) Limits() (depth, items int) {
 }
 
 type Permissions struct {
-	AllowedTools []string `json:"allowed_tools,omitempty" jsonschema:"description=List of tools that don't require permission prompts,example=bash,example=view"` // Tools that don't require permission prompts
-	SkipRequests bool     `json:"-"`                                                                                                                              // Automatically accept all permissions (YOLO mode)
+	AllowedTools             []string `json:"allowed_tools,omitempty" jsonschema:"description=List of tools that don't require permission prompts,example=bash,example=view"` // Tools that don't require permission prompts
+	BypassIntentMarkers      []string `json:"bypass_intent_markers,omitempty" jsonschema:"description=Override default bypass-intent markers used to force permission confirmation for risky prompts"`
+	ExtraBypassIntentMarkers []string `json:"extra_bypass_intent_markers,omitempty" jsonschema:"description=Additional bypass-intent markers appended to default markers"`
+	SkipRequests             bool     `json:"-"` // Automatically accept all permissions (YOLO mode)
 }
 
 type RemoteAuth struct {

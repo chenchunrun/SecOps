@@ -44,6 +44,7 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 	store := &ConfigStore{
 		config:         cfg,
 		workingDir:     workingDir,
+		globalCfgPath:  GlobalConfig(),
 		globalDataPath: GlobalConfigData(),
 		workspacePath:  filepath.Join(cfg.Options.DataDirectory, fmt.Sprintf("%s.json", appName)),
 	}

@@ -11,12 +11,15 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"maps"
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
@@ -68,6 +71,7 @@ type Coordinator interface {
 	// INFO: (kujtim) this is not used yet we will use this when we have multiple agents
 	// SetMainAgent(string)
 	Run(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
+	ActiveAgentID() string
 	Cancel(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
@@ -94,6 +98,7 @@ type coordinator struct {
 	agents       map[string]SessionAgent
 	mainAgentID  string
 	updateState  coordinatorUpdateState
+	rateLimit    coordinatorRateLimitState
 
 	readyWg errgroup.Group
 }
@@ -102,6 +107,11 @@ type coordinatorUpdateState struct {
 	mu                  sync.Mutex
 	lastModelsSignature string
 	lastToolsSignature  string
+}
+
+type coordinatorRateLimitState struct {
+	mu             sync.Mutex
+	nextAllowedRun map[string]time.Time
 }
 
 type runMode int
@@ -133,6 +143,9 @@ func NewCoordinator(
 		lspManager:  lspManager,
 		notify:      notify,
 		agents:      make(map[string]SessionAgent),
+		rateLimit: coordinatorRateLimitState{
+			nextAllowedRun: make(map[string]time.Time),
+		},
 	}
 
 	agentID := c.activeAgentID()
@@ -184,7 +197,11 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 	// Auto-route simple prompts to the fast model profile (small model),
 	// while keeping complex prompts on the large model profile.
 	useFastProfile := false
-	if largeModel, smallModel, ok := currentAgentModels(c.currentAgent); ok {
+	var largeModel, smallModel Model
+	hasAgentModels := false
+	if lm, sm, ok := currentAgentModels(c.currentAgent); ok {
+		largeModel, smallModel = lm, sm
+		hasAgentModels = true
 		if mode == runModeFast || (mode == runModeAuto && shouldUseFastModel(prompt, attachments)) {
 			c.currentAgent.SetModels(smallModel, smallModel)
 			defer c.currentAgent.SetModels(largeModel, smallModel)
@@ -196,46 +213,53 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		}
 	}
 
-	model := c.currentAgent.Model()
-	maxTokens := model.CatwalkCfg.DefaultMaxTokens
-	if model.ModelCfg.MaxTokens != 0 {
-		maxTokens = model.ModelCfg.MaxTokens
-	}
+	runCurrentModel := func(enableFastProfile bool) (*fantasy.AgentResult, error, config.ProviderConfig) {
+		model := c.currentAgent.Model()
+		maxTokens := model.CatwalkCfg.DefaultMaxTokens
+		if model.ModelCfg.MaxTokens != 0 {
+			maxTokens = model.ModelCfg.MaxTokens
+		}
 
-	if !model.CatwalkCfg.SupportsImages && attachments != nil {
-		// filter out image attachments
-		filteredAttachments := make([]message.Attachment, 0, len(attachments))
-		for _, att := range attachments {
-			if att.IsText() {
-				filteredAttachments = append(filteredAttachments, att)
+		callAttachments := attachments
+		if !model.CatwalkCfg.SupportsImages && attachments != nil {
+			// filter out image attachments
+			filteredAttachments := make([]message.Attachment, 0, len(attachments))
+			for _, att := range attachments {
+				if att.IsText() {
+					filteredAttachments = append(filteredAttachments, att)
+				}
+			}
+			callAttachments = filteredAttachments
+		}
+
+		providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
+		if !ok {
+			return nil, errModelProviderNotConfigured, config.ProviderConfig{}
+		}
+		if wait, limited := c.providerRateLimitWait(providerCfg.ID); limited {
+			return nil, fmt.Errorf(
+				"rate limit reached for requests on provider %s, retry in %ds or switch to /fast",
+				cmp.Or(providerCfg.Name, providerCfg.ID),
+				int(math.Ceil(wait.Seconds())),
+			), providerCfg
+		}
+
+		if enableFastProfile {
+			model = applyProviderAwareFastProfile(model, providerCfg)
+		}
+
+		mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
+		if providerCfg.OAuthToken != nil && providerCfg.OAuthToken.IsExpired() {
+			slog.Debug("Token needs to be refreshed", "provider", providerCfg.ID)
+			if err := c.refreshOAuth2Token(ctx, providerCfg); err != nil {
+				return nil, err, providerCfg
 			}
 		}
-		attachments = filteredAttachments
-	}
 
-	providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
-	if !ok {
-		return nil, errModelProviderNotConfigured
-	}
-
-	if useFastProfile {
-		model = applyProviderAwareFastProfile(model, providerCfg)
-	}
-
-	mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
-
-	if providerCfg.OAuthToken != nil && providerCfg.OAuthToken.IsExpired() {
-		slog.Debug("Token needs to be refreshed", "provider", providerCfg.ID)
-		if err := c.refreshOAuth2Token(ctx, providerCfg); err != nil {
-			return nil, err
-		}
-	}
-
-	run := func() (*fantasy.AgentResult, error) {
-		return c.currentAgent.Run(ctx, SessionAgentCall{
+		result, err := c.currentAgent.Run(ctx, SessionAgentCall{
 			SessionID:        sessionID,
 			Prompt:           prompt,
-			Attachments:      attachments,
+			Attachments:      callAttachments,
 			MaxOutputTokens:  maxTokens,
 			ProviderOptions:  mergedOptions,
 			Temperature:      temp,
@@ -244,8 +268,10 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 			FrequencyPenalty: freqPenalty,
 			PresencePenalty:  presPenalty,
 		})
+		return result, err, providerCfg
 	}
-	result, originalErr := run()
+
+	result, originalErr, providerCfg := runCurrentModel(useFastProfile)
 
 	if c.isUnauthorized(originalErr) {
 		switch {
@@ -255,15 +281,46 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 				return nil, originalErr
 			}
 			slog.Debug("Retrying request with refreshed OAuth token", "provider", providerCfg.ID)
-			return run()
+			res, err, _ := runCurrentModel(useFastProfile)
+			return res, err
 		case strings.Contains(providerCfg.APIKeyTemplate, "$"):
 			slog.Debug("Received 401. Refreshing API Key template and retrying", "provider", providerCfg.ID)
 			if err := c.refreshApiKeyTemplate(ctx, providerCfg); err != nil {
 				return nil, originalErr
 			}
 			slog.Debug("Retrying request with refreshed API key", "provider", providerCfg.ID)
-			return run()
+			res, err, _ := runCurrentModel(useFastProfile)
+			return res, err
 		}
+	}
+
+	if c.isRateLimited(originalErr) {
+		if useFastProfile && hasAgentModels {
+			slog.Debug("Fast profile hit 429, falling back to deep model", "session_id", sessionID, "provider", providerCfg.ID)
+			c.currentAgent.SetModels(largeModel, smallModel)
+			fallbackResult, fallbackErr, fallbackProvider := runCurrentModel(false)
+			if fallbackErr == nil {
+				return fallbackResult, nil
+			}
+			if c.isRateLimited(fallbackErr) {
+				retryAfter := retryAfterDuration(fallbackErr)
+				c.setProviderRateLimit(fallbackProvider.ID, retryAfter)
+				return nil, fmt.Errorf(
+					"rate limit reached for requests on provider %s, retry in %ds or switch model/provider",
+					cmp.Or(fallbackProvider.Name, fallbackProvider.ID),
+					int(math.Ceil(retryAfter.Seconds())),
+				)
+			}
+			return nil, fallbackErr
+		}
+
+		retryAfter := retryAfterDuration(originalErr)
+		c.setProviderRateLimit(providerCfg.ID, retryAfter)
+		return nil, fmt.Errorf(
+			"rate limit reached for requests on provider %s, retry in %ds or switch model/provider",
+			cmp.Or(providerCfg.Name, providerCfg.ID),
+			int(math.Ceil(retryAfter.Seconds())),
+		)
 	}
 
 	return result, originalErr
@@ -1135,6 +1192,10 @@ func (c *coordinator) Model() Model {
 	return c.currentAgent.Model()
 }
 
+func (c *coordinator) ActiveAgentID() string {
+	return c.mainAgentID
+}
+
 func (c *coordinator) UpdateModels(ctx context.Context) error {
 	return c.updateModels(ctx, false)
 }
@@ -1342,6 +1403,81 @@ func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
 func (c *coordinator) isUnauthorized(err error) bool {
 	var providerErr *fantasy.ProviderError
 	return errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized
+}
+
+func (c *coordinator) isRateLimited(err error) bool {
+	var providerErr *fantasy.ProviderError
+	return errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusTooManyRequests
+}
+
+func retryAfterDuration(err error) time.Duration {
+	const (
+		defaultWait = 15 * time.Second
+		maxWait     = 2 * time.Minute
+	)
+	var providerErr *fantasy.ProviderError
+	if !errors.As(err, &providerErr) || providerErr == nil {
+		return defaultWait
+	}
+	header := ""
+	for k, v := range providerErr.ResponseHeaders {
+		if strings.EqualFold(k, "retry-after") {
+			header = strings.TrimSpace(v)
+			break
+		}
+	}
+	if header == "" {
+		return defaultWait
+	}
+
+	if sec, parseErr := strconv.Atoi(header); parseErr == nil {
+		if sec <= 0 {
+			return defaultWait
+		}
+		d := time.Duration(sec) * time.Second
+		if d > maxWait {
+			return maxWait
+		}
+		return d
+	}
+	if at, parseErr := http.ParseTime(header); parseErr == nil {
+		d := time.Until(at)
+		if d <= 0 {
+			return defaultWait
+		}
+		if d > maxWait {
+			return maxWait
+		}
+		return d
+	}
+	return defaultWait
+}
+
+func (c *coordinator) providerRateLimitWait(providerID string) (time.Duration, bool) {
+	if providerID == "" {
+		return 0, false
+	}
+	c.rateLimit.mu.Lock()
+	defer c.rateLimit.mu.Unlock()
+	next, ok := c.rateLimit.nextAllowedRun[providerID]
+	if !ok {
+		return 0, false
+	}
+	wait := time.Until(next)
+	if wait <= 0 {
+		delete(c.rateLimit.nextAllowedRun, providerID)
+		return 0, false
+	}
+	return wait, true
+}
+
+func (c *coordinator) setProviderRateLimit(providerID string, wait time.Duration) {
+	if providerID == "" || wait <= 0 {
+		return
+	}
+	c.rateLimit.mu.Lock()
+	defer c.rateLimit.mu.Unlock()
+	c.rateLimit.nextAllowedRun[providerID] = time.Now().Add(wait)
 }
 
 func (c *coordinator) refreshOAuth2Token(ctx context.Context, providerCfg config.ProviderConfig) error {

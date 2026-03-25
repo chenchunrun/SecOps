@@ -131,6 +131,30 @@ Typical config search order:
 Persistent state and local data are written under the user data/config
 locations used by Crush.
 
+### Bypass-Intent Guardrail (New)
+
+The permission service now enforces a bypass-intent guardrail before applying
+`skip_requests`, `allowed_tools`, or session auto-approve.
+
+- High/Critical risk requests are forced into interactive confirmation.
+- Suspicious bypass intent is emitted to audit as `security_alert` with action
+  `permission_bypass_intent_detected`.
+- Marker rules are configurable:
+  - `permissions.bypass_intent_markers`: override the default marker set
+  - `permissions.extra_bypass_intent_markers`: append organization-specific markers
+
+Example:
+
+```json
+{
+  "permissions": {
+    "allowed_tools": ["view", "ls"],
+    "bypass_intent_markers": ["ignore all guardrails", "org-bypass-keyword"],
+    "extra_bypass_intent_markers": ["临时绕过审批"]
+  }
+}
+```
+
 ## Compliance and Legal
 
 - License: see `LICENSE.md`

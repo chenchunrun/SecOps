@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 
@@ -77,6 +78,36 @@ func TestConfig_LoadFromBytes_DecryptsNestedOAuthTokenObject(t *testing.T) {
 	require.NotNil(t, provider.OAuthToken)
 	require.Equal(t, "copilot-access-token", provider.OAuthToken.AccessToken)
 	require.Equal(t, "copilot-refresh-token", provider.OAuthToken.RefreshToken)
+}
+
+func TestConfig_LoadFromBytes_DecryptsWhenUSERMissingAfterRestart(t *testing.T) {
+	tempHome := t.TempDir()
+	currentUser := os.Getenv("USER")
+	if currentUser == "" {
+		if u, err := user.Current(); err == nil && u != nil {
+			currentUser = u.Username
+		}
+	}
+	if currentUser == "" {
+		t.Skip("unable to determine current username")
+	}
+
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USER", currentUser)
+	encryptedKey, err := encrypt("persisted-key")
+	require.NoError(t, err)
+
+	// Simulate a restart environment where USER is not exported.
+	t.Setenv("USER", "")
+	t.Setenv("LOGNAME", "")
+
+	data := []byte(`{"providers":{"zhipu":{"api_key":"` + encryptedKey + `","base_url":"https://open.bigmodel.cn/api/paas/v4","type":"openai-compat"}}}`)
+	cfg, err := loadFromBytes([][]byte{data})
+	require.NoError(t, err)
+
+	provider, ok := cfg.Providers.Get("zhipu")
+	require.True(t, ok)
+	require.Equal(t, "persisted-key", provider.APIKey)
 }
 
 func TestConfigStore_SetProviderAPIKey_PersistsAcrossReload(t *testing.T) {

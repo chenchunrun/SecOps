@@ -383,6 +383,37 @@ permissions. Use this with care.
 You can also skip all permission prompts entirely by running Crush with the
 `--yolo` flag. Be very, very careful with this feature.
 
+### Bypass-Intent Guardrail
+
+To reduce prompt/skill injection risk, Crush performs bypass-intent checks in
+the permission chain before applying `allowed_tools`, `--yolo`, or session
+auto-approve.
+
+- High/Critical risk requests are forced to interactive confirmation.
+- Suspected bypass intent emits audit event:
+  - `event_type: security_alert`
+  - `action: permission_bypass_intent_detected`
+
+You can customize marker rules in config:
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "permissions": {
+    "bypass_intent_markers": [
+      "ignore all guardrails",
+      "org-bypass-keyword"
+    ],
+    "extra_bypass_intent_markers": [
+      "临时绕过审批"
+    ]
+  }
+}
+```
+
+- `bypass_intent_markers`: override default marker set.
+- `extra_bypass_intent_markers`: append organization-specific markers.
+
 ### Disabling Built-In Tools
 
 If you'd like to prevent Crush from using certain built-in tools entirely, you

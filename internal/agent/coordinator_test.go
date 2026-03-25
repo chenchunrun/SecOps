@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
+	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
@@ -18,6 +20,56 @@ type mockSessionAgent struct {
 	model     Model
 	runFunc   func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error)
 	cancelled []string
+}
+
+func TestRetryAfterDuration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uses numeric retry-after seconds", func(t *testing.T) {
+		err := &fantasy.ProviderError{
+			StatusCode:      http.StatusTooManyRequests,
+			ResponseHeaders: map[string]string{"Retry-After": "7"},
+		}
+		got := retryAfterDuration(err)
+		require.Equal(t, 7*time.Second, got)
+	})
+
+	t.Run("falls back when header missing", func(t *testing.T) {
+		err := &fantasy.ProviderError{StatusCode: http.StatusTooManyRequests}
+		got := retryAfterDuration(err)
+		require.Equal(t, 15*time.Second, got)
+	})
+
+	t.Run("caps very large retry-after", func(t *testing.T) {
+		err := &fantasy.ProviderError{
+			StatusCode:      http.StatusTooManyRequests,
+			ResponseHeaders: map[string]string{"Retry-After": "9999"},
+		}
+		got := retryAfterDuration(err)
+		require.Equal(t, 2*time.Minute, got)
+	})
+}
+
+func TestCoordinatorProviderRateLimitState(t *testing.T) {
+	t.Parallel()
+
+	c := &coordinator{
+		rateLimit: coordinatorRateLimitState{
+			nextAllowedRun: make(map[string]time.Time),
+		},
+	}
+
+	c.setProviderRateLimit("zai", 3*time.Second)
+	wait, limited := c.providerRateLimitWait("zai")
+	require.True(t, limited)
+	require.Greater(t, wait, time.Second)
+
+	c.rateLimit.mu.Lock()
+	c.rateLimit.nextAllowedRun["zai"] = time.Now().Add(-time.Second)
+	c.rateLimit.mu.Unlock()
+	wait, limited = c.providerRateLimitWait("zai")
+	require.False(t, limited)
+	require.Zero(t, wait)
 }
 
 func (m *mockSessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {

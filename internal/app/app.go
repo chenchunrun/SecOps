@@ -18,6 +18,9 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/charmbracelet/x/term"
 	"github.com/chenchunrun/SecOps/internal/agent"
 	"github.com/chenchunrun/SecOps/internal/agent/notify"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/mcp"
@@ -39,9 +42,6 @@ import (
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/chenchunrun/SecOps/internal/update"
 	"github.com/chenchunrun/SecOps/internal/version"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
-	"github.com/charmbracelet/x/term"
 )
 
 // UpdateAvailableMsg is sent when a new version is available.
@@ -85,15 +85,27 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	cfg := store.Config()
 	skipPermissionsRequests := cfg.Permissions != nil && cfg.Permissions.SkipRequests
 	var allowedTools []string
+	var bypassIntentMarkers []string
+	var extraBypassIntentMarkers []string
 	if cfg.Permissions != nil && cfg.Permissions.AllowedTools != nil {
 		allowedTools = cfg.Permissions.AllowedTools
 	}
+	if cfg.Permissions != nil {
+		bypassIntentMarkers = cfg.Permissions.BypassIntentMarkers
+		extraBypassIntentMarkers = cfg.Permissions.ExtraBypassIntentMarkers
+	}
 
 	app := &App{
-		Sessions:    sessions,
-		Messages:    messages,
-		History:     files,
-		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
+		Sessions: sessions,
+		Messages: messages,
+		History:  files,
+		Permissions: permission.NewPermissionServiceWithBypassMarkers(
+			store.WorkingDir(),
+			skipPermissionsRequests,
+			allowedTools,
+			bypassIntentMarkers,
+			extraBypassIntentMarkers,
+		),
 		FileTracker: filetracker.NewService(q),
 		LSPManager:  lsp.NewManager(store),
 		AuditStore:  audit.NewInMemoryAuditStore(),
@@ -533,6 +545,9 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 	coderAgentCfg := app.config.Config().Agents[config.AgentCoder]
 	if coderAgentCfg.ID == "" {
 		return fmt.Errorf("coder agent configuration is missing")
+	}
+	if app.AgentCoordinator != nil {
+		app.AgentCoordinator.CancelAll()
 	}
 	var err error
 	app.AgentCoordinator, err = agent.NewCoordinator(

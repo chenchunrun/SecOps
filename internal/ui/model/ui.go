@@ -642,7 +642,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	case pubsub.Event[permission.PermissionNotification]:
-		m.handlePermissionNotification(msg.Payload)
+		if cmd := m.handlePermissionNotification(msg.Payload); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case cancelTimerExpiredMsg:
 		m.isCanceling = false
 	case tea.TerminalVersionMsg:
@@ -1319,16 +1321,19 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Run mode set to "+string(msg.Mode))))
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionSetAgentMode:
-		m.agentMode = msg.Mode
+		prevMode := m.agentMode
 		if msg.Mode == dialog.AgentModeAuto {
+			m.agentMode = msg.Mode
 			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent mode set to auto")))
 			m.dialog.CloseDialog(dialog.CommandsID)
 			break
 		}
 		target := string(msg.Mode)
 		if err := m.switchActiveAgent(context.Background(), target, true); err != nil {
+			m.agentMode = prevMode
 			cmds = append(cmds, util.ReportError(err))
 		} else {
+			m.agentMode = msg.Mode
 			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent switched to "+target)))
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
@@ -2970,8 +2975,11 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 		if err != nil {
 			isCancelErr := errors.Is(err, context.Canceled)
 			isPermissionErr := errors.Is(err, permission.ErrorPermissionDenied)
-			if isCancelErr || isPermissionErr {
+			if isCancelErr {
 				return nil
+			}
+			if isPermissionErr {
+				return util.NewWarnMsg("Permission denied. Audit event recorded.")
 			}
 			return util.InfoMsg{
 				Type: util.InfoTypeError,
@@ -3067,20 +3075,33 @@ func (m *UI) switchActiveAgent(ctx context.Context, target string, persist bool)
 	if cfg.Options == nil {
 		return fmt.Errorf("configuration options not initialized")
 	}
-	if strings.TrimSpace(cfg.Options.ActiveAgent) == target {
-		return nil
+	currentActive := strings.TrimSpace(cfg.Options.ActiveAgent)
+	coordinatorActive := ""
+	if m.com.App != nil && m.com.App.AgentCoordinator != nil {
+		coordinatorActive = strings.TrimSpace(m.com.App.AgentCoordinator.ActiveAgentID())
 	}
-	if m.isAgentBusy() {
-		return fmt.Errorf("agent is busy, switch rejected")
+	if currentActive == target && coordinatorActive == target {
+		return nil
 	}
 	cfg.Options.ActiveAgent = target
 	if persist {
 		if err := m.com.Store().SetConfigField(config.ScopeGlobal, "options.active_agent", target); err != nil {
 			return fmt.Errorf("failed to persist active agent: %w", err)
 		}
+		// Keep ~/.config and ~/.local/share in sync to avoid conflicting
+		// defaults across environments.
+		if err := m.com.Store().SetConfigField(config.ScopeGlobalConfig, "options.active_agent", target); err != nil {
+			slog.Warn("Failed to sync active agent to global config", "target", target, "error", err)
+		}
 	}
 	if err := m.com.App.InitCoderAgent(ctx); err != nil {
 		return fmt.Errorf("failed to switch active agent: %w", err)
+	}
+	if m.com.App != nil && m.com.App.AgentCoordinator != nil {
+		active := strings.TrimSpace(m.com.App.AgentCoordinator.ActiveAgentID())
+		if active != target {
+			return fmt.Errorf("agent switch did not take effect (target=%s active=%s)", target, active)
+		}
 	}
 	return nil
 }
@@ -3289,10 +3310,13 @@ func (m *UI) openPermissionsDialog(perm permission.PermissionRequest) tea.Cmd {
 }
 
 // handlePermissionNotification updates tool items when permission state changes.
-func (m *UI) handlePermissionNotification(notification permission.PermissionNotification) {
+func (m *UI) handlePermissionNotification(notification permission.PermissionNotification) tea.Cmd {
 	toolItem := m.chat.MessageItem(notification.ToolCallID)
 	if toolItem == nil {
-		return
+		if notification.Denied {
+			return util.CmdHandler(util.NewWarnMsg("Permission denied. Audit event recorded."))
+		}
+		return nil
 	}
 
 	if permItem, ok := toolItem.(chat.ToolMessageItem); ok {
@@ -3302,6 +3326,10 @@ func (m *UI) handlePermissionNotification(notification permission.PermissionNoti
 			permItem.SetStatus(chat.ToolStatusAwaitingPermission)
 		}
 	}
+	if notification.Denied {
+		return util.CmdHandler(util.NewWarnMsg("Permission denied. Audit event recorded."))
+	}
+	return nil
 }
 
 // handleAgentNotification translates domain agent events into desktop
