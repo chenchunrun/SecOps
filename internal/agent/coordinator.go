@@ -296,7 +296,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 	}
 
 	if c.isRateLimited(originalErr) {
-		if useFastProfile && hasAgentModels {
+		if shouldFallbackToDeepOnRateLimit(useFastProfile, hasAgentModels, largeModel, smallModel) {
 			slog.Debug("Fast profile hit 429, falling back to deep model", "session_id", sessionID, "provider", providerCfg.ID)
 			c.currentAgent.SetModels(largeModel, smallModel)
 			fallbackResult, fallbackErr, fallbackProvider := runCurrentModel(false)
@@ -439,6 +439,31 @@ func resolveProviderType(providerCfg config.ProviderConfig, modelID string) stri
 		return openaicompat.Name
 	}
 	return string(providerType)
+}
+
+func sameProviderModel(a, b Model) bool {
+	ap := strings.TrimSpace(a.ModelCfg.Provider)
+	bp := strings.TrimSpace(b.ModelCfg.Provider)
+	if ap == "" || bp == "" || ap != bp {
+		return false
+	}
+
+	am := strings.TrimSpace(a.CatwalkCfg.ID)
+	if am == "" {
+		am = strings.TrimSpace(a.ModelCfg.Model)
+	}
+	bm := strings.TrimSpace(b.CatwalkCfg.ID)
+	if bm == "" {
+		bm = strings.TrimSpace(b.ModelCfg.Model)
+	}
+	if am == "" || bm == "" {
+		return false
+	}
+	return am == bm
+}
+
+func shouldFallbackToDeepOnRateLimit(useFastProfile, hasAgentModels bool, largeModel, smallModel Model) bool {
+	return useFastProfile && hasAgentModels && !sameProviderModel(largeModel, smallModel)
 }
 
 func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.ProviderOptions {

@@ -72,6 +72,77 @@ func TestCoordinatorProviderRateLimitState(t *testing.T) {
 	require.Zero(t, wait)
 }
 
+func TestSameProviderModel(t *testing.T) {
+	t.Parallel()
+
+	base := Model{
+		CatwalkCfg: catwalk.Model{ID: "minimax/MiniMax-M2.5-highspeed"},
+		ModelCfg: config.SelectedModel{
+			Provider: "zai",
+			Model:    "minimax/MiniMax-M2.5-highspeed",
+		},
+	}
+
+	t.Run("same provider and model id", func(t *testing.T) {
+		other := base
+		require.True(t, sameProviderModel(base, other))
+	})
+
+	t.Run("same provider but different model", func(t *testing.T) {
+		other := base
+		other.CatwalkCfg.ID = "minimax/MiniMax-Text-01"
+		other.ModelCfg.Model = "minimax/MiniMax-Text-01"
+		require.False(t, sameProviderModel(base, other))
+	})
+
+	t.Run("different provider", func(t *testing.T) {
+		other := base
+		other.ModelCfg.Provider = "openai"
+		require.False(t, sameProviderModel(base, other))
+	})
+
+	t.Run("falls back to selected model when catwalk id empty", func(t *testing.T) {
+		left := Model{
+			ModelCfg: config.SelectedModel{
+				Provider: "zai",
+				Model:    "glm-4.7-flash",
+			},
+		}
+		right := Model{
+			ModelCfg: config.SelectedModel{
+				Provider: "zai",
+				Model:    "glm-4.7-flash",
+			},
+		}
+		require.True(t, sameProviderModel(left, right))
+	})
+}
+
+func TestShouldFallbackToDeepOnRateLimit(t *testing.T) {
+	t.Parallel()
+
+	large := Model{
+		CatwalkCfg: catwalk.Model{ID: "minimax/MiniMax-M2.5-highspeed"},
+		ModelCfg: config.SelectedModel{
+			Provider: "zai",
+			Model:    "minimax/MiniMax-M2.5-highspeed",
+		},
+	}
+	smallSame := large
+	smallDifferent := Model{
+		CatwalkCfg: catwalk.Model{ID: "minimax/MiniMax-Text-01"},
+		ModelCfg: config.SelectedModel{
+			Provider: "zai",
+			Model:    "minimax/MiniMax-Text-01",
+		},
+	}
+
+	require.False(t, shouldFallbackToDeepOnRateLimit(false, true, large, smallDifferent))
+	require.False(t, shouldFallbackToDeepOnRateLimit(true, false, large, smallDifferent))
+	require.False(t, shouldFallbackToDeepOnRateLimit(true, true, large, smallSame))
+	require.True(t, shouldFallbackToDeepOnRateLimit(true, true, large, smallDifferent))
+}
+
 func (m *mockSessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
 	return m.runFunc(ctx, call)
 }
