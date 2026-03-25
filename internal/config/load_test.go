@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"charm.land/catwalk/pkg/catwalk"
@@ -160,6 +161,44 @@ func TestConfigStore_SetProviderAPIKey_PersistsAcrossReload(t *testing.T) {
 	provider, ok := reloaded.Providers.Get(providerID)
 	require.True(t, ok)
 	require.Equal(t, apiKey, provider.APIKey)
+}
+
+func TestEncryptDecrypt_UsesMasterKeyFileAcrossIdentityChanges(t *testing.T) {
+	tmpDir := t.TempDir()
+	homeDir := filepath.Join(tmpDir, "home")
+	require.NoError(t, os.MkdirAll(homeDir, 0o755))
+
+	t.Setenv("CRUSH_GLOBAL_CONFIG", tmpDir)
+	t.Setenv("CRUSH_MASTER_KEY", "")
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USER", "alice")
+	t.Setenv("LOGNAME", "alice")
+
+	key1, err := loadOrCreateMasterKeyFile()
+	require.NoError(t, err)
+	require.Len(t, key1, 32)
+
+	keyFile := filepath.Join(tmpDir, masterKeyFileName)
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(keyFile)
+		require.NoError(t, statErr)
+		require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
+
+	encrypted, err := encrypt("persisted-secret-value")
+	require.NoError(t, err)
+
+	// Simulate restart under a different shell identity.
+	t.Setenv("USER", "bob")
+	t.Setenv("LOGNAME", "bob")
+
+	decrypted, err := decrypt(encrypted)
+	require.NoError(t, err)
+	require.Equal(t, "persisted-secret-value", decrypted)
+
+	key2, err := loadOrCreateMasterKeyFile()
+	require.NoError(t, err)
+	require.Equal(t, key1, key2)
 }
 
 // testStore wraps a Config in a minimal ConfigStore for testing.
