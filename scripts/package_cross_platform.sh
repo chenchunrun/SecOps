@@ -5,18 +5,24 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+PRODUCT_NAME="${PRODUCT_NAME:-secops-agent}"
 TARGETS="${TARGETS:-darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64}"
 DIST_DIR="${ROOT_DIR}/dist"
 
 mkdir -p "$DIST_DIR"
 
 echo "Version: $VERSION"
+echo "Product: $PRODUCT_NAME"
 echo "Targets: $TARGETS"
 
 for target in $TARGETS; do
   goos="${target%%/*}"
   goarch="${target##*/}"
-  pkg_name="crush-secops-${VERSION}-${goos}-${goarch}"
+  os_label="$goos"
+  if [[ "$goos" == "darwin" ]]; then
+    os_label="macos"
+  fi
+  pkg_name="${PRODUCT_NAME}-${VERSION}-${os_label}-${goarch}"
   work_dir="${DIST_DIR}/${pkg_name}"
 
   rm -rf "$work_dir"
@@ -51,7 +57,7 @@ if (-not (Test-Path $BinSrc)) {
 
 $TargetDir = $env:CRUSH_INSTALL_DIR
 if ([string]::IsNullOrWhiteSpace($TargetDir)) {
-  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\crush-secops"
+  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\secops-agent"
 }
 
 New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
@@ -73,7 +79,7 @@ $ErrorActionPreference = "Stop"
 
 $TargetDir = $env:CRUSH_INSTALL_DIR
 if ([string]::IsNullOrWhiteSpace($TargetDir)) {
-  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\crush-secops"
+  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\secops-agent"
 }
 
 $BinPath = Join-Path $TargetDir "crush.exe"
@@ -86,7 +92,7 @@ if (Test-Path $BinPath) {
 PS1
 
     cat > "$work_dir/INSTALL.md" <<'DOC'
-# Crush SecOps One-Click Install (Windows)
+# SecOps Agent One-Click Install (Windows)
 
 ## Install
 
@@ -171,7 +177,7 @@ fi
 SH
 
     cat > "$work_dir/INSTALL.md" <<'DOC'
-# Crush SecOps One-Click Install (macOS / Linux)
+# SecOps Agent One-Click Install (macOS / Linux)
 
 ## Install
 

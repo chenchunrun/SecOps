@@ -1827,6 +1827,13 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if len(value) == 0 && !message.ContainsTextAttachment(attachments) {
 					return nil
 				}
+				if len(attachments) == 0 {
+					if slashCmd, ok := parseSlashControlCommand(value); ok {
+						m.randomizePlaceholders()
+						m.historyReset()
+						return m.applySlashControlCommand(slashCmd)
+					}
+				}
 
 				m.randomizePlaceholders()
 				m.historyReset()
@@ -2992,9 +2999,8 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 }
 
 func applyRunModePrefix(content string, mode dialog.RunMode) string {
-	trimmed := strings.TrimSpace(content)
-	lower := strings.ToLower(trimmed)
-	if strings.HasPrefix(lower, "/fast") || strings.HasPrefix(lower, "/deep") {
+	directive, _, ok := parseLeadingSlashDirective(content)
+	if ok && (directive == "/fast" || directive == "/deep") {
 		return content
 	}
 
@@ -3006,6 +3012,88 @@ func applyRunModePrefix(content string, mode dialog.RunMode) string {
 	default:
 		return content
 	}
+}
+
+type slashControlCommand struct {
+	runMode   *dialog.RunMode
+	agentMode *dialog.AgentMode
+}
+
+func parseLeadingSlashDirective(content string) (directive, remainder string, ok bool) {
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", content, false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
+		return "", content, false
+	}
+	directive = strings.ToLower(fields[0])
+	remainder = strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+	return directive, remainder, true
+}
+
+func parseSlashControlCommand(content string) (slashControlCommand, bool) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return slashControlCommand{}, false
+	}
+	fields := strings.Fields(strings.ToLower(trimmed))
+	if len(fields) == 0 {
+		return slashControlCommand{}, false
+	}
+
+	run := func(mode dialog.RunMode) slashControlCommand {
+		return slashControlCommand{runMode: &mode}
+	}
+	agent := func(mode dialog.AgentMode) slashControlCommand {
+		return slashControlCommand{agentMode: &mode}
+	}
+
+	if len(fields) == 1 {
+		switch fields[0] {
+		case "/fast":
+			return run(dialog.RunModeFast), true
+		case "/deep":
+			return run(dialog.RunModeDeep), true
+		case "/auto":
+			return run(dialog.RunModeAuto), true
+		case "/ops":
+			return agent(dialog.AgentModeOps), true
+		case "/sec", "/security":
+			return agent(dialog.AgentModeSecurity), true
+		case "/coder":
+			return agent(dialog.AgentModeCoder), true
+		}
+		return slashControlCommand{}, false
+	}
+
+	if len(fields) == 2 {
+		switch fields[0] {
+		case "/run":
+			switch fields[1] {
+			case "auto":
+				return run(dialog.RunModeAuto), true
+			case "fast":
+				return run(dialog.RunModeFast), true
+			case "deep":
+				return run(dialog.RunModeDeep), true
+			}
+		case "/agent":
+			switch fields[1] {
+			case "auto":
+				return agent(dialog.AgentModeAuto), true
+			case "coder":
+				return agent(dialog.AgentModeCoder), true
+			case "ops":
+				return agent(dialog.AgentModeOps), true
+			case "sec", "security":
+				return agent(dialog.AgentModeSecurity), true
+			}
+		}
+	}
+
+	return slashControlCommand{}, false
 }
 
 func routeAgentByMode(content string, mode dialog.AgentMode) (targetAgent string, normalized string) {
@@ -3029,18 +3117,47 @@ func routeAgentByMode(content string, mode dialog.AgentMode) (targetAgent string
 }
 
 func parseAgentDirective(content string) (targetAgent string, normalized string) {
-	trimmed := strings.TrimSpace(content)
-	lower := strings.ToLower(trimmed)
+	directive, remainder, ok := parseLeadingSlashDirective(content)
+	if !ok {
+		return "", content
+	}
+
 	switch {
-	case strings.HasPrefix(lower, "/ops"):
-		return config.AgentOpsAgent, strings.TrimSpace(trimmed[len("/ops"):])
-	case strings.HasPrefix(lower, "/sec"):
-		return config.AgentSecurityExpertAgent, strings.TrimSpace(trimmed[len("/sec"):])
-	case strings.HasPrefix(lower, "/coder"):
-		return config.AgentCoder, strings.TrimSpace(trimmed[len("/coder"):])
+	case directive == "/ops":
+		return config.AgentOpsAgent, remainder
+	case directive == "/sec" || directive == "/security":
+		return config.AgentSecurityExpertAgent, remainder
+	case directive == "/coder":
+		return config.AgentCoder, remainder
 	default:
 		return "", content
 	}
+}
+
+func (m *UI) applySlashControlCommand(cmd slashControlCommand) tea.Cmd {
+	var cmds []tea.Cmd
+	if cmd.runMode != nil {
+		m.runMode = *cmd.runMode
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Run mode set to "+string(*cmd.runMode))))
+	}
+	if cmd.agentMode != nil {
+		switch *cmd.agentMode {
+		case dialog.AgentModeAuto:
+			m.agentMode = dialog.AgentModeAuto
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent mode set to auto")))
+		case dialog.AgentModeCoder, dialog.AgentModeOps, dialog.AgentModeSecurity:
+			prevMode := m.agentMode
+			target := string(*cmd.agentMode)
+			if err := m.switchActiveAgent(context.Background(), target, true); err != nil {
+				m.agentMode = prevMode
+				cmds = append(cmds, util.ReportError(err))
+			} else {
+				m.agentMode = *cmd.agentMode
+				cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent switched to "+target)))
+			}
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func inferAgentForPrompt(content string) string {

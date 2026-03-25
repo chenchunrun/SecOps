@@ -40,6 +40,12 @@ func TestApplyRunModePrefix(t *testing.T) {
 			input:  "/fast check this",
 			output: "/fast check this",
 		},
+		{
+			name:   "similar prefix still gets run mode injected",
+			mode:   dialog.RunModeFast,
+			input:  "/faster check this",
+			output: "/fast /faster check this",
+		},
 	}
 
 	for _, tt := range tests {
@@ -49,4 +55,3 @@ func TestApplyRunModePrefix(t *testing.T) {
 		})
 	}
 }
-

@@ -19,9 +19,17 @@ func TestParseAgentDirective(t *testing.T) {
 	require.Equal(t, config.AgentSecurityExpertAgent, target)
 	require.Equal(t, "做一次合规审计", prompt)
 
+	target, prompt = parseAgentDirective("/security 做一次深度安全分析")
+	require.Equal(t, config.AgentSecurityExpertAgent, target)
+	require.Equal(t, "做一次深度安全分析", prompt)
+
 	target, prompt = parseAgentDirective("/coder 写一个单元测试")
 	require.Equal(t, config.AgentCoder, target)
 	require.Equal(t, "写一个单元测试", prompt)
+
+	target, prompt = parseAgentDirective("/securityaudit 仅文本")
+	require.Equal(t, "", target)
+	require.Equal(t, "/securityaudit 仅文本", prompt)
 }
 
 func TestRouteAgentByMode(t *testing.T) {
@@ -50,6 +58,33 @@ func TestRouteAgentByMode(t *testing.T) {
 	target, prompt = routeAgentByMode("任意任务", dialog.AgentModeCoder)
 	require.Equal(t, config.AgentCoder, target)
 	require.Equal(t, "任意任务", prompt)
+}
+
+func TestParseSlashControlCommand(t *testing.T) {
+	t.Parallel()
+
+	cmd, ok := parseSlashControlCommand("/fast")
+	require.True(t, ok)
+	require.NotNil(t, cmd.runMode)
+	require.Equal(t, dialog.RunModeFast, *cmd.runMode)
+
+	cmd, ok = parseSlashControlCommand("/run deep")
+	require.True(t, ok)
+	require.NotNil(t, cmd.runMode)
+	require.Equal(t, dialog.RunModeDeep, *cmd.runMode)
+
+	cmd, ok = parseSlashControlCommand("/ops")
+	require.True(t, ok)
+	require.NotNil(t, cmd.agentMode)
+	require.Equal(t, dialog.AgentModeOps, *cmd.agentMode)
+
+	cmd, ok = parseSlashControlCommand("/agent security")
+	require.True(t, ok)
+	require.NotNil(t, cmd.agentMode)
+	require.Equal(t, dialog.AgentModeSecurity, *cmd.agentMode)
+
+	_, ok = parseSlashControlCommand("/ops 检查磁盘")
+	require.False(t, ok)
 }
 
 func TestRouteAgentByMode_ExplicitDirectiveTakesPrecedence(t *testing.T) {

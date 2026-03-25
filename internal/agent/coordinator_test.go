@@ -524,6 +524,12 @@ func TestParseRunModePrompt(t *testing.T) {
 			mode:   runModeFast,
 			output: "status",
 		},
+		{
+			name:   "similar prefix is not treated as directive",
+			input:  "/faster status",
+			mode:   runModeAuto,
+			output: "/faster status",
+		},
 	}
 
 	for _, tt := range tests {

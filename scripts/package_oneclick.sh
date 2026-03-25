@@ -5,9 +5,14 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+PRODUCT_NAME="${PRODUCT_NAME:-secops-agent}"
 GOOS_VAL="${GOOS:-$(go env GOOS)}"
 GOARCH_VAL="${GOARCH:-$(go env GOARCH)}"
-PKG_NAME="crush-secops-${VERSION}-${GOOS_VAL}-${GOARCH_VAL}"
+OS_LABEL="$GOOS_VAL"
+if [[ "$GOOS_VAL" == "darwin" ]]; then
+  OS_LABEL="macos"
+fi
+PKG_NAME="${PRODUCT_NAME}-${VERSION}-${OS_LABEL}-${GOARCH_VAL}"
 WORK_DIR="${ROOT_DIR}/dist/${PKG_NAME}"
 ARCHIVE_PATH="${ROOT_DIR}/dist/${PKG_NAME}.tar.gz"
 
@@ -74,7 +79,7 @@ fi
 UNINSTALL
 
 cat > "$WORK_DIR/INSTALL.md" <<'DOC'
-# Crush SecOps One-Click Install
+# SecOps Agent One-Click Install
 
 ## Quick Start
 

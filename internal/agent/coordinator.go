@@ -328,17 +328,30 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 }
 
 func parseRunModePrompt(prompt string) (runMode, string) {
-	trimmed := strings.TrimSpace(prompt)
-	lower := strings.ToLower(trimmed)
-
-	switch {
-	case strings.HasPrefix(lower, "/fast"):
-		return runModeFast, strings.TrimSpace(trimmed[len("/fast"):])
-	case strings.HasPrefix(lower, "/deep"):
-		return runModeDeep, strings.TrimSpace(trimmed[len("/deep"):])
-	default:
-		return runModeAuto, prompt
+	directive, remainder, ok := parseLeadingSlashDirective(prompt)
+	if ok {
+		switch directive {
+		case "/fast":
+			return runModeFast, remainder
+		case "/deep":
+			return runModeDeep, remainder
+		}
 	}
+	return runModeAuto, prompt
+}
+
+func parseLeadingSlashDirective(prompt string) (directive, remainder string, ok bool) {
+	trimmed := strings.TrimSpace(prompt)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", prompt, false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
+		return "", prompt, false
+	}
+	directive = strings.ToLower(fields[0])
+	remainder = strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+	return directive, remainder, true
 }
 
 func currentAgentModels(agent SessionAgent) (Model, Model, bool) {
