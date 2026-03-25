@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chenchunrun/SecOps/internal/audit"
@@ -136,7 +137,7 @@ type permissionService struct {
 	pendingRequests       *csync.Map[string, chan bool]
 	autoApproveSessions   map[string]bool
 	autoApproveSessionsMu sync.RWMutex
-	skip                  bool
+	skip                  atomic.Bool
 	allowedTools          []string
 
 	// used to make sure we only process one request at a time
@@ -209,7 +210,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		s.recordBypassAuditEvent(opts, assessment, bypassPhrases)
 	}
 
-	if s.skip && !forceInteractive {
+	if s.skip.Load() && !forceInteractive {
 		return true, nil
 	}
 
@@ -314,11 +315,11 @@ func (s *permissionService) SubscribeNotifications(ctx context.Context) <-chan p
 }
 
 func (s *permissionService) SetSkipRequests(skip bool) {
-	s.skip = skip
+	s.skip.Store(skip)
 }
 
 func (s *permissionService) SkipRequests() bool {
-	return s.skip
+	return s.skip.Load()
 }
 
 func NewPermissionService(workingDir string, skip bool, allowedTools []string) Service {
@@ -332,18 +333,19 @@ func NewPermissionServiceWithBypassMarkers(
 	overrideMarkers []string,
 	extraMarkers []string,
 ) Service {
-	return &permissionService{
+	svc := &permissionService{
 		Broker:              pubsub.NewBroker[PermissionRequest](),
 		notificationBroker:  pubsub.NewBroker[PermissionNotification](),
 		workingDir:          workingDir,
 		sessionPermissions:  make([]PermissionRequest, 0),
 		autoApproveSessions: make(map[string]bool),
-		skip:                skip,
 		allowedTools:        allowedTools,
 		pendingRequests:     csync.NewMap[string, chan bool](),
 		assessor:            security.NewRiskAssessor(),
 		bypassMarkers:       mergeBypassIntentMarkers(overrideMarkers, extraMarkers),
 	}
+	svc.skip.Store(skip)
+	return svc
 }
 
 func (s *permissionService) evaluateRiskGate(

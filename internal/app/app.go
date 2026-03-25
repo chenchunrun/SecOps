@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -118,6 +119,13 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 		serviceEventsWG:    &sync.WaitGroup{},
 		tuiWG:              &sync.WaitGroup{},
 		agentNotifications: pubsub.NewBroker[notify.Notification](),
+	}
+
+	auditPath := filepath.Join(cfg.Options.DataDirectory, "audit", "events.jsonl")
+	if fileStore, err := audit.NewFileAuditStore(auditPath); err == nil {
+		app.AuditStore = fileStore
+	} else {
+		slog.Warn("Falling back to in-memory audit store", "error", err, "path", auditPath)
 	}
 
 	// Register runtime-global audit sink so tool-level audit events (e.g. remote

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
 	"github.com/chenchunrun/SecOps/internal/audit"
+	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/security"
 
@@ -369,7 +369,7 @@ func (a *Adapter) recordRemoteValidationAuditEvent(
 	if sessionID == "" {
 		sessionID = "secops"
 	}
-	role := secOpsRole()
+	role := secOpsRoleFromContext(ctx)
 
 	code := "unknown_validation_error"
 	if rv, ok := err.(*remoteValidationError); ok && rv.code != "" {
@@ -499,7 +499,7 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 		slog.Debug("SecOps tool capabilities check", "tool", a.tool.Type(), "caps", caps)
 	}
 
-	role := secOpsRole()
+	role := secOpsRoleFromContext(ctx)
 	if err := validateCapabilities(role, caps); err != nil {
 		return fantasy.NewTextErrorResponse(err.Error()), nil
 	}
@@ -775,12 +775,23 @@ func expandedRoles(role string) []string {
 	}
 }
 
-func secOpsRole() string {
-	role := strings.ToLower(strings.TrimSpace(os.Getenv("SECOPS_ROLE")))
-	if role == "" {
+func secOpsRoleFromContext(ctx context.Context) string {
+	agentID := strings.ToLower(strings.TrimSpace(tools.GetAgentIDFromContext(ctx)))
+	switch agentID {
+	case "admin", "operator", "viewer", "analyst", "responder":
+		return agentID
+	}
+
+	switch agentID {
+	case config.AgentSecurityExpertAgent:
+		return "analyst"
+	case config.AgentOpsAgent:
+		return string(RoleOpsAgent)
+	case config.AgentTask, config.AgentCoder:
+		return "admin"
+	default:
 		return "admin"
 	}
-	return role
 }
 
 func riskFactorNames(factors []security.RiskFactor) []string {

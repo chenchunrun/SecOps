@@ -17,13 +17,13 @@ import (
 	"testing"
 
 	"charm.land/catwalk/pkg/catwalk"
+	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
 	"github.com/chenchunrun/SecOps/internal/agent/hyper"
 	"github.com/chenchunrun/SecOps/internal/csync"
 	"github.com/chenchunrun/SecOps/internal/env"
 	"github.com/chenchunrun/SecOps/internal/fsext"
 	"github.com/chenchunrun/SecOps/internal/home"
 	"github.com/chenchunrun/SecOps/internal/log"
-	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
 	"github.com/qjebbs/go-jsons"
 )
 
@@ -97,7 +97,7 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 	}
 	store.knownProviders = providers
 
-	env := env.New()
+	env := withCrushOverrides(env.New())
 	// Configure providers
 	valueResolver := NewShellVariableResolver(env)
 	store.resolver = valueResolver
@@ -215,10 +215,36 @@ func PushPopCrushEnv() func() {
 	return restore
 }
 
+func withCrushOverrides(base env.Env) env.Env {
+	if base == nil {
+		base = env.New()
+	}
+	merged := make(map[string]string)
+	for _, ev := range base.Env() {
+		pair := strings.SplitN(ev, "=", 2)
+		if len(pair) != 2 {
+			continue
+		}
+		merged[pair[0]] = pair[1]
+	}
+
+	for key, value := range merged {
+		if !strings.HasPrefix(key, "CRUSH_") {
+			continue
+		}
+		target := strings.TrimPrefix(key, "CRUSH_")
+		if target == "" {
+			continue
+		}
+		merged[target] = value
+	}
+	return env.NewFromMap(merged)
+}
+
 func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver VariableResolver, knownProviders []catwalk.Provider) error {
+	env = withCrushOverrides(env)
+	resolver = NewShellVariableResolver(env)
 	knownProviderNames := make(map[string]bool)
-	restore := PushPopCrushEnv()
-	defer restore()
 
 	// When disable_default_providers is enabled, skip all default/embedded
 	// providers entirely. Users must fully specify any providers they want.

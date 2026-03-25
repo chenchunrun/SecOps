@@ -5,14 +5,14 @@ import (
 	"cmp"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"maps"
+	"math"
 	"net/http"
 	"os"
 	"slices"
@@ -258,6 +258,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 
 		result, err := c.currentAgent.Run(ctx, SessionAgentCall{
 			SessionID:        sessionID,
+			AgentID:          c.ActiveAgentID(),
 			Prompt:           prompt,
 			Attachments:      callAttachments,
 			MaxOutputTokens:  maxTokens,
@@ -1551,6 +1552,7 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	// Run the agent
 	result, err := params.Agent.Run(ctx, SessionAgentCall{
 		SessionID:        session.ID,
+		AgentID:          c.ActiveAgentID(),
 		Prompt:           params.Prompt,
 		MaxOutputTokens:  maxTokens,
 		ProviderOptions:  getProviderOptions(model, providerCfg),

@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
+	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
 	"github.com/chenchunrun/SecOps/internal/audit"
+	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/chenchunrun/SecOps/internal/security"
@@ -113,15 +115,24 @@ func TestValidateCapabilitiesWithRoleHierarchy(t *testing.T) {
 	}
 }
 
-func TestSecOpsRoleFromEnv(t *testing.T) {
-	t.Setenv("SECOPS_ROLE", "")
-	if got := secOpsRole(); got != "admin" {
+func TestSecOpsRoleFromContext(t *testing.T) {
+	if got := secOpsRoleFromContext(context.Background()); got != "admin" {
 		t.Fatalf("expected default secops role admin, got %q", got)
 	}
 
-	t.Setenv("SECOPS_ROLE", "operator")
-	if got := secOpsRole(); got != "operator" {
-		t.Fatalf("expected role from env operator, got %q", got)
+	opsCtx := context.WithValue(context.Background(), tools.AgentIDContextKey, config.AgentOpsAgent)
+	if got := secOpsRoleFromContext(opsCtx); got != string(RoleOpsAgent) {
+		t.Fatalf("expected ops role %q, got %q", RoleOpsAgent, got)
+	}
+
+	securityCtx := context.WithValue(context.Background(), tools.AgentIDContextKey, config.AgentSecurityExpertAgent)
+	if got := secOpsRoleFromContext(securityCtx); got != "analyst" {
+		t.Fatalf("expected analyst role for security expert agent, got %q", got)
+	}
+
+	viewerCtx := context.WithValue(context.Background(), tools.AgentIDContextKey, "viewer")
+	if got := secOpsRoleFromContext(viewerCtx); got != "viewer" {
+		t.Fatalf("expected passthrough viewer role, got %q", got)
 	}
 }
 
@@ -392,15 +403,14 @@ func TestEnforceRiskDecision_OpsAgentLowRiskNeedsConfirmation(t *testing.T) {
 }
 
 func TestExecuteAndRespond_CapabilityDenied(t *testing.T) {
-	t.Setenv("SECOPS_ROLE", "viewer")
-
 	a := &Adapter{
 		tool:        &testSecOpsTool{},
 		secopsPerms: permission.NewDefaultService(),
 		assessor:    security.NewRiskAssessor(),
 	}
 
-	resp, err := a.executeAndRespond(context.Background(), fantasy.ToolCall{ID: "call-cap-deny", Input: "{}"}, map[string]any{})
+	ctx := context.WithValue(context.Background(), tools.AgentIDContextKey, "viewer")
+	resp, err := a.executeAndRespond(ctx, fantasy.ToolCall{ID: "call-cap-deny", Input: "{}"}, map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -413,8 +423,6 @@ func TestExecuteAndRespond_CapabilityDenied(t *testing.T) {
 }
 
 func TestExecuteAndRespond_LowRiskSuccess(t *testing.T) {
-	t.Setenv("SECOPS_ROLE", "admin")
-
 	a := &Adapter{
 		tool:        &testSecOpsTool{},
 		secopsPerms: permission.NewDefaultService(),
@@ -464,7 +472,6 @@ func TestParseRemoteContext(t *testing.T) {
 }
 
 func TestAdapterRunRejectsUnsafeRemoteSSHParams(t *testing.T) {
-	t.Setenv("SECOPS_ROLE", "admin")
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
@@ -510,8 +517,6 @@ func TestAdapterRunRejectsUnsafeRemoteSSHParams(t *testing.T) {
 }
 
 func TestAdapterRunAllowsSafeRemoteSSHParams(t *testing.T) {
-	t.Setenv("SECOPS_ROLE", "admin")
-
 	a := &Adapter{
 		tool: &testSecOpsTool{},
 	}
@@ -533,7 +538,6 @@ func TestAdapterRunAllowsSafeRemoteSSHParams(t *testing.T) {
 }
 
 func TestEnforceRiskDecision_RemoteAuditIncludesProfileDetails(t *testing.T) {
-	t.Setenv("SECOPS_ROLE", "admin")
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })

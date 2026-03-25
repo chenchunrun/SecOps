@@ -231,3 +231,36 @@ func TestGetModelNameFromContext(t *testing.T) {
 		})
 	}
 }
+
+func TestGetAgentIDFromContext(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{
+			name: "returns agent id when present",
+			ctx:  context.WithValue(context.Background(), AgentIDContextKey, "ops_agent"),
+			want: "ops_agent",
+		},
+		{
+			name: "returns empty string when not present",
+			ctx:  context.Background(),
+			want: "",
+		},
+		{
+			name: "returns empty string when wrong type",
+			ctx:  context.WithValue(context.Background(), AgentIDContextKey, true),
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetAgentIDFromContext(tt.ctx)
+			if got != tt.want {
+				t.Errorf("GetAgentIDFromContext() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

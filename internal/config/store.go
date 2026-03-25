@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,8 @@ const encryptedMarker = "ENC:"
 
 // sensitivePrefixes is the list of key prefixes that identify sensitive values.
 var sensitivePrefixes = []string{"oauth", "refresh_token", "api_key", "secret", "access_token", "bearer"}
+
+const masterKeyFileName = "secrets.key"
 
 func deriveKeyFromIdentity(homeDir, username string) ([]byte, error) {
 	if homeDir == "" || username == "" {
@@ -63,35 +66,123 @@ func currentIdentity() (homeDir, username string) {
 }
 
 func deriveKeyCandidates() [][]byte {
-	candidates := make([][]byte, 0, 2)
+	candidates := make([][]byte, 0, 4)
 	seen := map[string]struct{}{}
+
+	addCandidate := func(k []byte) {
+		if len(k) == 0 {
+			return
+		}
+		ks := string(k)
+		if _, exists := seen[ks]; exists {
+			return
+		}
+		seen[ks] = struct{}{}
+		candidates = append(candidates, k)
+	}
+
+	if envKey, ok := loadMasterKeyFromEnv(); ok {
+		addCandidate(envKey)
+	}
+	if fileKey, err := loadMasterKeyFile(); err == nil {
+		addCandidate(fileKey)
+	}
 
 	homeDir, username := currentIdentity()
 	if k, err := deriveKeyFromIdentity(homeDir, username); err == nil {
-		ks := string(k)
-		seen[ks] = struct{}{}
-		candidates = append(candidates, k)
+		addCandidate(k)
 	}
 
 	// Compatibility with values encrypted by older builds.
 	legacyHome := os.Getenv("HOME")
 	legacyUser := os.Getenv("USER")
 	if k, err := deriveKeyFromIdentity(legacyHome, legacyUser); err == nil {
-		ks := string(k)
-		if _, exists := seen[ks]; !exists {
-			candidates = append(candidates, k)
-		}
+		addCandidate(k)
 	}
 
 	return candidates
 }
 
+func loadMasterKeyFromEnv() ([]byte, bool) {
+	raw := strings.TrimSpace(os.Getenv("CRUSH_MASTER_KEY"))
+	if raw == "" {
+		return nil, false
+	}
+	return normalizeMasterKey(raw), true
+}
+
+func masterKeyFilePath() string {
+	return filepath.Join(filepath.Dir(GlobalConfig()), masterKeyFileName)
+}
+
+func loadMasterKeyFile() ([]byte, error) {
+	path := masterKeyFilePath()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeMasterKey(strings.TrimSpace(string(b))), nil
+}
+
+func loadOrCreateMasterKeyFile() ([]byte, error) {
+	path := masterKeyFilePath()
+	if b, err := os.ReadFile(path); err == nil {
+		return normalizeMasterKey(strings.TrimSpace(string(b))), nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create master key directory: %w", err)
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate master key: %w", err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(key)
+	if err := os.WriteFile(path, []byte(encoded), 0o600); err != nil {
+		return nil, fmt.Errorf("persist master key: %w", err)
+	}
+	return key, nil
+}
+
+func normalizeMasterKey(raw string) []byte {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	if decoded, err := base64.RawURLEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
+		return normalizeKeyLen(decoded)
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
+		return normalizeKeyLen(decoded)
+	}
+	if decoded, err := hex.DecodeString(raw); err == nil && len(decoded) > 0 {
+		return normalizeKeyLen(decoded)
+	}
+	return normalizeKeyLen([]byte(raw))
+}
+
+func normalizeKeyLen(key []byte) []byte {
+	if len(key) == 32 {
+		return key
+	}
+	sum := sha256.Sum256(key)
+	return sum[:]
+}
+
 func deriveKey() ([]byte, error) {
 	keys := deriveKeyCandidates()
-	if len(keys) == 0 {
+	if len(keys) > 0 {
+		return keys[0], nil
+	}
+
+	// Encryption fallback: generate and persist a random master key if none
+	// exists yet.
+	key, err := loadOrCreateMasterKeyFile()
+	if err != nil {
 		return nil, errors.New("no key material available")
 	}
-	return keys[0], nil
+	return key, nil
 }
 
 // encrypt encrypts a plaintext string using AES-256-GCM and returns a base64-encoded

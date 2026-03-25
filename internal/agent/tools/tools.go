@@ -9,6 +9,7 @@ type (
 	messageIDContextKey string
 	supportsImagesKey   string
 	modelNameKey        string
+	agentIDContextKey   string
 )
 
 const (
@@ -20,6 +21,8 @@ const (
 	SupportsImagesContextKey supportsImagesKey = "supports_images"
 	// ModelNameContextKey is the key for the model name in the context.
 	ModelNameContextKey modelNameKey = "model_name"
+	// AgentIDContextKey is the key for the active agent identifier in the context.
+	AgentIDContextKey agentIDContextKey = "agent_id"
 )
 
 // getContextValue is a generic helper that retrieves a typed value from context.
@@ -53,4 +56,9 @@ func GetSupportsImagesFromContext(ctx context.Context) bool {
 // GetModelNameFromContext retrieves the model name from the context.
 func GetModelNameFromContext(ctx context.Context) string {
 	return getContextValue(ctx, ModelNameContextKey, "")
+}
+
+// GetAgentIDFromContext retrieves the active agent identifier from the context.
+func GetAgentIDFromContext(ctx context.Context) string {
+	return getContextValue(ctx, AgentIDContextKey, "")
 }

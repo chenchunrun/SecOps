@@ -110,6 +110,17 @@ func TestConfig_LoadFromBytes_DecryptsWhenUSERMissingAfterRestart(t *testing.T) 
 	require.Equal(t, "persisted-key", provider.APIKey)
 }
 
+func TestWithCrushOverrides(t *testing.T) {
+	base := env.NewFromMap(map[string]string{
+		"OPENAI_API_KEY":       "old",
+		"CRUSH_OPENAI_API_KEY": "new",
+		"CRUSH_UNUSED":         "x",
+	})
+	merged := withCrushOverrides(base)
+	require.Equal(t, "new", merged.Get("OPENAI_API_KEY"))
+	require.Equal(t, "x", merged.Get("UNUSED"))
+}
+
 func TestConfigStore_SetProviderAPIKey_PersistsAcrossReload(t *testing.T) {
 	tmpDir := t.TempDir()
 	globalDataPath := filepath.Join(tmpDir, "global", "crush.json")

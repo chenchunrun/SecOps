@@ -31,6 +31,7 @@ import (
 	"charm.land/fantasy/providers/openrouter"
 	"charm.land/fantasy/providers/vercel"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/chenchunrun/SecOps/internal/agent/hyper"
 	"github.com/chenchunrun/SecOps/internal/agent/notify"
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
@@ -43,7 +44,6 @@ import (
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/stringext"
 	"github.com/chenchunrun/SecOps/internal/version"
-	"github.com/charmbracelet/x/exp/charmtone"
 )
 
 const (
@@ -74,6 +74,7 @@ func intPtr(v int) *int {
 
 type SessionAgentCall struct {
 	SessionID        string
+	AgentID          string
 	Prompt           string
 	ProviderOptions  fantasy.ProviderOptions
 	Attachments      []message.Attachment
@@ -241,6 +242,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 
 	// Add the session to the context.
 	ctx = context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
+	if strings.TrimSpace(call.AgentID) != "" {
+		ctx = context.WithValue(ctx, tools.AgentIDContextKey, call.AgentID)
+	}
 
 	genCtx, cancel := context.WithCancel(ctx)
 	a.activeRequests.Set(call.SessionID, cancel)
