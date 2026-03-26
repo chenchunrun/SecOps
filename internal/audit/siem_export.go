@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"time"
 )
@@ -127,6 +129,106 @@ func redactEvent(event *AuditEvent) *AuditEvent {
 // SIEMExporter defines the interface for SIEM integrations.
 type SIEMExporter interface {
 	Export(ctx context.Context, events []*AuditEvent) error
+}
+
+// SyslogExporter exports redacted audit events to a syslog receiver.
+// Messages use a compact RFC5424-style header with the audit event JSON in
+// the MSG field. Supported networks are "udp" and "tcp".
+type SyslogExporter struct {
+	Network  string // "udp" or "tcp"
+	Address  string // e.g. "127.0.0.1:514"
+	AppName  string // defaults to "secops-agent"
+	Hostname string // defaults to os.Hostname()
+	Facility int    // defaults to 16 (local0)
+	Severity int    // defaults to 6 (informational)
+}
+
+// Export sends audit events to the configured syslog receiver.
+func (e *SyslogExporter) Export(ctx context.Context, events []*AuditEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	network := e.Network
+	if network == "" {
+		network = "udp"
+	}
+	if network != "udp" && network != "tcp" {
+		return fmt.Errorf("SyslogExporter: unsupported network %q", network)
+	}
+	if e.Address == "" {
+		return errors.New("SyslogExporter: address is required")
+	}
+
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(ctx, network, e.Address)
+	if err != nil {
+		return fmt.Errorf("SyslogExporter: failed to connect to %s %s: %w", network, e.Address, err)
+	}
+	defer conn.Close()
+
+	appName := e.AppName
+	if appName == "" {
+		appName = "secops-agent"
+	}
+
+	hostname := e.Hostname
+	if hostname == "" {
+		hostname, _ = os.Hostname()
+		if hostname == "" {
+			hostname = "-"
+		}
+	}
+
+	facility := e.Facility
+	if facility == 0 {
+		facility = 16
+	}
+	severity := e.Severity
+	if severity == 0 {
+		severity = 6
+	}
+
+	for _, event := range events {
+		payload, err := json.Marshal(redactEvent(event))
+		if err != nil {
+			return fmt.Errorf("SyslogExporter: failed to marshal audit event: %w", err)
+		}
+
+		msg := formatSyslogMessage(facility, severity, event.Timestamp, hostname, appName, event.ID, payload)
+		if _, err := io.WriteString(conn, msg); err != nil {
+			return fmt.Errorf("SyslogExporter: failed to write event %s: %w", event.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func formatSyslogMessage(
+	facility int,
+	severity int,
+	timestamp time.Time,
+	hostname string,
+	appName string,
+	msgID string,
+	payload []byte,
+) string {
+	if timestamp.IsZero() {
+		timestamp = time.Now().UTC()
+	}
+	if msgID == "" {
+		msgID = "-"
+	}
+	priority := facility*8 + severity
+	return fmt.Sprintf(
+		"<%d>1 %s %s %s - %s - %s\n",
+		priority,
+		timestamp.UTC().Format(time.RFC3339),
+		hostname,
+		appName,
+		msgID,
+		payload,
+	)
 }
 
 // ELKExporter exports to Elasticsearch/Logstash/Kibana.

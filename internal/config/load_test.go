@@ -111,6 +111,32 @@ func TestConfig_LoadFromBytes_DecryptsWhenUSERMissingAfterRestart(t *testing.T) 
 	require.Equal(t, "persisted-key", provider.APIKey)
 }
 
+func TestConfig_LoadFromBytes_LoadsAuditSyslogConfig(t *testing.T) {
+	data := []byte(`{
+		"audit": {
+			"export": {
+				"syslog": {
+					"enabled": true,
+					"network": "udp",
+					"address": "127.0.0.1:514",
+					"app_name": "secops-agent",
+					"facility": 16,
+					"severity": 6
+				}
+			}
+		}
+	}`)
+
+	cfg, err := loadFromBytes([][]byte{data})
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Audit)
+	require.NotNil(t, cfg.Audit.Export)
+	require.NotNil(t, cfg.Audit.Export.Syslog)
+	require.True(t, cfg.Audit.Export.Syslog.Enabled)
+	require.Equal(t, "udp", cfg.Audit.Export.Syslog.Network)
+	require.Equal(t, "127.0.0.1:514", cfg.Audit.Export.Syslog.Address)
+}
+
 func TestWithCrushOverrides(t *testing.T) {
 	base := env.NewFromMap(map[string]string{
 		"OPENAI_API_KEY":       "old",

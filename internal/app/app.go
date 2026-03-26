@@ -128,6 +128,15 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 		slog.Warn("Falling back to in-memory audit store", "error", err, "path", auditPath)
 	}
 
+	if exporters := buildAuditExporters(cfg); len(exporters) > 0 {
+		exportingStore, err := audit.NewExportingAuditStore(app.AuditStore, 3*time.Second, exporters...)
+		if err != nil {
+			slog.Warn("Failed to initialize audit exporters", "error", err)
+		} else {
+			app.AuditStore = exportingStore
+		}
+	}
+
 	// Register runtime-global audit sink so tool-level audit events (e.g. remote
 	// policy denials) are persisted under the current app lifecycle.
 	audit.SetGlobalStore(app.AuditStore)
@@ -167,6 +176,25 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	go app.LSPManager.TrackConfigured()
 
 	return app, nil
+}
+
+func buildAuditExporters(cfg *config.Config) []audit.SIEMExporter {
+	if cfg == nil || cfg.Audit == nil || cfg.Audit.Export == nil {
+		return nil
+	}
+
+	exporters := make([]audit.SIEMExporter, 0, 1)
+	if syslogCfg := cfg.Audit.Export.Syslog; syslogCfg != nil && syslogCfg.Enabled && strings.TrimSpace(syslogCfg.Address) != "" {
+		exporters = append(exporters, &audit.SyslogExporter{
+			Network:  strings.TrimSpace(syslogCfg.Network),
+			Address:  strings.TrimSpace(syslogCfg.Address),
+			AppName:  strings.TrimSpace(syslogCfg.AppName),
+			Hostname: strings.TrimSpace(syslogCfg.Hostname),
+			Facility: syslogCfg.Facility,
+			Severity: syslogCfg.Severity,
+		})
+	}
+	return exporters
 }
 
 // Config returns the pure-data configuration.

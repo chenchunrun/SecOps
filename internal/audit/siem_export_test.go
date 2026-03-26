@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -255,6 +256,135 @@ func TestSplunkExporter_Export_RetryExhausted(t *testing.T) {
 	err := exporter.Export(context.Background(), events)
 	if err == nil {
 		t.Fatal("expected error after retries exhausted, got nil")
+	}
+}
+
+// --- SyslogExporter tests ---
+
+func TestSyslogExporter_Export_UDP_Success(t *testing.T) {
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen udp: %v", err)
+	}
+	defer conn.Close()
+
+	received := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 8192)
+		n, _, readErr := conn.ReadFrom(buf)
+		if readErr != nil {
+			received <- ""
+			return
+		}
+		received <- string(buf[:n])
+	}()
+
+	event := DefaultAuditEvent(EventTypeCommandExecuted)
+	event.ID = "evt-syslog-1"
+	event.Timestamp = time.Date(2026, 3, 26, 12, 0, 0, 0, time.UTC)
+	event.Details["token"] = "Authorization: Bearer secret-token"
+
+	exporter := &SyslogExporter{
+		Network:  "udp",
+		Address:  conn.LocalAddr().String(),
+		AppName:  "secops-agent",
+		Hostname: "audit-host",
+		Facility: 16,
+		Severity: 6,
+	}
+
+	err = exporter.Export(context.Background(), []*AuditEvent{event})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	select {
+	case msg := <-received:
+		if !strings.HasPrefix(msg, "<134>1 2026-03-26T12:00:00Z audit-host secops-agent - evt-syslog-1 - ") {
+			t.Fatalf("unexpected syslog header: %q", msg)
+		}
+		if !strings.Contains(msg, redacted) {
+			t.Fatalf("expected redacted payload, got %q", msg)
+		}
+		if strings.Contains(msg, "secret-token") {
+			t.Fatalf("expected sensitive token to be removed, got %q", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for syslog message")
+	}
+}
+
+func TestSyslogExporter_Export_TCP_Success(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+	defer ln.Close()
+
+	received := make(chan string, 1)
+	go func() {
+		c, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			received <- ""
+			return
+		}
+		defer c.Close()
+		body, readErr := io.ReadAll(c)
+		if readErr != nil {
+			received <- ""
+			return
+		}
+		received <- string(body)
+	}()
+
+	event := DefaultAuditEvent(EventTypePermissionRequest)
+	event.ID = "evt-syslog-tcp"
+
+	exporter := &SyslogExporter{
+		Network: "tcp",
+		Address: ln.Addr().String(),
+		AppName: "secops-agent",
+	}
+
+	err = exporter.Export(context.Background(), []*AuditEvent{event})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	select {
+	case msg := <-received:
+		if !strings.Contains(msg, "evt-syslog-tcp") {
+			t.Fatalf("expected msg id in payload, got %q", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for tcp syslog message")
+	}
+}
+
+func TestSyslogExporter_Export_InvalidNetwork(t *testing.T) {
+	exporter := &SyslogExporter{
+		Network: "unixgram",
+		Address: "127.0.0.1:514",
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)})
+	if err == nil {
+		t.Fatal("expected invalid network error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported network") {
+		t.Fatalf("expected unsupported network error, got %v", err)
+	}
+}
+
+func TestSyslogExporter_Export_EmptyEvents(t *testing.T) {
+	exporter := &SyslogExporter{
+		Network: "udp",
+		Address: "127.0.0.1:514",
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{})
+	if err != nil {
+		t.Fatalf("expected no error with empty events, got %v", err)
 	}
 }
 

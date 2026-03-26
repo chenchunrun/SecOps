@@ -242,6 +242,24 @@ type Remote struct {
 	DefaultProfile string          `json:"default_profile,omitempty" jsonschema:"description=Default remote execution profile ID"`
 }
 
+type AuditSyslog struct {
+	Enabled  bool   `json:"enabled,omitempty" jsonschema:"description=Enable syslog audit export,default=false"`
+	Network  string `json:"network,omitempty" jsonschema:"description=Syslog transport network,enum=udp,enum=tcp,default=udp"`
+	Address  string `json:"address,omitempty" jsonschema:"description=Syslog target address,example=127.0.0.1:514"`
+	AppName  string `json:"app_name,omitempty" jsonschema:"description=Syslog app name,default=secops-agent"`
+	Hostname string `json:"hostname,omitempty" jsonschema:"description=Override syslog hostname field"`
+	Facility int    `json:"facility,omitempty" jsonschema:"description=Syslog facility,default=16"`
+	Severity int    `json:"severity,omitempty" jsonschema:"description=Syslog severity,default=6"`
+}
+
+type AuditExport struct {
+	Syslog *AuditSyslog `json:"syslog,omitempty" jsonschema:"description=Syslog export settings"`
+}
+
+type Audit struct {
+	Export *AuditExport `json:"export,omitempty" jsonschema:"description=Audit log export settings"`
+}
+
 type TrailerStyle string
 
 const (
@@ -417,6 +435,8 @@ type Config struct {
 	Permissions *Permissions `json:"permissions,omitempty" jsonschema:"description=Permission settings for tool usage"`
 
 	Remote *Remote `json:"remote,omitempty" jsonschema:"description=Remote execution profiles for SSH-based operations"`
+
+	Audit *Audit `json:"audit,omitempty" jsonschema:"description=Audit logging and export settings"`
 
 	Tools Tools `json:"tools,omitzero" jsonschema:"description=Tool configurations"`
 
