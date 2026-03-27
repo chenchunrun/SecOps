@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"sync/atomic"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ func TestExportingAuditStore_SaveEventPersistsAndExports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new exporting store: %v", err)
 	}
+	defer store.Close()
 
 	event := DefaultAuditEvent(EventTypeCommandExecuted)
 	event.Details["token"] = "Authorization: Bearer secret-token"
@@ -58,4 +60,54 @@ func TestExportingAuditStore_SaveEventPersistsAndExports(t *testing.T) {
 	if exporter.events[0].Details["token"] == "Authorization: Bearer secret-token" {
 		t.Fatal("expected exported event to be redacted")
 	}
+}
+
+type blockingExporter struct {
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Uint64
+}
+
+func (e *blockingExporter) Export(_ context.Context, _ []*AuditEvent) error {
+	e.calls.Add(1)
+	select {
+	case e.started <- struct{}{}:
+	default:
+	}
+	<-e.release
+	return nil
+}
+
+func TestExportingAuditStore_DropsWhenQueueFull(t *testing.T) {
+	base := NewInMemoryAuditStore()
+	exporter := &blockingExporter{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+
+	store, err := newExportingAuditStore(base, time.Second, 1, 1, exporter)
+	if err != nil {
+		t.Fatalf("new exporting store: %v", err)
+	}
+	defer store.Close()
+
+	for i := 0; i < 3; i++ {
+		event := DefaultAuditEvent(EventTypeCommandExecuted)
+		event.ID = time.Now().Format("150405.000000000")
+		if err := store.SaveEvent(event); err != nil {
+			t.Fatalf("save event %d: %v", i, err)
+		}
+	}
+
+	select {
+	case <-exporter.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for exporter to start")
+	}
+
+	if got := store.dropped.Load(); got == 0 {
+		t.Fatal("expected dropped export jobs when queue is full")
+	}
+
+	close(exporter.release)
 }

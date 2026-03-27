@@ -134,6 +134,9 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 			slog.Warn("Failed to initialize audit exporters", "error", err)
 		} else {
 			app.AuditStore = exportingStore
+			app.cleanupFuncs = append(app.cleanupFuncs, func(context.Context) error {
+				return exportingStore.Close()
+			})
 		}
 	}
 

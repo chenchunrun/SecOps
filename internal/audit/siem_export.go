@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -133,9 +134,11 @@ type SIEMExporter interface {
 
 // SyslogExporter exports redacted audit events to a syslog receiver.
 // Messages use a compact RFC5424-style header with the audit event JSON in
-// the MSG field. Supported networks are "udp" and "tcp".
+// the MSG field. Supported networks are "udp", "tcp", "unix", and "unixgram".
+// Network syslog is restricted to loopback destinations; use a local syslog
+// daemon or Unix socket for forwarding to remote infrastructure over TLS.
 type SyslogExporter struct {
-	Network  string // "udp" or "tcp"
+	Network  string // "udp", "tcp", "unix", or "unixgram"
 	Address  string // e.g. "127.0.0.1:514"
 	AppName  string // defaults to "secops-agent"
 	Hostname string // defaults to os.Hostname()
@@ -153,11 +156,14 @@ func (e *SyslogExporter) Export(ctx context.Context, events []*AuditEvent) error
 	if network == "" {
 		network = "udp"
 	}
-	if network != "udp" && network != "tcp" {
+	if network != "udp" && network != "tcp" && network != "unix" && network != "unixgram" {
 		return fmt.Errorf("SyslogExporter: unsupported network %q", network)
 	}
 	if e.Address == "" {
 		return errors.New("SyslogExporter: address is required")
+	}
+	if err := validateSyslogAddress(network, e.Address); err != nil {
+		return err
 	}
 
 	dialer := &net.Dialer{}
@@ -171,6 +177,7 @@ func (e *SyslogExporter) Export(ctx context.Context, events []*AuditEvent) error
 	if appName == "" {
 		appName = "secops-agent"
 	}
+	appName = sanitizeSyslogHeaderField(appName, 48)
 
 	hostname := e.Hostname
 	if hostname == "" {
@@ -179,6 +186,7 @@ func (e *SyslogExporter) Export(ctx context.Context, events []*AuditEvent) error
 			hostname = "-"
 		}
 	}
+	hostname = sanitizeSyslogHeaderField(hostname, 255)
 
 	facility := e.Facility
 	if facility == 0 {
@@ -216,9 +224,7 @@ func formatSyslogMessage(
 	if timestamp.IsZero() {
 		timestamp = time.Now().UTC()
 	}
-	if msgID == "" {
-		msgID = "-"
-	}
+	msgID = sanitizeSyslogHeaderField(msgID, 32)
 	priority := facility*8 + severity
 	return fmt.Sprintf(
 		"<%d>1 %s %s %s - %s - %s\n",
@@ -229,6 +235,56 @@ func formatSyslogMessage(
 		msgID,
 		payload,
 	)
+}
+
+func validateSyslogAddress(network string, address string) error {
+	switch network {
+	case "unix", "unixgram":
+		if strings.TrimSpace(address) == "" {
+			return errors.New("SyslogExporter: unix socket path is required")
+		}
+		return nil
+	case "udp", "tcp":
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return fmt.Errorf("SyslogExporter: invalid address %q: %w", address, err)
+		}
+		if host == "" || strings.EqualFold(host, "localhost") {
+			return nil
+		}
+		ip := net.ParseIP(host)
+		if ip != nil && ip.IsLoopback() {
+			return nil
+		}
+		return fmt.Errorf("SyslogExporter: remote %s syslog targets are not allowed without a local forwarder: %s", network, address)
+	default:
+		return fmt.Errorf("SyslogExporter: unsupported network %q", network)
+	}
+}
+
+func sanitizeSyslogHeaderField(value string, maxLen int) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		if r < 33 || r > 126 || r == ' ' {
+			b.WriteByte('-')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	sanitized := b.String()
+	if sanitized == "" {
+		return "-"
+	}
+	if maxLen > 0 && len(sanitized) > maxLen {
+		sanitized = sanitized[:maxLen]
+	}
+	return sanitized
 }
 
 // ELKExporter exports to Elasticsearch/Logstash/Kibana.

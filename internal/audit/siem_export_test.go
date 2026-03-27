@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -363,7 +365,7 @@ func TestSyslogExporter_Export_TCP_Success(t *testing.T) {
 
 func TestSyslogExporter_Export_InvalidNetwork(t *testing.T) {
 	exporter := &SyslogExporter{
-		Network: "unixgram",
+		Network: "bogus",
 		Address: "127.0.0.1:514",
 	}
 
@@ -373,6 +375,90 @@ func TestSyslogExporter_Export_InvalidNetwork(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported network") {
 		t.Fatalf("expected unsupported network error, got %v", err)
+	}
+}
+
+func TestSyslogExporter_Export_RejectsRemoteNetworkAddress(t *testing.T) {
+	exporter := &SyslogExporter{
+		Network: "udp",
+		Address: "8.8.8.8:514",
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)})
+	if err == nil {
+		t.Fatal("expected remote address rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("expected remote rejection error, got %v", err)
+	}
+}
+
+func TestSyslogExporter_Export_UnixSuccess(t *testing.T) {
+	socketPath := fmt.Sprintf("/tmp/secops-audit-%d.sock", time.Now().UnixNano())
+	_ = os.Remove(socketPath)
+	defer os.Remove(socketPath)
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	defer ln.Close()
+
+	received := make(chan string, 1)
+	go func() {
+		c, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			received <- ""
+			return
+		}
+		defer c.Close()
+		body, readErr := io.ReadAll(c)
+		if readErr != nil {
+			received <- ""
+			return
+		}
+		received <- string(body)
+	}()
+
+	exporter := &SyslogExporter{
+		Network: "unix",
+		Address: socketPath,
+		AppName: "secops-agent",
+	}
+
+	err = exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)})
+	if err != nil {
+		t.Fatalf("expected unix export success, got %v", err)
+	}
+
+	select {
+	case msg := <-received:
+		if !strings.Contains(msg, "secops-agent") {
+			t.Fatalf("expected syslog payload, got %q", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for unix syslog message")
+	}
+}
+
+func TestFormatSyslogMessage_SanitizesHeaderFields(t *testing.T) {
+	msg := formatSyslogMessage(
+		16,
+		6,
+		time.Date(2026, 3, 27, 1, 2, 3, 0, time.UTC),
+		sanitizeSyslogHeaderField("host name\nx", 255),
+		sanitizeSyslogHeaderField("app\tname", 48),
+		"evt\n123",
+		[]byte(`{"ok":true}`),
+	)
+
+	if strings.Contains(msg, "\n123") || strings.Contains(msg, "host name") || strings.Contains(msg, "app\tname") {
+		t.Fatalf("expected sanitized syslog header, got %q", msg)
+	}
+	if !strings.Contains(msg, "host-name-x") {
+		t.Fatalf("expected sanitized hostname, got %q", msg)
+	}
+	if !strings.Contains(msg, "app-name") {
+		t.Fatalf("expected sanitized app name, got %q", msg)
 	}
 }
 

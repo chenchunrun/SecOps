@@ -244,7 +244,7 @@ type Remote struct {
 
 type AuditSyslog struct {
 	Enabled  bool   `json:"enabled,omitempty" jsonschema:"description=Enable syslog audit export,default=false"`
-	Network  string `json:"network,omitempty" jsonschema:"description=Syslog transport network,enum=udp,enum=tcp,default=udp"`
+	Network  string `json:"network,omitempty" jsonschema:"description=Syslog transport network,enum=udp,enum=tcp,enum=unix,enum=unixgram,default=udp"`
 	Address  string `json:"address,omitempty" jsonschema:"description=Syslog target address,example=127.0.0.1:514"`
 	AppName  string `json:"app_name,omitempty" jsonschema:"description=Syslog app name,default=secops-agent"`
 	Hostname string `json:"hostname,omitempty" jsonschema:"description=Override syslog hostname field"`
