@@ -30,6 +30,7 @@ type CertificateAuditParams struct {
 	CheckKeyStrength bool `json:"check_key_strength,omitempty"` // 检查密钥强度
 	CheckChain       bool `json:"check_chain,omitempty"`        // 检查证书链
 	CheckRevocation  bool `json:"check_revocation,omitempty"`   // 检查撤销
+	VerifyTransport bool `json:"verify_transport,omitempty"`    // 验证 TLS 对端身份
 
 	// 警告阈值
 	ExpiryWarningDays int    `json:"expiry_warning_days,omitempty"` // 默认 30 天
@@ -334,9 +335,22 @@ func (cat *CertificateAuditTool) hasWeakKey(cert *CertificateInfo) bool {
 // generateIssues 生成问题列表
 func (cat *CertificateAuditTool) generateIssues(result *CertificateAuditResult, params *CertificateAuditParams) []*CertIssue {
 	issues := make([]*CertIssue, 0)
+	unverifiedCount := 0
 
 	for _, cert := range result.Certificates {
 		issues = append(issues, cert.Issues...)
+		if !cert.TransportVerified {
+			unverifiedCount++
+		}
+	}
+
+	if unverifiedCount > 0 {
+		issues = append(issues, &CertIssue{
+			Type:        "transport_unverified_summary",
+			Severity:    "warning",
+			Description: fmt.Sprintf("%d certificate(s) were collected without verified endpoint identity", unverifiedCount),
+			Remediation: "Set verify_transport=true or validate results against a trusted certificate source before taking action.",
+		})
 	}
 
 	return issues
@@ -389,10 +403,17 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 	}
 
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
-	conn, err := tls.DialWithDialer(dialer, "tcp", target, &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: true,
-	})
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	hostForVerify := target
+	if h, _, splitErr := net.SplitHostPort(target); splitErr == nil && strings.TrimSpace(h) != "" {
+		hostForVerify = h
+	}
+	if params == nil || !params.VerifyTransport {
+		tlsConfig.InsecureSkipVerify = true
+	} else if net.ParseIP(hostForVerify) == nil {
+		tlsConfig.ServerName = hostForVerify
+	}
+	conn, err := tls.DialWithDialer(dialer, "tcp", target, tlsConfig)
 	if err != nil {
 		return nil
 	}
@@ -404,6 +425,13 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 	}
 
 	info := cat.certificateToInfo(target, state.PeerCertificates[0])
+	if params != nil && params.VerifyTransport {
+		if info != nil {
+			info.TransportVerified = true
+			info.CollectionMethod = "tls_probe_verified"
+		}
+		return info
+	}
 	return markCertificateTransportUnverified(
 		info,
 		"tls_probe_unverified",

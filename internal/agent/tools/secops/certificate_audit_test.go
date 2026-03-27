@@ -339,11 +339,48 @@ func TestCertificateAuditTool_Execute_RemoteService(t *testing.T) {
 	if !foundUnverifiedIssue {
 		t.Fatal("expected transport_unverified issue on remote-probed certificate")
 	}
+	foundSummaryIssue := false
+	for _, issue := range ar.Issues {
+		if issue.Type == "transport_unverified_summary" {
+			foundSummaryIssue = true
+			break
+		}
+	}
+	if !foundSummaryIssue {
+		t.Fatal("expected transport_unverified_summary issue in audit result")
+	}
 	if gotName != "ssh" {
 		t.Fatalf("expected ssh command, got %s", gotName)
 	}
 	if !strings.Contains(strings.Join(gotArgs, " "), "ops@10.0.0.80") {
 		t.Fatalf("unexpected ssh args: %q", strings.Join(gotArgs, " "))
+	}
+}
+
+func TestCertificateAuditTool_GenerateIssues_AddsTransportSummary(t *testing.T) {
+	tool := NewCertificateAuditTool(nil)
+	result := &CertificateAuditResult{
+		Certificates: []*CertificateInfo{
+			{
+				Path:              "svc:443",
+				TransportVerified: false,
+				Issues: []*CertIssue{
+					{Type: "transport_unverified", Severity: "warning"},
+				},
+			},
+		},
+	}
+
+	issues := tool.generateIssues(result, &CertificateAuditParams{})
+	found := false
+	for _, issue := range issues {
+		if issue.Type == "transport_unverified_summary" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected transport_unverified_summary issue")
 	}
 }
 
