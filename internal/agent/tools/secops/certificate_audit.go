@@ -56,6 +56,8 @@ type CertificateInfo struct {
 	SANs            []string     `json:"sans"`   // Subject Alternative Names
 	Status          string       `json:"status"` // valid, expired, expiring_soon
 	DaysUntilExpiry int          `json:"days_until_expiry"`
+	TransportVerified bool       `json:"transport_verified"`
+	CollectionMethod  string     `json:"collection_method,omitempty"`
 	Issues          []*CertIssue `json:"issues,omitempty"`
 }
 
@@ -401,7 +403,13 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 		return nil
 	}
 
-	return cat.certificateToInfo(target, state.PeerCertificates[0])
+	info := cat.certificateToInfo(target, state.PeerCertificates[0])
+	return markCertificateTransportUnverified(
+		info,
+		"tls_probe_unverified",
+		"Certificate was collected without verifying the remote endpoint identity.",
+		"Validate the endpoint via a trusted network path or compare against a known-good certificate source.",
+	)
 }
 
 func (cat *CertificateAuditTool) fetchCertificateFromServiceRemote(target string, params *CertificateAuditParams) *CertificateInfo {
@@ -422,7 +430,13 @@ func (cat *CertificateAuditTool) fetchCertificateFromServiceRemote(target string
 	if cert == nil {
 		return nil
 	}
-	return cat.certificateToInfo(target, cert)
+	info := cat.certificateToInfo(target, cert)
+	return markCertificateTransportUnverified(
+		info,
+		"remote_openssl_probe",
+		"Certificate was collected from a remote probe without endpoint identity verification.",
+		"Verify the remote host identity and compare the certificate with a trusted source before relying on this result.",
+	)
 }
 
 func parseFirstCertificateFromText(data []byte) *x509.Certificate {
@@ -537,6 +551,23 @@ func (cat *CertificateAuditTool) certificateToInfo(path string, cert *x509.Certi
 		IsSelfSigned:    cert.Subject.String() == cert.Issuer.String() && cert.CheckSignatureFrom(cert) == nil,
 		SANs:            sans,
 		DaysUntilExpiry: int(time.Until(cert.NotAfter).Hours() / 24),
+		TransportVerified: true,
+		CollectionMethod:  "file_or_local_parse",
 		Issues:          make([]*CertIssue, 0),
 	}
+}
+
+func markCertificateTransportUnverified(info *CertificateInfo, method, description, remediation string) *CertificateInfo {
+	if info == nil {
+		return nil
+	}
+	info.TransportVerified = false
+	info.CollectionMethod = method
+	info.Issues = append(info.Issues, &CertIssue{
+		Type:        "transport_unverified",
+		Severity:    "warning",
+		Description: description,
+		Remediation: remediation,
+	})
+	return info
 }

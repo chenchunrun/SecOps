@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -340,6 +341,21 @@ func TestSSHExecutorNoTarget(t *testing.T) {
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrConfigInvalid))
 	assert.Equal(t, 100, result.RiskScore)
+}
+
+func TestSSHExecutorUsesSafeHostKeyCheckingDefaults(t *testing.T) {
+	exec := &SSHExecutor{}
+	cfg := SandboxConfig{
+		Mode:           "ssh",
+		SSHTarget:      "ops@127.0.0.1",
+		TimeoutSeconds: 1,
+	}
+
+	cmdline := strings.Join(buildSSHExecutorArgs(exec, cfg, "uptime"), " ")
+	assert.Contains(t, cmdline, "BatchMode=yes")
+	assert.Contains(t, cmdline, "StrictHostKeyChecking=yes")
+	assert.NotContains(t, cmdline, "StrictHostKeyChecking=no")
+	assert.NotContains(t, cmdline, "UserKnownHostsFile=/dev/null")
 }
 
 func TestDefaultSandboxConfig(t *testing.T) {

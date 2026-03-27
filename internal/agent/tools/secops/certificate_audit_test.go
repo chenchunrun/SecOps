@@ -137,6 +137,9 @@ func TestCertificateAuditTool_ParseCertificateFile(t *testing.T) {
 	if cert.KeyLength < 2048 {
 		t.Errorf("expected key length >= 2048, got %d", cert.KeyLength)
 	}
+	if !cert.TransportVerified {
+		t.Fatal("expected file-parsed certificate to remain transport-verified")
+	}
 }
 
 func TestCertificateAuditTool_HasWeakKey(t *testing.T) {
@@ -319,6 +322,22 @@ func TestCertificateAuditTool_Execute_RemoteService(t *testing.T) {
 	}
 	if ar.TotalCertificates == 0 {
 		t.Fatal("expected remote certificate to be collected")
+	}
+	if ar.Certificates[0].TransportVerified {
+		t.Fatal("expected remote-probed certificate to be marked transport-unverified")
+	}
+	if ar.Certificates[0].CollectionMethod != "remote_openssl_probe" {
+		t.Fatalf("unexpected collection method: %q", ar.Certificates[0].CollectionMethod)
+	}
+	foundUnverifiedIssue := false
+	for _, issue := range ar.Certificates[0].Issues {
+		if issue.Type == "transport_unverified" {
+			foundUnverifiedIssue = true
+			break
+		}
+	}
+	if !foundUnverifiedIssue {
+		t.Fatal("expected transport_unverified issue on remote-probed certificate")
 	}
 	if gotName != "ssh" {
 		t.Fatalf("expected ssh command, got %s", gotName)

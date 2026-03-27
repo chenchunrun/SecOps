@@ -427,21 +427,7 @@ func (e *SSHExecutor) Execute(ctx context.Context, cmd string, cfg SandboxConfig
 		defer cancel()
 	}
 
-	args := []string{
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "LogLevel=ERROR",
-	}
-
-	if e.KeyPath != "" {
-		args = append(args, "-i", e.KeyPath)
-	}
-
-	if cfg.TimeoutSeconds > 0 {
-		args = append(args, "-o", fmt.Sprintf("ConnectTimeout=%d", cfg.TimeoutSeconds))
-	}
-
-	args = append(args, cfg.SSHTarget, cmd)
+	args := buildSSHExecutorArgs(e, cfg, cmd)
 
 	execCmd := exec.CommandContext(ctx, sshPath, args...)
 
@@ -486,6 +472,25 @@ func (e *SSHExecutor) Execute(ctx context.Context, cmd string, cfg SandboxConfig
 	writeAuditLog(cfg.AuditLogPath, completeEntry)
 
 	return result, nil
+}
+
+func buildSSHExecutorArgs(e *SSHExecutor, cfg SandboxConfig, cmd string) []string {
+	args := []string{
+		"-o", "BatchMode=yes",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "LogLevel=ERROR",
+	}
+
+	if e != nil && e.KeyPath != "" {
+		args = append(args, "-i", e.KeyPath)
+	}
+
+	if cfg.TimeoutSeconds > 0 {
+		args = append(args, "-o", fmt.Sprintf("ConnectTimeout=%d", cfg.TimeoutSeconds))
+	}
+
+	args = append(args, cfg.SSHTarget, cmd)
+	return args
 }
 
 // NewSSHExecutor creates an SSHExecutor with the given credentials.
