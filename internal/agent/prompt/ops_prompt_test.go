@@ -45,6 +45,8 @@ func TestOpsAgentPromptRender(t *testing.T) {
 	// Verify role definition is present
 	assert.Contains(t, tpl, "OpsAgent")
 	assert.Contains(t, tpl, "operations automation agent")
+	assert.Contains(t, tpl, "Primary Work Scenarios")
+	assert.Contains(t, tpl, "monitoring triage")
 
 	// Verify permission levels are defined
 	assert.Contains(t, tpl, "Viewer")
@@ -66,7 +68,7 @@ func TestOpsAgentPromptRender(t *testing.T) {
 	assert.Contains(t, tpl, "Diagnostics")
 	assert.Contains(t, tpl, "Security Scanning")
 	assert.Contains(t, tpl, "Compliance")
-	assert.Contains(t, tpl, "Incident Response")
+	assert.Contains(t, tpl, "Operational Incident Handling")
 
 	// Verify prohibited operations
 	assert.Contains(t, tpl, "Prohibited Operations")
@@ -75,7 +77,9 @@ func TestOpsAgentPromptRender(t *testing.T) {
 	// Verify output format requirements
 	assert.Contains(t, tpl, "Risk Assessment")
 	assert.Contains(t, tpl, "Approval Level")
-	assert.Contains(t, tpl, "Rollback Steps")
+	assert.Contains(t, tpl, "Rollback or Recovery Plan")
+	assert.Contains(t, tpl, "Current Symptom")
+	assert.Contains(t, tpl, "Most Likely Cause")
 
 	// Verify example scenario
 	assert.Contains(t, tpl, "Example Scenario")
@@ -110,10 +114,12 @@ func TestSecurityExpertAgentPromptRender(t *testing.T) {
 	// Verify role definition
 	assert.Contains(t, tpl, "SecurityExpertAgent")
 	assert.Contains(t, tpl, "security expert agent")
+	assert.Contains(t, tpl, "Primary Work Scenarios")
+	assert.Contains(t, tpl, "defensive security expert")
 
 	// Verify specialization areas
 	assert.Contains(t, tpl, "Vulnerability Management")
-	assert.Contains(t, tpl, "Penetration Testing")
+	assert.Contains(t, tpl, "Exposure and Validation")
 	assert.Contains(t, tpl, "Incident Response")
 	assert.Contains(t, tpl, "Compliance Auditing")
 	assert.Contains(t, tpl, "Threat Intelligence")
@@ -154,6 +160,7 @@ func TestSecurityExpertAgentPromptRender(t *testing.T) {
 	assert.Contains(t, tpl, "Evidence")
 	assert.Contains(t, tpl, "Remediation")
 	assert.Contains(t, tpl, "MITRE ATT&CK")
+	assert.Contains(t, tpl, "Containment Advice")
 
 	// Verify template ends with separator
 	assert.True(t, strings.HasSuffix(strings.TrimSpace(tpl), "---"))
@@ -235,7 +242,7 @@ func TestOpsAgentPromptHasCapabilityList(t *testing.T) {
 	assert.Contains(t, tpl, "Diagnostics")
 	assert.Contains(t, tpl, "Security Scanning")
 	assert.Contains(t, tpl, "Compliance")
-	assert.Contains(t, tpl, "Incident Response")
+	assert.Contains(t, tpl, "Operational Incident Handling")
 
 	// Verify sub-capabilities
 	assert.Contains(t, tpl, "Prometheus")

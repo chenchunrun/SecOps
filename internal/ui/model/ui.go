@@ -25,6 +25,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/ultraviolet/layout"
+	"github.com/charmbracelet/ultraviolet/screen"
+	"github.com/charmbracelet/x/editor"
 	"github.com/chenchunrun/SecOps/internal/agent/notify"
 	agenttools "github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/mcp"
@@ -51,10 +55,6 @@ import (
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/chenchunrun/SecOps/internal/ui/util"
 	"github.com/chenchunrun/SecOps/internal/version"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/ultraviolet/layout"
-	"github.com/charmbracelet/ultraviolet/screen"
-	"github.com/charmbracelet/x/editor"
 )
 
 // MouseScrollThreshold defines how many lines to scroll the chat when a mouse
@@ -1324,7 +1324,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		prevMode := m.agentMode
 		if msg.Mode == dialog.AgentModeAuto {
 			m.agentMode = msg.Mode
-			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent mode set to auto")))
+			m.randomizePlaceholders()
+			m.textarea.Placeholder = m.readyPlaceholder
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(agentModeInfoMessage(msg.Mode))))
 			m.dialog.CloseDialog(dialog.CommandsID)
 			break
 		}
@@ -1334,7 +1336,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, util.ReportError(err))
 		} else {
 			m.agentMode = msg.Mode
-			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent switched to "+target)))
+			m.randomizePlaceholders()
+			m.textarea.Placeholder = m.readyPlaceholder
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(agentModeInfoMessage(msg.Mode))))
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionNewSession:
@@ -2893,13 +2897,6 @@ func mimeOf(content []byte) string {
 	return http.DetectContentType(content[:mimeBufferSize])
 }
 
-var readyPlaceholders = [...]string{
-	"Ready!",
-	"Ready...",
-	"Ready?",
-	"Ready for instructions",
-}
-
 var workingPlaceholders = [...]string{
 	"Working!",
 	"Working...",
@@ -2909,11 +2906,54 @@ var workingPlaceholders = [...]string{
 	"Thinking...",
 }
 
+func readyPlaceholdersForMode(mode dialog.AgentMode) []string {
+	switch mode {
+	case dialog.AgentModeOps:
+		return []string{
+			"Ops: investigate alerts, rollbacks, and recovery",
+			"Ops: check monitoring, logs, or remote hosts",
+			"Ops: diagnose latency, saturation, release, or network issues",
+		}
+	case dialog.AgentModeSecurity:
+		return []string{
+			"Security: triage vulnerabilities, alerts, or suspicious activity",
+			"Security: review exposure, evidence, compliance, or access risk",
+			"Security: investigate IOC, certificate, secret, or account issues",
+		}
+	case dialog.AgentModeCoder:
+		return []string{
+			"Coder: implement changes, debug code, or write tests",
+			"Coder: review code paths, fix bugs, or refactor safely",
+			"Coder: inspect files, explain behavior, or patch regressions",
+		}
+	default:
+		return []string{
+			"Describe the task. Auto will route ops, security, or code work.",
+			"Ask for monitoring triage, vulnerability review, or code changes.",
+			"Start with the scenario. The agent mode can route automatically.",
+		}
+	}
+}
+
 // randomizePlaceholders selects random placeholder text for the textarea's
 // ready and working states.
 func (m *UI) randomizePlaceholders() {
 	m.workingPlaceholder = workingPlaceholders[rand.Intn(len(workingPlaceholders))]
+	readyPlaceholders := readyPlaceholdersForMode(m.agentMode)
 	m.readyPlaceholder = readyPlaceholders[rand.Intn(len(readyPlaceholders))]
+}
+
+func agentModeInfoMessage(mode dialog.AgentMode) string {
+	switch mode {
+	case dialog.AgentModeOps:
+		return "Agent switched to Ops: monitoring, change safety, recovery, and remote maintenance"
+	case dialog.AgentModeSecurity:
+		return "Agent switched to Security: vulnerabilities, alerts, compliance, and evidence review"
+	case dialog.AgentModeCoder:
+		return "Agent switched to Coder: implementation, debugging, and code review"
+	default:
+		return "Agent mode set to auto: route by operational, security, or coding intent"
+	}
 }
 
 // renderEditorView renders the editor view with attachments if any.
@@ -3144,7 +3184,9 @@ func (m *UI) applySlashControlCommand(cmd slashControlCommand) tea.Cmd {
 		switch *cmd.agentMode {
 		case dialog.AgentModeAuto:
 			m.agentMode = dialog.AgentModeAuto
-			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent mode set to auto")))
+			m.randomizePlaceholders()
+			m.textarea.Placeholder = m.readyPlaceholder
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(agentModeInfoMessage(dialog.AgentModeAuto))))
 		case dialog.AgentModeCoder, dialog.AgentModeOps, dialog.AgentModeSecurity:
 			prevMode := m.agentMode
 			target := string(*cmd.agentMode)
@@ -3153,7 +3195,9 @@ func (m *UI) applySlashControlCommand(cmd slashControlCommand) tea.Cmd {
 				cmds = append(cmds, util.ReportError(err))
 			} else {
 				m.agentMode = *cmd.agentMode
-				cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Agent switched to "+target)))
+				m.randomizePlaceholders()
+				m.textarea.Placeholder = m.readyPlaceholder
+				cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(agentModeInfoMessage(*cmd.agentMode))))
 			}
 		}
 	}
@@ -3164,24 +3208,44 @@ func inferAgentForPrompt(content string) string {
 	lower := strings.ToLower(strings.TrimSpace(content))
 	// Lightweight local heuristic only. Never call external models in routing.
 	securityHints := []string{
-		"漏洞", "cve", "威胁", "入侵", "恶意", "合规", "审计", "加固", "弱口令", "风险评估", "security", "audit", "compliance",
+		"漏洞", "cve", "cvss", "威胁", "入侵", "恶意", "勒索", "木马", "后门", "合规", "审计", "加固", "弱口令", "风险评估",
+		"异常登录", "可疑登录", "权限审查", "凭证", "secret", "密钥", "证书风险", "暴露面", "attack", "security", "audit",
+		"compliance", "ioc", "mitre", "threat", "forensic", "forensics", "incident response", "containment",
 	}
-	for _, k := range securityHints {
-		if strings.Contains(lower, k) {
-			return config.AgentSecurityExpertAgent
-		}
-	}
-
 	opsHints := []string{
-		"告警", "发布", "重启", "扩容", "降级", "回滚", "监控", "网络", "备份", "恢复", "运维", "incident", "deploy", "rollback", "monitor",
+		"告警", "发布", "重启", "扩容", "缩容", "降级", "回滚", "监控", "网络抖动", "备份", "恢复", "运维", "cpu高", "内存高",
+		"磁盘满", "延迟", "超时", "抖动", "副本", "主备", "复制延迟", "健康检查", "健康探针", "巡检", "容量", "扩容计划",
+		"incident", "deploy", "rollback", "monitor", "latency", "timeout", "disk", "memory", "cpu", "replication",
+		"backup", "restore", "slo", "availability", "release", "remote host", "ssh",
 	}
-	for _, k := range opsHints {
-		if strings.Contains(lower, k) {
-			return config.AgentOpsAgent
+	coderHints := []string{
+		"重构", "修复bug", "修复测试", "写测试", "单元测试", "代码审查", "函数", "代码", "编译", "构建", "go build",
+		"refactor", "bug", "test", "unit test", "compile", "build", "code review", "function", "implementation",
+	}
+	score := func(hints []string) int {
+		total := 0
+		for _, k := range hints {
+			if strings.Contains(lower, k) {
+				total++
+			}
 		}
+		return total
 	}
 
-	return config.AgentCoder
+	securityScore := score(securityHints)
+	opsScore := score(opsHints)
+	coderScore := score(coderHints)
+
+	switch {
+	case securityScore > 0 && securityScore >= opsScore && securityScore >= coderScore:
+		return config.AgentSecurityExpertAgent
+	case opsScore > 0 && opsScore >= securityScore && opsScore >= coderScore:
+		return config.AgentOpsAgent
+	case coderScore > 0:
+		return config.AgentCoder
+	default:
+		return config.AgentCoder
+	}
 }
 
 func (m *UI) switchActiveAgent(ctx context.Context, target string, persist bool) error {

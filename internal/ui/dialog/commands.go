@@ -9,12 +9,12 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/chenchunrun/SecOps/internal/commands"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/list"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // CommandsID is the identifier for the commands dialog.
@@ -521,10 +521,10 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		return ""
 	}
 	commands = append(commands,
-		NewCommandItem(c.com.Styles, "agent_mode_auto", "Agent Mode: Auto"+agentSuffix(AgentModeAuto), "", ActionSetAgentMode{Mode: AgentModeAuto}),
-		NewCommandItem(c.com.Styles, "agent_mode_coder", "Agent Mode: Coder"+agentSuffix(AgentModeCoder), "", ActionSetAgentMode{Mode: AgentModeCoder}),
-		NewCommandItem(c.com.Styles, "agent_mode_ops", "Agent Mode: Ops"+agentSuffix(AgentModeOps), "", ActionSetAgentMode{Mode: AgentModeOps}),
-		NewCommandItem(c.com.Styles, "agent_mode_security", "Agent Mode: Security"+agentSuffix(AgentModeSecurity), "", ActionSetAgentMode{Mode: AgentModeSecurity}),
+		NewCommandItem(c.com.Styles, "agent_mode_auto", "Agent Mode: Auto route by intent"+agentSuffix(AgentModeAuto), "", ActionSetAgentMode{Mode: AgentModeAuto}),
+		NewCommandItem(c.com.Styles, "agent_mode_coder", "Agent Mode: Coder for development and code tasks"+agentSuffix(AgentModeCoder), "", ActionSetAgentMode{Mode: AgentModeCoder}),
+		NewCommandItem(c.com.Styles, "agent_mode_ops", "Agent Mode: Ops for monitoring, release, recovery, and remote maintenance"+agentSuffix(AgentModeOps), "", ActionSetAgentMode{Mode: AgentModeOps}),
+		NewCommandItem(c.com.Styles, "agent_mode_security", "Agent Mode: Security for vulnerability, alert, compliance, and evidence work"+agentSuffix(AgentModeSecurity), "", ActionSetAgentMode{Mode: AgentModeSecurity}),
 	)
 	modeSuffix := func(mode RunMode) string {
 		if c.runMode == mode {

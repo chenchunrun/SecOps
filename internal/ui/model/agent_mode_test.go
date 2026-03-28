@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/chenchunrun/SecOps/internal/config"
@@ -42,6 +43,14 @@ func TestRouteAgentByMode(t *testing.T) {
 	target, prompt = routeAgentByMode("请帮我回滚发布", dialog.AgentModeAuto)
 	require.Equal(t, config.AgentOpsAgent, target)
 	require.Equal(t, "请帮我回滚发布", prompt)
+
+	target, prompt = routeAgentByMode("生产环境 CPU 高并且延迟抖动，请先做监控排障", dialog.AgentModeAuto)
+	require.Equal(t, config.AgentOpsAgent, target)
+	require.Equal(t, "生产环境 CPU 高并且延迟抖动，请先做监控排障", prompt)
+
+	target, prompt = routeAgentByMode("请研判异常登录并检查是否存在凭证泄露风险", dialog.AgentModeAuto)
+	require.Equal(t, config.AgentSecurityExpertAgent, target)
+	require.Equal(t, "请研判异常登录并检查是否存在凭证泄露风险", prompt)
 
 	target, prompt = routeAgentByMode("重构这个函数", dialog.AgentModeAuto)
 	require.Equal(t, config.AgentCoder, target)
@@ -101,4 +110,24 @@ func TestRouteAgentByMode_ExplicitDirectiveTakesPrecedence(t *testing.T) {
 	target, prompt = routeAgentByMode("/coder 写单元测试", dialog.AgentModeOps)
 	require.Equal(t, config.AgentCoder, target)
 	require.Equal(t, "写单元测试", prompt)
+}
+
+func TestAgentModeInfoMessage(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, agentModeInfoMessage(dialog.AgentModeOps), "monitoring")
+	require.Contains(t, agentModeInfoMessage(dialog.AgentModeSecurity), "vulnerabilities")
+	require.Contains(t, agentModeInfoMessage(dialog.AgentModeCoder), "debugging")
+	require.Contains(t, agentModeInfoMessage(dialog.AgentModeAuto), "route by operational")
+}
+
+func TestReadyPlaceholdersForMode(t *testing.T) {
+	t.Parallel()
+
+	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeOps))
+	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeSecurity))
+	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeCoder))
+	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeAuto))
+	require.Contains(t, strings.Join(readyPlaceholdersForMode(dialog.AgentModeOps), " "), "monitoring")
+	require.Contains(t, strings.Join(readyPlaceholdersForMode(dialog.AgentModeSecurity), " "), "Security")
 }
