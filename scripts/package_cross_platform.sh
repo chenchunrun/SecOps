@@ -29,7 +29,7 @@ for target in $TARGETS; do
   mkdir -p "$work_dir"
 
   if [[ "$goos" == "windows" ]]; then
-    bin_name="crush.exe"
+    bin_name="${PRODUCT_NAME}.exe"
   else
     bin_name="crush"
   fi
@@ -39,10 +39,20 @@ for target in $TARGETS; do
     go build -ldflags "-X github.com/chenchunrun/SecOps/internal/version.Version=${VERSION}" \
     -o "$work_dir/$bin_name" .
 
+  if [[ "$goos" == "windows" && "$bin_name" != "crush.exe" ]]; then
+    cp "$work_dir/$bin_name" "$work_dir/crush.exe"
+  fi
+
   if command -v shasum >/dev/null 2>&1; then
     (cd "$work_dir" && shasum -a 256 "$bin_name" > "${bin_name}.sha256")
+    if [[ "$goos" == "windows" && -f "$work_dir/crush.exe" && "$bin_name" != "crush.exe" ]]; then
+      (cd "$work_dir" && shasum -a 256 "crush.exe" > "crush.exe.sha256")
+    fi
   elif command -v sha256sum >/dev/null 2>&1; then
     (cd "$work_dir" && sha256sum "$bin_name" > "${bin_name}.sha256")
+    if [[ "$goos" == "windows" && -f "$work_dir/crush.exe" && "$bin_name" != "crush.exe" ]]; then
+      (cd "$work_dir" && sha256sum "crush.exe" > "crush.exe.sha256")
+    fi
   fi
 
   if [[ "$goos" == "windows" ]]; then
@@ -50,9 +60,11 @@ for target in $TARGETS; do
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$BinSrc = Join-Path $ScriptDir "crush.exe"
+$PrimaryName = "secops-agent.exe"
+$CompatName = "crush.exe"
+$BinSrc = Join-Path $ScriptDir $PrimaryName
 if (-not (Test-Path $BinSrc)) {
-  throw "crush.exe not found in package directory: $BinSrc"
+  throw "$PrimaryName not found in package directory: $BinSrc"
 }
 
 $TargetDir = $env:CRUSH_INSTALL_DIR
@@ -61,16 +73,18 @@ if ([string]::IsNullOrWhiteSpace($TargetDir)) {
 }
 
 New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
-Copy-Item $BinSrc (Join-Path $TargetDir "crush.exe") -Force
-Write-Host "Installed: $(Join-Path $TargetDir 'crush.exe')"
+Copy-Item $BinSrc (Join-Path $TargetDir $PrimaryName) -Force
+Copy-Item $BinSrc (Join-Path $TargetDir $CompatName) -Force
+Write-Host "Installed: $(Join-Path $TargetDir $PrimaryName)"
+Write-Host "Compatibility alias: $(Join-Path $TargetDir $CompatName)"
 
 $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($currentUserPath -notlike "*$TargetDir*") {
   [Environment]::SetEnvironmentVariable("Path", "$currentUserPath;$TargetDir", "User")
   Write-Host "Added to user PATH: $TargetDir"
-  Write-Host "Please open a new terminal, then run: crush"
+  Write-Host "Please open a new terminal, then run: secops-agent or crush"
 } else {
-  Write-Host "Run: crush"
+  Write-Host "Run: secops-agent or crush"
 }
 PS1
 
@@ -82,12 +96,13 @@ if ([string]::IsNullOrWhiteSpace($TargetDir)) {
   $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\secops-agent"
 }
 
-$BinPath = Join-Path $TargetDir "crush.exe"
-if (Test-Path $BinPath) {
-  Remove-Item $BinPath -Force
-  Write-Host "Removed: $BinPath"
-} else {
-  Write-Host "Not found: $BinPath"
+$Names = @("secops-agent.exe", "crush.exe")
+foreach ($Name in $Names) {
+  $BinPath = Join-Path $TargetDir $Name
+  if (Test-Path $BinPath) {
+    Remove-Item $BinPath -Force
+    Write-Host "Removed: $BinPath"
+  }
 }
 PS1
 
@@ -99,6 +114,18 @@ PS1
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 ./install.ps1
+```
+
+After install, you can run either:
+
+```powershell
+secops-agent
+```
+
+or:
+
+```powershell
+crush
 ```
 
 ## Custom install path
