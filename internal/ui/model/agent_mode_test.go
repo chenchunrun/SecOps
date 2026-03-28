@@ -131,3 +131,12 @@ func TestReadyPlaceholdersForMode(t *testing.T) {
 	require.Contains(t, strings.Join(readyPlaceholdersForMode(dialog.AgentModeOps), " "), "monitoring")
 	require.Contains(t, strings.Join(readyPlaceholdersForMode(dialog.AgentModeSecurity), " "), "Security")
 }
+
+func TestAutoRouteInfoMessage(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, autoRouteInfoMessage(config.AgentOpsAgent), "Auto routed to Ops")
+	require.Contains(t, autoRouteInfoMessage(config.AgentSecurityExpertAgent), "Auto routed to Security")
+	require.Contains(t, autoRouteInfoMessage(config.AgentCoder), "Auto routed to Coder")
+	require.Equal(t, "", autoRouteInfoMessage(""))
+}

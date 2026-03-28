@@ -2956,6 +2956,19 @@ func agentModeInfoMessage(mode dialog.AgentMode) string {
 	}
 }
 
+func autoRouteInfoMessage(targetAgent string) string {
+	switch targetAgent {
+	case config.AgentOpsAgent:
+		return "Auto routed to Ops: monitoring, change safety, recovery, and remote maintenance"
+	case config.AgentSecurityExpertAgent:
+		return "Auto routed to Security: vulnerabilities, alerts, compliance, and evidence review"
+	case config.AgentCoder:
+		return "Auto routed to Coder: implementation, debugging, and code review"
+	default:
+		return ""
+	}
+}
+
 // renderEditorView renders the editor view with attachments if any.
 func (m *UI) renderEditorView(width int) string {
 	var attachmentsView string
@@ -3008,6 +3021,11 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 	// Capture session ID to avoid race with main goroutine updating m.session.
 	sessionID := m.session.ID
 	targetAgent, content := routeAgentByMode(content, m.agentMode)
+	if m.agentMode == dialog.AgentModeAuto {
+		if info := autoRouteInfoMessage(targetAgent); info != "" {
+			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(info)))
+		}
+	}
 	content = applyRunModePrefix(content, m.runMode)
 	cmds = append(cmds, func() tea.Msg {
 		if targetAgent != "" {
