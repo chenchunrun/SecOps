@@ -125,6 +125,8 @@ func renderHeaderDetails(
 		parts = append(parts, t.LSP.ErrorDiagnostic.Render(fmt.Sprintf("%s%d", styles.LSPErrorIcon, errorCount)))
 	}
 
+	parts = append(parts, renderHeaderAgentMode(com))
+
 	agentCfg := com.Config().Agents[config.AgentCoder]
 	model := com.Config().GetModelByType(agentCfg.Model)
 	percentage := (float64(session.CompletionTokens+session.PromptTokens) / float64(model.ContextWindow)) * 100
@@ -148,4 +150,30 @@ func renderHeaderDetails(
 
 	result := cwd + metadata
 	return ansi.Truncate(result, max(0, availWidth), "…")
+}
+
+func renderHeaderAgentMode(com *common.Common) string {
+	t := com.Styles
+	activeAgent := ""
+	if com != nil && com.Config() != nil && com.Config().Options != nil {
+		activeAgent = strings.TrimSpace(com.Config().Options.ActiveAgent)
+	}
+	if activeAgent == "" && com != nil && com.App != nil && com.App.AgentCoordinator != nil {
+		activeAgent = strings.TrimSpace(com.App.AgentCoordinator.ActiveAgentID())
+	}
+
+	return t.Header.Keystroke.Render("agent") + t.Header.KeystrokeTip.Render(" "+headerAgentModeLabel(activeAgent))
+}
+
+func headerAgentModeLabel(activeAgent string) string {
+	switch activeAgent {
+	case config.AgentOpsAgent:
+		return "OPS"
+	case config.AgentSecurityExpertAgent:
+		return "SEC"
+	case config.AgentCoder:
+		return "CODE"
+	default:
+		return "AUTO"
+	}
 }

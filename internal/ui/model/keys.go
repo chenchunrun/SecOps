@@ -78,7 +78,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Commands: key.NewBinding(
 			key.WithKeys("ctrl+p"),
-			key.WithHelp("ctrl+p", "commands"),
+			key.WithHelp("ctrl+p", "modes"),
 		),
 		Models: key.NewBinding(
 			key.WithKeys("ctrl+m", "ctrl+l"),
@@ -131,7 +131,7 @@ func DefaultKeyMap() KeyMap {
 	)
 	km.Editor.Commands = key.NewBinding(
 		key.WithKeys("/"),
-		key.WithHelp("/", "commands"),
+		key.WithHelp("/", "modes"),
 	)
 	km.Editor.AttachmentDeleteMode = key.NewBinding(
 		key.WithKeys("ctrl+r"),
