@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,59 +20,131 @@ const (
 type AgentCapability string
 
 const (
-	CapLogAnalysis    AgentCapability = "log_analysis"
-	CapMonitoring     AgentCapability = "monitoring"
-	CapCompliance     AgentCapability = "compliance_check"
-	CapVulnScan       AgentCapability = "vulnerability_scan"
-	CapCertAudit      AgentCapability = "certificate_audit"
-	CapConfigAudit    AgentCapability = "configuration_audit"
-	CapNetworkDiag    AgentCapability = "network_diagnostic"
-	CapRiskAssess     AgentCapability = "risk_assessment"
-	CapIncidentResp   AgentCapability = "incident_response"
+	CapLogAnalysis  AgentCapability = "log_analysis"
+	CapMonitoring   AgentCapability = "monitoring"
+	CapCompliance   AgentCapability = "compliance_check"
+	CapVulnScan     AgentCapability = "vulnerability_scan"
+	CapCertAudit    AgentCapability = "certificate_audit"
+	CapConfigAudit  AgentCapability = "configuration_audit"
+	CapNetworkDiag  AgentCapability = "network_diagnostic"
+	CapRiskAssess   AgentCapability = "risk_assessment"
+	CapIncidentResp AgentCapability = "incident_response"
 )
 
 // AgentTask 代理任务
 type AgentTask struct {
-	ID          string              `json:"id"`
-	Title       string              `json:"title"`
-	Description string              `json:"description"`
-	Type        string              `json:"type"` // incident, investigation, audit, diagnostic
-	Status      string              `json:"status"` // pending, in_progress, completed, failed
-	CreatedAt   time.Time           `json:"created_at"`
-	UpdatedAt   time.Time           `json:"updated_at"`
-	CompletedAt time.Time           `json:"completed_at,omitempty"`
-	Priority    string              `json:"priority"` // critical, high, medium, low
-	Severity    string              `json:"severity"`
-	AssignedTo  string              `json:"assigned_to"`
-	Result      interface{}         `json:"result,omitempty"`
-	Error       string              `json:"error,omitempty"`
+	ID          string                 `json:"id"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	Type        string                 `json:"type"`   // incident, investigation, audit, diagnostic
+	Status      string                 `json:"status"` // pending, in_progress, completed, failed
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	CompletedAt time.Time              `json:"completed_at,omitempty"`
+	Priority    string                 `json:"priority"` // critical, high, medium, low
+	Severity    string                 `json:"severity"`
+	AssignedTo  string                 `json:"assigned_to"`
+	Result      interface{}            `json:"result,omitempty"`
+	Error       string                 `json:"error,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // AgentResponse 代理响应
 type AgentResponse struct {
-	AgentRole   AgentRole           `json:"agent_role"`
-	TaskID      string              `json:"task_id"`
-	Status      string              `json:"status"`
-	Action      string              `json:"action"`      // 建议的操作
-	Reasoning   string              `json:"reasoning"`   // 推理过程
-	Findings    []string            `json:"findings"`    // 发现
-	Alerts      []string            `json:"alerts"`      // 告警
-	Recommendations []string        `json:"recommendations"` // 建议
-	ConfidenceScore float64         `json:"confidence_score"` // 置信度 0-1
-	NextSteps   []string            `json:"next_steps"`
-	ResponseTime int                `json:"response_time"` // 毫秒
-	Error       string              `json:"error,omitempty"`
+	AgentRole       AgentRole                `json:"agent_role"`
+	TaskID          string                   `json:"task_id"`
+	Status          string                   `json:"status"`
+	Action          string                   `json:"action"`           // 建议的操作
+	Reasoning       string                   `json:"reasoning"`        // 推理过程
+	Findings        []string                 `json:"findings"`         // 发现
+	Alerts          []string                 `json:"alerts"`           // 告警
+	Recommendations []string                 `json:"recommendations"`  // 建议
+	ConfidenceScore float64                  `json:"confidence_score"` // 置信度 0-1
+	NextSteps       []string                 `json:"next_steps"`
+	WorkflowSummary *SecurityWorkflowSummary `json:"workflow_summary,omitempty"`
+	ResponseTime    int                      `json:"response_time"` // 毫秒
+	Error           string                   `json:"error,omitempty"`
+}
+
+type SecurityWorkflowSummary struct {
+	PrimaryTool      string   `json:"primary_tool"`
+	FollowupTools    []string `json:"followup_tools,omitempty"`
+	EvidenceSources  []string `json:"evidence_sources,omitempty"`
+	ContainmentFocus []string `json:"containment_focus,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	Reason           string   `json:"reason"`
+}
+
+func (r *AgentResponse) RenderWorkflowSummary() string {
+	if r == nil || r.WorkflowSummary == nil {
+		return ""
+	}
+
+	summary := r.WorkflowSummary
+	lines := []string{
+		fmt.Sprintf("Recommended Tool: %s", summary.PrimaryTool),
+		fmt.Sprintf("Reason: %s", summary.Reason),
+	}
+	if summary.Status != "" {
+		lines = append(lines, fmt.Sprintf("Workflow Status: %s", summary.Status))
+	}
+
+	if len(summary.FollowupTools) > 0 {
+		lines = append(lines, fmt.Sprintf("Recommended Follow-up Tools: %s", strings.Join(summary.FollowupTools, ", ")))
+	}
+	if len(summary.EvidenceSources) > 0 {
+		lines = append(lines, fmt.Sprintf("Evidence Sources: %s", strings.Join(summary.EvidenceSources, ", ")))
+	}
+	if len(summary.ContainmentFocus) > 0 {
+		lines = append(lines, fmt.Sprintf("Containment Focus: %s", strings.Join(summary.ContainmentFocus, "; ")))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (r *AgentResponse) RenderSecurityAssessment() string {
+	if r == nil {
+		return ""
+	}
+
+	lines := make([]string, 0, 8)
+	if r.Action != "" {
+		lines = append(lines, fmt.Sprintf("Action: %s", r.Action))
+	}
+	if r.Reasoning != "" {
+		lines = append(lines, fmt.Sprintf("Reasoning: %s", r.Reasoning))
+	}
+	if r.ConfidenceScore > 0 {
+		lines = append(lines, fmt.Sprintf("Confidence: %.2f", r.ConfidenceScore))
+	}
+	if workflow := r.RenderWorkflowSummary(); workflow != "" {
+		lines = append(lines, "Workflow Summary:")
+		lines = append(lines, workflow)
+	}
+	if len(r.Alerts) > 0 {
+		lines = append(lines, fmt.Sprintf("Alerts: %s", strings.Join(r.Alerts, " | ")))
+	}
+	if len(r.Findings) > 0 {
+		lines = append(lines, fmt.Sprintf("Findings: %s", strings.Join(r.Findings, " | ")))
+	}
+	if len(r.Recommendations) > 0 {
+		lines = append(lines, fmt.Sprintf("Recommendations: %s", strings.Join(r.Recommendations, " | ")))
+	}
+	if len(r.NextSteps) > 0 {
+		lines = append(lines, fmt.Sprintf("Next Steps: %s", strings.Join(r.NextSteps, " | ")))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // OpsAgent 运维代理
 type OpsAgent struct {
-	mu            sync.RWMutex
-	ID            string
-	Role          AgentRole
-	Capabilities  []AgentCapability
-	State         AgentState
-	Knowledge     map[string]interface{}
+	mu           sync.RWMutex
+	ID           string
+	Role         AgentRole
+	Capabilities []AgentCapability
+	State        AgentState
+	Knowledge    map[string]interface{}
 }
 
 // AgentState 代理状态
@@ -307,12 +381,48 @@ func (a *OpsAgent) UpdateKnowledge(key string, value interface{}) {
 
 // SecurityExpertAgent 安全专家代理
 type SecurityExpertAgent struct {
-	mu            sync.RWMutex
-	ID            string
-	Role          AgentRole
-	Capabilities  []AgentCapability
-	State         AgentState
-	Knowledge     map[string]interface{}
+	mu           sync.RWMutex
+	ID           string
+	Role         AgentRole
+	Capabilities []AgentCapability
+	State        AgentState
+	Knowledge    map[string]interface{}
+}
+
+type securityWorkflowPlan struct {
+	PrimaryTool string
+	NeedsAttack bool
+	Reason      string
+}
+
+func (p securityWorkflowPlan) summary(taskType string) *SecurityWorkflowSummary {
+	summary := &SecurityWorkflowSummary{
+		PrimaryTool:     p.PrimaryTool,
+		EvidenceSources: []string{"alert_check", "log_analyze", "incident_timeline", "access_review"},
+		Status:          "recommended only; ProcessTask did not execute the tools",
+		Reason:          p.Reason,
+	}
+
+	if p.NeedsAttack {
+		summary.FollowupTools = append(summary.FollowupTools, "attack_reason")
+	}
+
+	switch taskType {
+	case "incident_response":
+		summary.ContainmentFocus = []string{
+			"isolate compromised systems",
+			"preserve forensic evidence",
+			"prioritize immediate containment decisions",
+		}
+	case "threat_assessment":
+		summary.ContainmentFocus = []string{
+			"correlate evidence before containment",
+			"identify the most likely attacker path",
+			"prioritize mitigations by confidence",
+		}
+	}
+
+	return summary
 }
 
 // NewSecurityExpertAgent 创建安全专家代理
@@ -464,12 +574,14 @@ func (a *SecurityExpertAgent) handleSecurityAudit(task *AgentTask) *AgentRespons
 
 // handleThreatAssessment 处理威胁评估
 func (a *SecurityExpertAgent) handleThreatAssessment(task *AgentTask) *AgentResponse {
+	workflow := a.selectSecurityWorkflow(task)
 	response := &AgentResponse{
 		AgentRole:       a.Role,
 		TaskID:          task.ID,
 		Status:          "completed",
-		Reasoning:       "Analyzing threats and attack vectors",
+		Reasoning:       fmt.Sprintf("Recommending %s as the next investigation workflow: %s", workflow.PrimaryTool, workflow.Reason),
 		ConfidenceScore: 0.85,
+		WorkflowSummary: workflow.summary("threat_assessment"),
 	}
 
 	response.Findings = append(response.Findings,
@@ -477,63 +589,180 @@ func (a *SecurityExpertAgent) handleThreatAssessment(task *AgentTask) *AgentResp
 		"Secondary threat: Weak authentication mechanisms",
 		"Tertiary threat: Insufficient network segmentation",
 	)
+	if workflow.PrimaryTool == "incident_assess" {
+		response.Findings = append(response.Findings,
+			"Recommended investigation workflow: incident_assess for consolidated evidence correlation and containment guidance",
+		)
+	}
+	if workflow.NeedsAttack {
+		response.Findings = append(response.Findings,
+			"If more evidence is collected, use attack_reason after the initial incident assessment for deeper ATT&CK technique ranking",
+		)
+	}
 
 	response.Alerts = append(response.Alerts,
 		"CRITICAL: High likelihood of successful compromise",
 		"HIGH: Active threat actors targeting these vulnerabilities",
 	)
 
-	response.Action = "Implement immediate remediation plan"
+	response.Action = fmt.Sprintf("Run %s as the next investigation step, then implement the immediate remediation plan", workflow.PrimaryTool)
 
 	response.Recommendations = append(response.Recommendations,
+		fmt.Sprintf("Start with %s to consolidate evidence before making containment decisions", workflow.PrimaryTool),
 		"Prioritize patch management",
 		"Implement MFA for all users",
 		"Implement network microsegmentation",
 		"Deploy intrusion detection system",
 	)
+	if workflow.NeedsAttack {
+		response.Recommendations = append(response.Recommendations,
+			"Use attack_reason to validate the most likely MITRE ATT&CK techniques after the consolidated assessment",
+		)
+	}
+
+	response.NextSteps = append(response.NextSteps,
+		fmt.Sprintf("Run %s with available alert, log, timeline, and access evidence", workflow.PrimaryTool),
+	)
+	if workflow.NeedsAttack {
+		response.NextSteps = append(response.NextSteps,
+			"Run attack_reason for deeper ATT&CK technique ranking if the incident_assess result leaves competing hypotheses",
+		)
+	}
 
 	return response
 }
 
 // handleSecurityIncident 处理安全事件
 func (a *SecurityExpertAgent) handleSecurityIncident(task *AgentTask) *AgentResponse {
+	workflow := a.selectSecurityWorkflow(task)
 	response := &AgentResponse{
 		AgentRole:       a.Role,
 		TaskID:          task.ID,
 		Status:          "completed",
-		Reasoning:       "Analyzing security incident and containing threat",
+		Reasoning:       fmt.Sprintf("Recommending %s as the next incident workflow: %s", workflow.PrimaryTool, workflow.Reason),
 		ConfidenceScore: 0.91,
+		WorkflowSummary: workflow.summary("incident_response"),
 	}
 
 	response.Findings = append(response.Findings,
 		"Incident: Unauthorized access to user database",
 		"Impact: 50,000 user records potentially exposed",
 		"Timeline: Attack detected 15 minutes after initial compromise",
+		fmt.Sprintf("Recommended investigation workflow: %s", workflow.PrimaryTool),
 	)
+	if workflow.NeedsAttack {
+		response.Findings = append(response.Findings,
+			"If additional evidence is collected, use attack_reason after the initial incident assessment to refine attacker technique ranking",
+		)
+	}
 
 	response.Alerts = append(response.Alerts,
 		"CRITICAL: Active breach in progress",
 		"WARNING: Lateral movement detected",
 	)
 
-	response.Action = "Isolate affected systems and initiate incident response"
+	response.Action = fmt.Sprintf("Run %s as the next step, isolate affected systems, and initiate incident response", workflow.PrimaryTool)
 
 	response.Recommendations = append(response.Recommendations,
+		fmt.Sprintf("Start with %s to produce a consolidated assessment and containment advice", workflow.PrimaryTool),
 		"Isolate compromised systems immediately",
 		"Preserve forensic evidence",
 		"Notify affected users within 72 hours",
 		"Conduct post-incident review",
 		"Implement additional monitoring",
 	)
+	if workflow.NeedsAttack {
+		response.Recommendations = append(response.Recommendations,
+			"Use attack_reason to validate ATT&CK technique hypotheses before broader eradication actions",
+		)
+	}
 
 	response.NextSteps = append(response.NextSteps,
+		fmt.Sprintf("Run %s with all available evidence sources", workflow.PrimaryTool),
 		"Establish incident command center",
 		"Begin forensic analysis",
 		"Coordinate with law enforcement",
 		"Prepare customer notification",
 	)
+	if workflow.NeedsAttack {
+		response.NextSteps = append(response.NextSteps,
+			"Run attack_reason if you need deeper ATT&CK ranking after the consolidated assessment",
+		)
+	}
 
 	return response
+}
+
+func (a *SecurityExpertAgent) selectSecurityWorkflow(task *AgentTask) securityWorkflowPlan {
+	plan := securityWorkflowPlan{
+		PrimaryTool: "attack_reason",
+		NeedsAttack: true,
+		Reason:      "ATT&CK mapping is the primary need",
+	}
+
+	if task == nil {
+		return plan
+	}
+
+	if task.Type == "incident_response" {
+		plan.PrimaryTool = "incident_assess"
+		plan.Reason = "incident response benefits from a consolidated assessment with containment advice"
+		return plan
+	}
+
+	if task.Type == "threat_assessment" {
+		plan.PrimaryTool = "incident_assess"
+		plan.Reason = "threat assessment should first correlate alerts, logs, timelines, and access evidence"
+	}
+
+	if metadataSuggestsEvidenceCorrelation(task.Metadata) {
+		plan.PrimaryTool = "incident_assess"
+		plan.Reason = "task metadata indicates multi-source evidence that should be consolidated first"
+	}
+
+	return plan
+}
+
+func metadataSuggestsEvidenceCorrelation(metadata map[string]interface{}) bool {
+	if len(metadata) == 0 {
+		return false
+	}
+
+	keys := []string{
+		"alert_result",
+		"log_analyze_result",
+		"timeline_result",
+		"access_review_result",
+		"events",
+		"evidence",
+	}
+	for _, key := range keys {
+		if _, ok := metadata[key]; ok {
+			return true
+		}
+	}
+
+	for key, value := range metadata {
+		if containsEvidenceKeyword(key) {
+			return true
+		}
+		if text, ok := value.(string); ok && containsEvidenceKeyword(text) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsEvidenceKeyword(value string) bool {
+	value = strings.ToLower(value)
+	keywords := []string{"alert", "log", "timeline", "access", "evidence", "ioc", "incident"}
+	for _, keyword := range keywords {
+		if strings.Contains(value, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 // HasCapability 检查能力

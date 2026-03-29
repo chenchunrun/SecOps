@@ -72,6 +72,26 @@ func TestSecuritySystemIntegration_IncidentResponse(t *testing.T) {
 		t.Error("expected security recommendations")
 	}
 
+	if secResponse.WorkflowSummary == nil {
+		t.Fatal("expected workflow summary on security response")
+	}
+
+	renderedAssessment := secResponse.RenderSecurityAssessment()
+	if renderedAssessment == "" {
+		t.Fatal("expected rendered security assessment")
+	}
+
+	for _, fragment := range []string{
+		"Workflow Summary:",
+		"Recommended Tool: incident_assess",
+		"Recommendations:",
+		"Next Steps:",
+	} {
+		if !strings.Contains(renderedAssessment, fragment) {
+			t.Fatalf("expected rendered assessment to contain %q, got %q", fragment, renderedAssessment)
+		}
+	}
+
 	// 4. 生成审计报告
 	reportGenerator := audit.NewComplianceReportGenerator(auditStore)
 	now := time.Now()
@@ -482,6 +502,19 @@ func TestEndToEndSecurityIncident(t *testing.T) {
 	// 验证完整流程
 	if incidentResponse.Status != "completed" {
 		t.Error("incident response should be completed")
+	}
+
+	if incidentResponse.WorkflowSummary == nil {
+		t.Fatal("expected workflow summary on incident response")
+	}
+
+	if incidentResponse.WorkflowSummary.PrimaryTool != "incident_assess" {
+		t.Fatalf("expected incident_assess as primary tool, got %q", incidentResponse.WorkflowSummary.PrimaryTool)
+	}
+
+	renderedWorkflow := incidentResponse.RenderWorkflowSummary()
+	if renderedWorkflow == "" {
+		t.Fatal("expected rendered workflow summary for incident response")
 	}
 
 	if remediationResponse.Status != "completed" {

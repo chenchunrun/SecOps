@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -45,12 +46,12 @@ func TestOpsAgent_ProcessTask_Incident(t *testing.T) {
 	agent := NewOpsAgent("ops-1")
 
 	task := &AgentTask{
-		ID:          "task-1",
-		Title:       "Handle Server Outage",
-		Type:        "incident",
-		Priority:    "critical",
-		Severity:    "critical",
-		CreatedAt:   time.Now(),
+		ID:        "task-1",
+		Title:     "Handle Server Outage",
+		Type:      "incident",
+		Priority:  "critical",
+		Severity:  "critical",
+		CreatedAt: time.Now(),
 	}
 
 	response := agent.ProcessTask(task)
@@ -175,7 +176,7 @@ func TestOpsAgent_UpdateKnowledge(t *testing.T) {
 	agent := NewOpsAgent("ops-1")
 
 	agent.UpdateKnowledge("server_config", map[string]string{
-		"cpu": "16 cores",
+		"cpu":    "16 cores",
 		"memory": "32GB",
 	})
 
@@ -271,6 +272,30 @@ func TestSecurityExpertAgent_ProcessTask_ThreatAssessment(t *testing.T) {
 	if response.ConfidenceScore <= 0 {
 		t.Error("expected positive confidence score")
 	}
+
+	if response.Action != "Run incident_assess as the next investigation step, then implement the immediate remediation plan" {
+		t.Fatalf("expected incident_assess workflow action, got %q", response.Action)
+	}
+
+	if len(response.NextSteps) == 0 || response.NextSteps[0] != "Run incident_assess with available alert, log, timeline, and access evidence" {
+		t.Fatalf("expected incident_assess as the first next step, got %#v", response.NextSteps)
+	}
+
+	if response.WorkflowSummary == nil {
+		t.Fatal("expected workflow summary in threat assessment response")
+	}
+
+	if response.WorkflowSummary.PrimaryTool != "incident_assess" {
+		t.Fatalf("expected workflow primary tool incident_assess, got %q", response.WorkflowSummary.PrimaryTool)
+	}
+
+	if len(response.WorkflowSummary.FollowupTools) == 0 || response.WorkflowSummary.FollowupTools[0] != "attack_reason" {
+		t.Fatalf("expected attack_reason follow-up tool, got %#v", response.WorkflowSummary.FollowupTools)
+	}
+
+	if response.WorkflowSummary.Status != "recommended only; ProcessTask did not execute the tools" {
+		t.Fatalf("expected recommended-only workflow status, got %q", response.WorkflowSummary.Status)
+	}
 }
 
 func TestSecurityExpertAgent_ProcessTask_IncidentResponse(t *testing.T) {
@@ -293,6 +318,111 @@ func TestSecurityExpertAgent_ProcessTask_IncidentResponse(t *testing.T) {
 
 	if len(response.NextSteps) == 0 {
 		t.Error("expected next steps in incident response")
+	}
+
+	if response.Action != "Run incident_assess as the next step, isolate affected systems, and initiate incident response" {
+		t.Fatalf("expected incident_assess workflow action, got %q", response.Action)
+	}
+
+	if response.NextSteps[0] != "Run incident_assess with all available evidence sources" {
+		t.Fatalf("expected incident_assess as the first next step, got %#v", response.NextSteps)
+	}
+
+	if response.WorkflowSummary == nil {
+		t.Fatal("expected workflow summary in incident response")
+	}
+
+	if len(response.WorkflowSummary.ContainmentFocus) == 0 {
+		t.Fatal("expected containment focus in incident response summary")
+	}
+
+	if response.WorkflowSummary.Status != "recommended only; ProcessTask did not execute the tools" {
+		t.Fatalf("expected recommended-only workflow status, got %q", response.WorkflowSummary.Status)
+	}
+}
+
+func TestSecurityExpertAgent_selectSecurityWorkflow_MetadataEvidence(t *testing.T) {
+	agent := NewSecurityExpertAgent("sec-1")
+
+	task := &AgentTask{
+		ID:        "task-5",
+		Title:     "Threat Assessment With Evidence",
+		Type:      "threat_assessment",
+		CreatedAt: time.Now(),
+		Metadata: map[string]interface{}{
+			"alert_result": map[string]interface{}{"summary": "suspicious login burst"},
+		},
+	}
+
+	workflow := agent.selectSecurityWorkflow(task)
+	if workflow.PrimaryTool != "incident_assess" {
+		t.Fatalf("expected incident_assess primary tool, got %q", workflow.PrimaryTool)
+	}
+}
+
+func TestAgentResponse_RenderWorkflowSummary(t *testing.T) {
+	response := &AgentResponse{
+		WorkflowSummary: &SecurityWorkflowSummary{
+			PrimaryTool:      "incident_assess",
+			FollowupTools:    []string{"attack_reason"},
+			EvidenceSources:  []string{"alert_check", "log_analyze"},
+			ContainmentFocus: []string{"isolate compromised systems", "preserve forensic evidence"},
+			Status:           "recommended only; ProcessTask did not execute the tools",
+			Reason:           "incident response benefits from a consolidated assessment with containment advice",
+		},
+	}
+
+	rendered := response.RenderWorkflowSummary()
+	if rendered == "" {
+		t.Fatal("expected rendered workflow summary")
+	}
+
+	expected := []string{
+		"Recommended Tool: incident_assess",
+		"Recommended Follow-up Tools: attack_reason",
+		"Workflow Status: recommended only; ProcessTask did not execute the tools",
+		"Evidence Sources: alert_check, log_analyze",
+		"Containment Focus: isolate compromised systems; preserve forensic evidence",
+	}
+	for _, fragment := range expected {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("expected rendered summary to contain %q, got %q", fragment, rendered)
+		}
+	}
+}
+
+func TestAgentResponse_RenderSecurityAssessment(t *testing.T) {
+	response := &AgentResponse{
+		Action:          "Run incident_assess, isolate affected systems, and initiate incident response",
+		Reasoning:       "Analyzing security incident and containing threat using incident_assess",
+		ConfidenceScore: 0.91,
+		Alerts:          []string{"CRITICAL: Active breach in progress"},
+		Findings:        []string{"Incident: Unauthorized access to user database"},
+		Recommendations: []string{"Isolate compromised systems immediately"},
+		NextSteps:       []string{"Run incident_assess with all available evidence sources"},
+		WorkflowSummary: &SecurityWorkflowSummary{
+			PrimaryTool:      "incident_assess",
+			FollowupTools:    []string{"attack_reason"},
+			EvidenceSources:  []string{"alert_check", "log_analyze"},
+			ContainmentFocus: []string{"isolate compromised systems"},
+			Status:           "recommended only; ProcessTask did not execute the tools",
+			Reason:           "incident response benefits from a consolidated assessment with containment advice",
+		},
+	}
+
+	rendered := response.RenderSecurityAssessment()
+	expected := []string{
+		"Action: Run incident_assess, isolate affected systems, and initiate incident response",
+		"Workflow Summary:",
+		"Recommended Tool: incident_assess",
+		"Alerts: CRITICAL: Active breach in progress",
+		"Findings: Incident: Unauthorized access to user database",
+		"Recommendations: Isolate compromised systems immediately",
+	}
+	for _, fragment := range expected {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("expected rendered assessment to contain %q, got %q", fragment, rendered)
+		}
 	}
 }
 
