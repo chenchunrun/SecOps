@@ -397,7 +397,7 @@ func TestSyslogExporter_Export_UnixSuccess(t *testing.T) {
 	socketPath := fmt.Sprintf("/tmp/secops-audit-%d.sock", time.Now().UnixNano())
 	_ = os.Remove(socketPath)
 	defer os.Remove(socketPath)
-	ln, err := net.Listen("unix", socketPath)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", socketPath)
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
 	}
