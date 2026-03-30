@@ -549,6 +549,8 @@ func allToolNames() []string {
 		"alert_check",
 		"incident_timeline",
 		"resource_monitor",
+		"attack_reason",
+		"incident_assess",
 		// compatibility aliases
 		"Infrastructure Query",
 		"Compliance Check",
@@ -607,6 +609,8 @@ func resolveSecOpsRuntimeTools(tools []string) []string {
 		"alert_check",
 		"incident_timeline",
 		"resource_monitor",
+		"attack_reason",
+		"incident_assess",
 		// compatibility aliases
 		"Infrastructure Query",
 		"Compliance Check",

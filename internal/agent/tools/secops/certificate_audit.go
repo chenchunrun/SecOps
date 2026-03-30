@@ -30,7 +30,7 @@ type CertificateAuditParams struct {
 	CheckKeyStrength bool `json:"check_key_strength,omitempty"` // 检查密钥强度
 	CheckChain       bool `json:"check_chain,omitempty"`        // 检查证书链
 	CheckRevocation  bool `json:"check_revocation,omitempty"`   // 检查撤销
-	VerifyTransport bool `json:"verify_transport,omitempty"`    // 验证 TLS 对端身份
+	VerifyTransport  bool `json:"verify_transport,omitempty"`   // 验证 TLS 对端身份
 
 	// 警告阈值
 	ExpiryWarningDays int    `json:"expiry_warning_days,omitempty"` // 默认 30 天
@@ -44,22 +44,22 @@ type CertificateAuditParams struct {
 
 // CertificateInfo 证书信息
 type CertificateInfo struct {
-	Path            string       `json:"path"`
-	Subject         string       `json:"subject"`
-	Issuer          string       `json:"issuer"`
-	NotBefore       time.Time    `json:"not_before"`
-	NotAfter        time.Time    `json:"not_after"`
-	SerialNumber    string       `json:"serial_number"`
-	KeyType         string       `json:"key_type"`   // RSA, ECDSA, etc.
-	KeyLength       int          `json:"key_length"` // bits
-	SignatureAlg    string       `json:"signature_alg"`
-	IsSelfSigned    bool         `json:"is_self_signed"`
-	SANs            []string     `json:"sans"`   // Subject Alternative Names
-	Status          string       `json:"status"` // valid, expired, expiring_soon
-	DaysUntilExpiry int          `json:"days_until_expiry"`
-	TransportVerified bool       `json:"transport_verified"`
-	CollectionMethod  string     `json:"collection_method,omitempty"`
-	Issues          []*CertIssue `json:"issues,omitempty"`
+	Path              string       `json:"path"`
+	Subject           string       `json:"subject"`
+	Issuer            string       `json:"issuer"`
+	NotBefore         time.Time    `json:"not_before"`
+	NotAfter          time.Time    `json:"not_after"`
+	SerialNumber      string       `json:"serial_number"`
+	KeyType           string       `json:"key_type"`   // RSA, ECDSA, etc.
+	KeyLength         int          `json:"key_length"` // bits
+	SignatureAlg      string       `json:"signature_alg"`
+	IsSelfSigned      bool         `json:"is_self_signed"`
+	SANs              []string     `json:"sans"`   // Subject Alternative Names
+	Status            string       `json:"status"` // valid, expired, expiring_soon
+	DaysUntilExpiry   int          `json:"days_until_expiry"`
+	TransportVerified bool         `json:"transport_verified"`
+	CollectionMethod  string       `json:"collection_method,omitempty"`
+	Issues            []*CertIssue `json:"issues,omitempty"`
 }
 
 // CertIssue 证书问题
@@ -567,21 +567,21 @@ func (cat *CertificateAuditTool) certificateToInfo(path string, cert *x509.Certi
 	}
 
 	return &CertificateInfo{
-		Path:            path,
-		Subject:         cert.Subject.String(),
-		Issuer:          cert.Issuer.String(),
-		NotBefore:       cert.NotBefore,
-		NotAfter:        cert.NotAfter,
-		SerialNumber:    cert.SerialNumber.String(),
-		KeyType:         keyType,
-		KeyLength:       keyLength,
-		SignatureAlg:    cert.SignatureAlgorithm.String(),
-		IsSelfSigned:    cert.Subject.String() == cert.Issuer.String() && cert.CheckSignatureFrom(cert) == nil,
-		SANs:            sans,
-		DaysUntilExpiry: int(time.Until(cert.NotAfter).Hours() / 24),
+		Path:              path,
+		Subject:           cert.Subject.String(),
+		Issuer:            cert.Issuer.String(),
+		NotBefore:         cert.NotBefore,
+		NotAfter:          cert.NotAfter,
+		SerialNumber:      cert.SerialNumber.String(),
+		KeyType:           keyType,
+		KeyLength:         keyLength,
+		SignatureAlg:      cert.SignatureAlgorithm.String(),
+		IsSelfSigned:      cert.Subject.String() == cert.Issuer.String() && cert.CheckSignatureFrom(cert) == nil,
+		SANs:              sans,
+		DaysUntilExpiry:   int(time.Until(cert.NotAfter).Hours() / 24),
 		TransportVerified: true,
 		CollectionMethod:  "file_or_local_parse",
-		Issues:          make([]*CertIssue, 0),
+		Issues:            make([]*CertIssue, 0),
 	}
 }
 

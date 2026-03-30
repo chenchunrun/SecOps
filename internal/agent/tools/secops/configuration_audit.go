@@ -26,47 +26,47 @@ const (
 
 // ConfigAuditParams 配置审计参数
 type ConfigAuditParams struct {
-	Targets        []ConfigAuditTarget `json:"targets"`                // 审计目标
-	CheckSecurity  bool                `json:"check_security"`         // 检查安全配置
-	CheckCompliance bool               `json:"check_compliance"`       // 检查合规配置
-	CheckPerformance bool              `json:"check_performance"`      // 检查性能配置
-	Deep           bool                `json:"deep,omitempty"`         // 深度检查
-	CustomRules    []string            `json:"custom_rules,omitempty"` // 自定义规则
-	RemoteHost     string              `json:"remote_host,omitempty"`
-	RemoteUser     string              `json:"remote_user,omitempty"`
-	RemotePort     int                 `json:"remote_port,omitempty"`
-	RemoteKeyPath  string              `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string             `json:"remote_proxy_jump,omitempty"`
+	Targets          []ConfigAuditTarget `json:"targets"`                // 审计目标
+	CheckSecurity    bool                `json:"check_security"`         // 检查安全配置
+	CheckCompliance  bool                `json:"check_compliance"`       // 检查合规配置
+	CheckPerformance bool                `json:"check_performance"`      // 检查性能配置
+	Deep             bool                `json:"deep,omitempty"`         // 深度检查
+	CustomRules      []string            `json:"custom_rules,omitempty"` // 自定义规则
+	RemoteHost       string              `json:"remote_host,omitempty"`
+	RemoteUser       string              `json:"remote_user,omitempty"`
+	RemotePort       int                 `json:"remote_port,omitempty"`
+	RemoteKeyPath    string              `json:"remote_key_path,omitempty"`
+	RemoteProxyJump  string              `json:"remote_proxy_jump,omitempty"`
 }
 
 // ConfigAuditRule 配置审计规则
 type ConfigAuditRule struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Severity    string `json:"severity"`        // critical, high, medium, low
-	Category    string `json:"category"`        // security, compliance, performance
-	Parameter   string `json:"parameter"`       // 配置参数名
-	Target      ConfigAuditTarget `json:"target"`
-	RecommendedValue string `json:"recommended_value"`
-	CurrentValue string `json:"current_value,omitempty"`
-	Status      string `json:"status"`         // pass, fail, warning, info
-	Remediation string `json:"remediation"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description"`
+	Severity         string            `json:"severity"`  // critical, high, medium, low
+	Category         string            `json:"category"`  // security, compliance, performance
+	Parameter        string            `json:"parameter"` // 配置参数名
+	Target           ConfigAuditTarget `json:"target"`
+	RecommendedValue string            `json:"recommended_value"`
+	CurrentValue     string            `json:"current_value,omitempty"`
+	Status           string            `json:"status"` // pass, fail, warning, info
+	Remediation      string            `json:"remediation"`
 }
 
 // ConfigAuditResult 配置审计结果
 type ConfigAuditResult struct {
-	Timestamp        time.Time          `json:"timestamp"`
-	SystemInfo       string             `json:"system_info"`
-	TotalRules       int                `json:"total_rules"`
-	PassedRules      int                `json:"passed_rules"`
-	FailedRules      int                `json:"failed_rules"`
-	WarningRules     int                `json:"warning_rules"`
-	InfoRules        int                `json:"info_rules"`
-	Score            float64            `json:"score"`             // 0-100
-	RiskLevel        string             `json:"risk_level"`        // critical, high, medium, low
-	Rules            []*ConfigAuditRule `json:"rules"`
-	Recommendations  []string           `json:"recommendations,omitempty"`
+	Timestamp       time.Time          `json:"timestamp"`
+	SystemInfo      string             `json:"system_info"`
+	TotalRules      int                `json:"total_rules"`
+	PassedRules     int                `json:"passed_rules"`
+	FailedRules     int                `json:"failed_rules"`
+	WarningRules    int                `json:"warning_rules"`
+	InfoRules       int                `json:"info_rules"`
+	Score           float64            `json:"score"`      // 0-100
+	RiskLevel       string             `json:"risk_level"` // critical, high, medium, low
+	Rules           []*ConfigAuditRule `json:"rules"`
+	Recommendations []string           `json:"recommendations,omitempty"`
 }
 
 // ConfigurationAuditTool 配置审计工具
@@ -897,7 +897,7 @@ func firewallEnabled() (bool, string) {
 		if s == "running" {
 			return true, "firewalld:running"
 		}
-		return false, "firewalld:"+s
+		return false, "firewalld:" + s
 	}
 
 	if out, err := exec.Command("iptables", "-S").CombinedOutput(); err == nil {

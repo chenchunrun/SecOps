@@ -81,6 +81,16 @@ tasks:
     cmds:
       - go test -race -failfast ./... {{.CLI_ARGS}}
 
+  validate:secops:
+    desc: Run SecOps release validation gates
+    cmds:
+      - bash ./scripts/validate_secops_release.sh {{.CLI_ARGS}}
+
+  demo:secops-reasoning:
+    desc: Run the SecOps reasoning demo chain
+    cmds:
+      - bash ./scripts/demo_secops_reasoning.sh {{.CLI_ARGS}}
+
   test:record:
     desc: Run tests and record all VCR cassettes again
     aliases: [record]

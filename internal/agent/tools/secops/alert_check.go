@@ -76,14 +76,14 @@ type AlertInfo struct {
 
 // AlertCheckResult 告警检查结果
 type AlertCheckResult struct {
-	System       string      `json:"system"`
-	Total        int         `json:"total"`
-	Firing       int         `json:"firing"`
-	Resolved     int         `json:"resolved"`
-	Acknowledged int         `json:"acknowledged"`
-	Alerts       []AlertInfo `json:"alerts"`
-	DataSource   string      `json:"data_source,omitempty"`   // live, fallback_sample
-	FallbackReason string    `json:"fallback_reason,omitempty"`
+	System         string      `json:"system"`
+	Total          int         `json:"total"`
+	Firing         int         `json:"firing"`
+	Resolved       int         `json:"resolved"`
+	Acknowledged   int         `json:"acknowledged"`
+	Alerts         []AlertInfo `json:"alerts"`
+	DataSource     string      `json:"data_source,omitempty"` // live, fallback_sample
+	FallbackReason string      `json:"fallback_reason,omitempty"`
 }
 
 // ValidateParams 实现 Tool.ValidateParams

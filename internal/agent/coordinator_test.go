@@ -431,7 +431,7 @@ func TestShouldUseFastModel(t *testing.T) {
 			want:   false,
 		},
 		{
-			name: "attachments present uses large",
+			name:   "attachments present uses large",
 			prompt: "帮我看附件",
 			attachments: []message.Attachment{
 				{FilePath: "/tmp/a.log", MimeType: "text/plain"},

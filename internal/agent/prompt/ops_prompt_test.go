@@ -270,6 +270,10 @@ func TestSecurityExpertAgentPromptMITREMapping(t *testing.T) {
 	tpl := readTemplateFile(t, "security_expert_agent.md.tpl")
 
 	assert.Contains(t, tpl, "MITRE ATT&CK")
+	assert.Contains(t, tpl, "incident_assess")
+	assert.Contains(t, tpl, "attack_reason")
+	assert.Contains(t, tpl, "Prefer tool-backed ATT&CK mapping")
+	assert.Contains(t, tpl, "investigation-ready assessment")
 }
 
 func TestOpsAgentPromptProhibitedCommands(t *testing.T) {

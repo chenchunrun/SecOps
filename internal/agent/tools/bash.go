@@ -246,226 +246,142 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 	desc := string(bashDescription(attribution, modelName))
 
 	runBash := func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			if params.Command == "" {
-				return fantasy.NewTextErrorResponse("missing command"), nil
-			}
-			sessionID := GetSessionFromContext(ctx)
-			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for executing shell command")
-			}
+		if params.Command == "" {
+			return fantasy.NewTextErrorResponse("missing command"), nil
+		}
+		sessionID := GetSessionFromContext(ctx)
+		if sessionID == "" {
+			return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for executing shell command")
+		}
 
-			var remoteProfile *config.RemoteProfile
-			if profile := strings.TrimSpace(params.RemoteProfile); profile != "" {
-				var err error
-				params, remoteProfile, err = applyRemoteProfile(params, remoteCfg)
-				if err != nil {
-					return fantasy.NewTextErrorResponse(err.Error()), nil
+		var remoteProfile *config.RemoteProfile
+		if profile := strings.TrimSpace(params.RemoteProfile); profile != "" {
+			var err error
+			params, remoteProfile, err = applyRemoteProfile(params, remoteCfg)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+		} else if shouldApplyDefaultRemoteProfile(params, remoteCfg) {
+			var err error
+			params, remoteProfile, err = applyDefaultRemoteProfile(params, remoteCfg)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+		}
+
+		// Determine working directory
+		execWorkingDir := cmp.Or(params.WorkingDir, workingDir)
+		remoteTarget := formatRemoteTarget(params.RemoteUser, params.RemoteHost)
+		isRemoteExecution := strings.TrimSpace(params.RemoteHost) != ""
+		policyDecision := remotePolicyDecision{Type: "none", Result: "allow"}
+		if isRemoteExecution {
+			var err error
+			policyDecision, err = enforceRemoteCommandPolicy(remoteProfile, params.Command)
+			if err != nil {
+				recordRemotePolicyDeny(sessionID, remoteTarget, params, policyDecision, err)
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+		}
+
+		isSafeReadOnly := false
+		cmdLower := strings.ToLower(params.Command)
+
+		for _, safe := range safeCommands {
+			if strings.HasPrefix(cmdLower, safe) {
+				if len(cmdLower) == len(safe) || cmdLower[len(safe)] == ' ' || cmdLower[len(safe)] == '-' {
+					isSafeReadOnly = true
+					break
 				}
-			} else if shouldApplyDefaultRemoteProfile(params, remoteCfg) {
-				var err error
-				params, remoteProfile, err = applyDefaultRemoteProfile(params, remoteCfg)
-				if err != nil {
-					return fantasy.NewTextErrorResponse(err.Error()), nil
-				}
 			}
+		}
 
-			// Determine working directory
-			execWorkingDir := cmp.Or(params.WorkingDir, workingDir)
-			remoteTarget := formatRemoteTarget(params.RemoteUser, params.RemoteHost)
-			isRemoteExecution := strings.TrimSpace(params.RemoteHost) != ""
-			policyDecision := remotePolicyDecision{Type: "none", Result: "allow"}
-			if isRemoteExecution {
-				var err error
-				policyDecision, err = enforceRemoteCommandPolicy(remoteProfile, params.Command)
-				if err != nil {
-					recordRemotePolicyDeny(sessionID, remoteTarget, params, policyDecision, err)
-					return fantasy.NewTextErrorResponse(err.Error()), nil
-				}
-			}
-
-			isSafeReadOnly := false
-			cmdLower := strings.ToLower(params.Command)
-
-			for _, safe := range safeCommands {
-				if strings.HasPrefix(cmdLower, safe) {
-					if len(cmdLower) == len(safe) || cmdLower[len(safe)] == ' ' || cmdLower[len(safe)] == '-' {
-						isSafeReadOnly = true
-						break
-					}
-				}
-			}
-
-			permissionPath := execWorkingDir
-			if isRemoteExecution {
-				permissionPath = "ssh://" + remoteTarget
-			}
-			if !isSafeReadOnly || isRemoteExecution {
-				p, err := permissions.Request(ctx,
-					permission.CreatePermissionRequest{
-						SessionID:   sessionID,
-						Path:        permissionPath,
-						ToolCallID:  call.ID,
-						ToolName:    BashToolName,
-						Action:      "execute",
-						Description: fmt.Sprintf("Execute command: %s", params.Command),
-						Params: BashPermissionsParams{
-							Description:         params.Description,
-							Command:             params.Command,
-							WorkingDir:          params.WorkingDir,
-							RemoteProfile:       params.RemoteProfile,
-							RemoteHost:          params.RemoteHost,
-							RemoteUser:          params.RemoteUser,
-							RemotePort:          params.RemotePort,
-							RemoteKeyPath:       params.RemoteKeyPath,
-							RemoteProxyJump:     params.RemoteProxyJump,
-							RemoteWorkingDir:    params.RemoteWorkingDir,
-							RemoteEnv:           params.RemoteEnv,
-							PolicyType:          policyDecision.Type,
-							PolicyRule:          policyDecision.Rule,
-							PolicyResult:        policyDecision.Result,
-							RunInBackground:     params.RunInBackground,
-							AutoBackgroundAfter: params.AutoBackgroundAfter,
-						},
-						Transport:   map[bool]string{true: "ssh", false: "local"}[isRemoteExecution],
-						TargetHost:  remoteTarget,
-						TargetEnv:   strings.TrimSpace(params.RemoteEnv),
-						TargetID:    strings.TrimSpace(params.RemoteProfile),
+		permissionPath := execWorkingDir
+		if isRemoteExecution {
+			permissionPath = "ssh://" + remoteTarget
+		}
+		if !isSafeReadOnly || isRemoteExecution {
+			p, err := permissions.Request(ctx,
+				permission.CreatePermissionRequest{
+					SessionID:   sessionID,
+					Path:        permissionPath,
+					ToolCallID:  call.ID,
+					ToolName:    BashToolName,
+					Action:      "execute",
+					Description: fmt.Sprintf("Execute command: %s", params.Command),
+					Params: BashPermissionsParams{
+						Description:         params.Description,
+						Command:             params.Command,
+						WorkingDir:          params.WorkingDir,
+						RemoteProfile:       params.RemoteProfile,
+						RemoteHost:          params.RemoteHost,
+						RemoteUser:          params.RemoteUser,
+						RemotePort:          params.RemotePort,
+						RemoteKeyPath:       params.RemoteKeyPath,
+						RemoteProxyJump:     params.RemoteProxyJump,
+						RemoteWorkingDir:    params.RemoteWorkingDir,
+						RemoteEnv:           params.RemoteEnv,
+						PolicyType:          policyDecision.Type,
+						PolicyRule:          policyDecision.Rule,
+						PolicyResult:        policyDecision.Result,
+						RunInBackground:     params.RunInBackground,
+						AutoBackgroundAfter: params.AutoBackgroundAfter,
 					},
-				)
-				if err != nil {
-					return fantasy.ToolResponse{}, err
-				}
-				if !p {
-					return fantasy.ToolResponse{}, permission.ErrorPermissionDenied
-				}
+					Transport:  map[bool]string{true: "ssh", false: "local"}[isRemoteExecution],
+					TargetHost: remoteTarget,
+					TargetEnv:  strings.TrimSpace(params.RemoteEnv),
+					TargetID:   strings.TrimSpace(params.RemoteProfile),
+				},
+			)
+			if err != nil {
+				return fantasy.ToolResponse{}, err
 			}
-
-			if isRemoteExecution {
-				if params.RunInBackground {
-					return fantasy.NewTextErrorResponse("remote background jobs are not supported yet"), nil
-				}
-				startTime := time.Now()
-				output, remoteErr := runRemoteSSHCommand(ctx, params)
-				metadata := BashResponseMetadata{
-					StartTime:        startTime.UnixMilli(),
-					EndTime:          time.Now().UnixMilli(),
-					Output:           output,
-					Description:      params.Description,
-					WorkingDirectory: cmp.Or(params.RemoteWorkingDir, "~"),
-					Remote:           true,
-					RemoteTarget:     remoteTarget,
-				}
-				if remoteErr != nil {
-					return fantasy.WithResponseMetadata(fantasy.NewTextErrorResponse(output), metadata), nil
-				}
-				if output == "" {
-					return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
-				}
-				output += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(cmp.Or(params.RemoteWorkingDir, "~")))
-				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(output), metadata), nil
+			if !p {
+				return fantasy.ToolResponse{}, permission.ErrorPermissionDenied
 			}
+		}
 
-			// If explicitly requested as background, start immediately with detached context
+		if isRemoteExecution {
 			if params.RunInBackground {
-				startTime := time.Now()
-				bgManager := shell.GetBackgroundShellManager()
-				bgManager.Cleanup()
-				// Use background context so it continues after tool returns
-				bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(), params.Command, params.Description)
-				if err != nil {
-					return fantasy.ToolResponse{}, fmt.Errorf("error starting background shell: %w", err)
-				}
-
-				// Wait a short time to detect fast failures (blocked commands, syntax errors, etc.)
-				time.Sleep(1 * time.Second)
-				stdout, stderr, done, execErr := bgShell.GetOutput()
-
-				if done {
-					// Command failed or completed very quickly
-					bgManager.Remove(bgShell.ID)
-
-					interrupted := shell.IsInterrupt(execErr)
-					exitCode := shell.ExitCode(execErr)
-					if exitCode == 0 && !interrupted && execErr != nil {
-						return fantasy.ToolResponse{}, fmt.Errorf("[Job %s] error executing command: %w", bgShell.ID, execErr)
-					}
-
-					stdout = formatOutput(stdout, stderr, execErr)
-
-					metadata := BashResponseMetadata{
-						StartTime:        startTime.UnixMilli(),
-						EndTime:          time.Now().UnixMilli(),
-						Output:           stdout,
-						Description:      params.Description,
-						Background:       params.RunInBackground,
-						WorkingDirectory: bgShell.WorkingDir,
-					}
-					if stdout == "" {
-						return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
-					}
-					stdout += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(bgShell.WorkingDir))
-					return fantasy.WithResponseMetadata(fantasy.NewTextResponse(stdout), metadata), nil
-				}
-
-				// Still running after fast-failure check - return as background job
-				metadata := BashResponseMetadata{
-					StartTime:        startTime.UnixMilli(),
-					EndTime:          time.Now().UnixMilli(),
-					Description:      params.Description,
-					WorkingDirectory: bgShell.WorkingDir,
-					Background:       true,
-					ShellID:          bgShell.ID,
-				}
-				response := fmt.Sprintf("Background shell started with ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
-				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
+				return fantasy.NewTextErrorResponse("remote background jobs are not supported yet"), nil
 			}
-
-			// Start synchronous execution with auto-background support
 			startTime := time.Now()
+			output, remoteErr := runRemoteSSHCommand(ctx, params)
+			metadata := BashResponseMetadata{
+				StartTime:        startTime.UnixMilli(),
+				EndTime:          time.Now().UnixMilli(),
+				Output:           output,
+				Description:      params.Description,
+				WorkingDirectory: cmp.Or(params.RemoteWorkingDir, "~"),
+				Remote:           true,
+				RemoteTarget:     remoteTarget,
+			}
+			if remoteErr != nil {
+				return fantasy.WithResponseMetadata(fantasy.NewTextErrorResponse(output), metadata), nil
+			}
+			if output == "" {
+				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
+			}
+			output += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(cmp.Or(params.RemoteWorkingDir, "~")))
+			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(output), metadata), nil
+		}
 
-			// Start with detached context so it can survive if moved to background
+		// If explicitly requested as background, start immediately with detached context
+		if params.RunInBackground {
+			startTime := time.Now()
 			bgManager := shell.GetBackgroundShellManager()
 			bgManager.Cleanup()
+			// Use background context so it continues after tool returns
 			bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(), params.Command, params.Description)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("error starting shell: %w", err)
+				return fantasy.ToolResponse{}, fmt.Errorf("error starting background shell: %w", err)
 			}
 
-			// Wait for either completion, auto-background threshold, or context cancellation
-			ticker := time.NewTicker(100 * time.Millisecond)
-			defer ticker.Stop()
-
-			autoBackgroundAfter := cmp.Or(params.AutoBackgroundAfter, DefaultAutoBackgroundAfter)
-			autoBackgroundThreshold := time.Duration(autoBackgroundAfter) * time.Second
-			timeout := time.After(autoBackgroundThreshold)
-
-			var stdout, stderr string
-			var done bool
-			var execErr error
-
-		waitLoop:
-			for {
-				select {
-				case <-ticker.C:
-					stdout, stderr, done, execErr = bgShell.GetOutput()
-					if done {
-						break waitLoop
-					}
-				case <-timeout:
-					stdout, stderr, done, execErr = bgShell.GetOutput()
-					break waitLoop
-				case <-ctx.Done():
-					// Incoming context was cancelled before we moved to background
-					// Kill the shell and return error
-					bgManager.Kill(bgShell.ID)
-					return fantasy.ToolResponse{}, ctx.Err()
-				}
-			}
+			// Wait a short time to detect fast failures (blocked commands, syntax errors, etc.)
+			time.Sleep(1 * time.Second)
+			stdout, stderr, done, execErr := bgShell.GetOutput()
 
 			if done {
-				// Command completed within threshold - return synchronously
-				// Remove from background manager since we're returning directly
-				// Don't call Kill() as it cancels the context and corrupts the exit code
+				// Command failed or completed very quickly
 				bgManager.Remove(bgShell.ID)
 
 				interrupted := shell.IsInterrupt(execErr)
@@ -491,7 +407,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(stdout), metadata), nil
 			}
 
-			// Still running - keep as background job
+			// Still running after fast-failure check - return as background job
 			metadata := BashResponseMetadata{
 				StartTime:        startTime.UnixMilli(),
 				EndTime:          time.Now().UnixMilli(),
@@ -500,8 +416,92 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 				Background:       true,
 				ShellID:          bgShell.ID,
 			}
-			response := fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
+			response := fmt.Sprintf("Background shell started with ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
+		}
+
+		// Start synchronous execution with auto-background support
+		startTime := time.Now()
+
+		// Start with detached context so it can survive if moved to background
+		bgManager := shell.GetBackgroundShellManager()
+		bgManager.Cleanup()
+		bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(), params.Command, params.Description)
+		if err != nil {
+			return fantasy.ToolResponse{}, fmt.Errorf("error starting shell: %w", err)
+		}
+
+		// Wait for either completion, auto-background threshold, or context cancellation
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		autoBackgroundAfter := cmp.Or(params.AutoBackgroundAfter, DefaultAutoBackgroundAfter)
+		autoBackgroundThreshold := time.Duration(autoBackgroundAfter) * time.Second
+		timeout := time.After(autoBackgroundThreshold)
+
+		var stdout, stderr string
+		var done bool
+		var execErr error
+
+	waitLoop:
+		for {
+			select {
+			case <-ticker.C:
+				stdout, stderr, done, execErr = bgShell.GetOutput()
+				if done {
+					break waitLoop
+				}
+			case <-timeout:
+				stdout, stderr, done, execErr = bgShell.GetOutput()
+				break waitLoop
+			case <-ctx.Done():
+				// Incoming context was cancelled before we moved to background
+				// Kill the shell and return error
+				bgManager.Kill(bgShell.ID)
+				return fantasy.ToolResponse{}, ctx.Err()
+			}
+		}
+
+		if done {
+			// Command completed within threshold - return synchronously
+			// Remove from background manager since we're returning directly
+			// Don't call Kill() as it cancels the context and corrupts the exit code
+			bgManager.Remove(bgShell.ID)
+
+			interrupted := shell.IsInterrupt(execErr)
+			exitCode := shell.ExitCode(execErr)
+			if exitCode == 0 && !interrupted && execErr != nil {
+				return fantasy.ToolResponse{}, fmt.Errorf("[Job %s] error executing command: %w", bgShell.ID, execErr)
+			}
+
+			stdout = formatOutput(stdout, stderr, execErr)
+
+			metadata := BashResponseMetadata{
+				StartTime:        startTime.UnixMilli(),
+				EndTime:          time.Now().UnixMilli(),
+				Output:           stdout,
+				Description:      params.Description,
+				Background:       params.RunInBackground,
+				WorkingDirectory: bgShell.WorkingDir,
+			}
+			if stdout == "" {
+				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
+			}
+			stdout += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(bgShell.WorkingDir))
+			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(stdout), metadata), nil
+		}
+
+		// Still running - keep as background job
+		metadata := BashResponseMetadata{
+			StartTime:        startTime.UnixMilli(),
+			EndTime:          time.Now().UnixMilli(),
+			Description:      params.Description,
+			WorkingDirectory: bgShell.WorkingDir,
+			Background:       true,
+			ShellID:          bgShell.ID,
+		}
+		response := fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
+		return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
 	}
 
 	if remoteCfg == nil {

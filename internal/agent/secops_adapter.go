@@ -248,6 +248,26 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 		}
 		return a.executeAndRespond(ctx, call, &p)
 
+	case secops.ToolTypeAttackReason:
+		var p secops.AttackReasonParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(ctx, call, &p)
+
+	case secops.ToolTypeIncidentAssess:
+		var p secops.IncidentAssessParams
+		if err := json.Unmarshal(paramsBytes, &p); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+		}
+		if err := a.tool.ValidateParams(&p); err != nil {
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
+		return a.executeAndRespond(ctx, call, &p)
+
 	default:
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("unsupported tool type: %s", a.tool.Type())), nil
 	}
@@ -529,7 +549,7 @@ func (a *Adapter) ProviderOptions() fantasy.ProviderOptions {
 // SetProviderOptions implements fantasy.AgentTool.
 func (a *Adapter) SetProviderOptions(opts fantasy.ProviderOptions) {}
 
-// RegisterDefaultSecOpsToolSet registers the built-in 18 SecOps tools.
+// RegisterDefaultSecOpsToolSet registers the built-in SecOps tools.
 func RegisterDefaultSecOpsToolSet(registry *secops.SecOpsToolRegistry) error {
 	if registry == nil {
 		return fmt.Errorf("secops registry is nil")
@@ -553,6 +573,8 @@ func RegisterDefaultSecOpsToolSet(registry *secops.SecOpsToolRegistry) error {
 		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewAlertCheckTool(nil) },
 		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewIncidentTimelineTool(nil) },
 		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewResourceMonitorTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewAttackReasonTool(nil) },
+		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewIncidentAssessTool(nil) },
 	}
 	for _, ctor := range constructors {
 		if err := registry.Register(ctor(registry)); err != nil {

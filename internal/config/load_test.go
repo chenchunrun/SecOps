@@ -742,7 +742,7 @@ func TestConfig_setupAgentsWithNoDisabledTools(t *testing.T) {
 	assert.Contains(t, securityAgent.AllowedTools, "security_scan")
 }
 
-func TestConfig_setupAgentsSecOpsIncludeAll18ToolsByDefault(t *testing.T) {
+func TestConfig_setupAgentsSecOpsIncludeAllToolsByDefault(t *testing.T) {
 	cfg := &Config{
 		Options: &Options{
 			DisabledTools: []string{},
@@ -770,6 +770,8 @@ func TestConfig_setupAgentsSecOpsIncludeAll18ToolsByDefault(t *testing.T) {
 		"alert_check",
 		"incident_timeline",
 		"resource_monitor",
+		"attack_reason",
+		"incident_assess",
 	}
 
 	opsAgent, ok := cfg.Agents[AgentOpsAgent]

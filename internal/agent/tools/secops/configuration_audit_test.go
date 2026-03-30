@@ -152,13 +152,13 @@ func TestConfigurationAuditTool_CalculateScore(t *testing.T) {
 	tool := NewConfigurationAuditTool(nil)
 
 	tests := []struct {
-		name         string
-		passed       int
-		failed       int
-		warning      int
-		info         int
-		minScore     float64
-		maxScore     float64
+		name     string
+		passed   int
+		failed   int
+		warning  int
+		info     int
+		minScore float64
+		maxScore float64
 	}{
 		{
 			name:     "all passed",
@@ -221,11 +221,11 @@ func TestConfigurationAuditTool_DetermineRiskLevel(t *testing.T) {
 	tool := NewConfigurationAuditTool(nil)
 
 	tests := []struct {
-		name           string
-		failedRules    int
-		warningRules   int
-		score          float64
-		expectedLevel  string
+		name          string
+		failedRules   int
+		warningRules  int
+		score         float64
+		expectedLevel string
 	}{
 		{
 			name:          "no failures",

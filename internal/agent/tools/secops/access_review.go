@@ -36,11 +36,11 @@ type AccessEntry struct {
 
 // AccessReviewResult 访问审计结果
 type AccessReviewResult struct {
-	Entries       []AccessEntry
-	HighRiskCount int
-	StaleCount    int
-	TotalCount    int
-	DataSource    string `json:"data_source,omitempty"`     // live, fallback_sample
+	Entries        []AccessEntry
+	HighRiskCount  int
+	StaleCount     int
+	TotalCount     int
+	DataSource     string `json:"data_source,omitempty"` // live, fallback_sample
 	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 

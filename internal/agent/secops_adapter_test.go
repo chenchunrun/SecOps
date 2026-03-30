@@ -25,6 +25,7 @@ func (t *testSecOpsTool) Description() string   { return "test" }
 func (t *testSecOpsTool) RequiredCapabilities() []string {
 	return []string{"log:read", "log:analyze"}
 }
+
 func (t *testSecOpsTool) Execute(params interface{}) (interface{}, error) {
 	return map[string]string{"ok": "true"}, nil
 }
@@ -41,7 +42,7 @@ func TestAdapterInfoUsesToolTypeName(t *testing.T) {
 	}
 }
 
-func TestRegisterDefaultSecOpsToolSet_All18(t *testing.T) {
+func TestRegisterDefaultSecOpsToolSet_AllTools(t *testing.T) {
 	t.Parallel()
 
 	registry := secops.NewSecOpsToolRegistry()
@@ -50,8 +51,8 @@ func TestRegisterDefaultSecOpsToolSet_All18(t *testing.T) {
 	}
 
 	all := registry.GetAll()
-	if len(all) != 18 {
-		t.Fatalf("expected 18 secops tools, got %d", len(all))
+	if len(all) != 20 {
+		t.Fatalf("expected 20 secops tools, got %d", len(all))
 	}
 
 	expected := []secops.ToolType{
@@ -73,6 +74,8 @@ func TestRegisterDefaultSecOpsToolSet_All18(t *testing.T) {
 		secops.ToolTypeAlertCheck,
 		secops.ToolTypeIncidentTimeline,
 		secops.ToolTypeResourceMonitor,
+		secops.ToolTypeAttackReason,
+		secops.ToolTypeIncidentAssess,
 	}
 	for _, tt := range expected {
 		if _, ok := all[string(tt)]; !ok {
@@ -89,8 +92,8 @@ func TestRegisterSecOpsTools_CountMatchesRegistry(t *testing.T) {
 		t.Fatalf("RegisterDefaultSecOpsToolSet() error = %v", err)
 	}
 	tools := RegisterSecOpsTools(registry, nil)
-	if len(tools) != 18 {
-		t.Fatalf("expected 18 adapter tools, got %d", len(tools))
+	if len(tools) != 20 {
+		t.Fatalf("expected 20 adapter tools, got %d", len(tools))
 	}
 	seen := map[string]bool{}
 	for _, tool := range tools {
@@ -152,6 +155,7 @@ func (m *mockPermissionService) SkipRequests() bool                             
 func (m *mockPermissionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[permission.PermissionNotification] {
 	return make(<-chan pubsub.Event[permission.PermissionNotification])
 }
+
 func (m *mockPermissionService) Request(ctx context.Context, req permission.CreatePermissionRequest) (bool, error) {
 	m.requests = append(m.requests, req)
 	if m.err != nil {
