@@ -29,6 +29,74 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Audit": {
+      "properties": {
+        "export": {
+          "$ref": "#/$defs/AuditExport",
+          "description": "Audit log export settings"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AuditExport": {
+      "properties": {
+        "syslog": {
+          "$ref": "#/$defs/AuditSyslog",
+          "description": "Syslog export settings"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AuditSyslog": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable syslog audit export",
+          "default": false
+        },
+        "network": {
+          "type": "string",
+          "enum": [
+            "udp",
+            "tcp",
+            "unix",
+            "unixgram"
+          ],
+          "description": "Syslog transport network",
+          "default": "udp"
+        },
+        "address": {
+          "type": "string",
+          "description": "Syslog target address",
+          "examples": [
+            "127.0.0.1:514"
+          ]
+        },
+        "app_name": {
+          "type": "string",
+          "description": "Syslog app name",
+          "default": "secops-agent"
+        },
+        "hostname": {
+          "type": "string",
+          "description": "Override syslog hostname field"
+        },
+        "facility": {
+          "type": "integer",
+          "description": "Syslog facility",
+          "default": 16
+        },
+        "severity": {
+          "type": "integer",
+          "description": "Syslog severity",
+          "default": 6
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Completions": {
       "properties": {
         "max_depth": {
@@ -85,6 +153,14 @@
         "permissions": {
           "$ref": "#/$defs/Permissions",
           "description": "Permission settings for tool usage"
+        },
+        "remote": {
+          "$ref": "#/$defs/Remote",
+          "description": "Remote execution profiles for SSH-based operations"
+        },
+        "audit": {
+          "$ref": "#/$defs/Audit",
+          "description": "Audit logging and export settings"
         },
         "tools": {
           "$ref": "#/$defs/Tools",
@@ -378,6 +454,17 @@
           "$ref": "#/$defs/TUIOptions",
           "description": "Terminal user interface options"
         },
+        "active_agent": {
+          "type": "string",
+          "enum": [
+            "coder",
+            "task",
+            "ops_agent",
+            "security_expert_agent"
+          ],
+          "description": "Default runtime agent to use",
+          "default": "coder"
+        },
         "debug": {
           "type": "boolean",
           "description": "Enable debug logging",
@@ -473,6 +560,20 @@
           },
           "type": "array",
           "description": "List of tools that don't require permission prompts"
+        },
+        "bypass_intent_markers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Override default bypass-intent markers used to force permission confirmation for risky prompts"
+        },
+        "extra_bypass_intent_markers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Additional bypass-intent markers appended to default markers"
         }
       },
       "additionalProperties": false,
@@ -560,6 +661,109 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "Remote": {
+      "properties": {
+        "profiles": {
+          "items": {
+            "$ref": "#/$defs/RemoteProfile"
+          },
+          "type": "array",
+          "description": "List of remote execution profiles"
+        },
+        "default_profile": {
+          "type": "string",
+          "description": "Default remote execution profile ID"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RemoteAuth": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "ssh_key",
+            "agent"
+          ],
+          "description": "Authentication type for remote profile"
+        },
+        "key_path": {
+          "type": "string",
+          "description": "Path to SSH private key for remote profile"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RemoteProfile": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID for remote profile",
+          "examples": [
+            "prod-web-1"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "description": "Remote SSH host",
+          "examples": [
+            "10.0.1.12"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "description": "SSH port",
+          "default": 22
+        },
+        "user": {
+          "type": "string",
+          "description": "SSH username",
+          "examples": [
+            "ops"
+          ]
+        },
+        "env": {
+          "type": "string",
+          "description": "Environment tag",
+          "examples": [
+            "prod"
+          ]
+        },
+        "proxy_jump": {
+          "type": "string",
+          "description": "SSH ProxyJump host",
+          "examples": [
+            "bastion.company.internal"
+          ]
+        },
+        "allowed_commands": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Allowed command patterns for this profile"
+        },
+        "deny_commands": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Deny command patterns for this profile"
+        },
+        "auth": {
+          "$ref": "#/$defs/RemoteAuth",
+          "description": "Authentication options for this profile"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "host"
+      ]
     },
     "SelectedModel": {
       "properties": {
@@ -655,14 +859,19 @@
           ],
           "description": "Diff mode for the TUI interface"
         },
-        "completions": {
-          "$ref": "#/$defs/Completions",
-          "description": "Completions UI options"
-        },
         "transparent": {
           "type": "boolean",
           "description": "Enable transparent background for the TUI interface",
           "default": false
+        },
+        "show_thinking": {
+          "type": "boolean",
+          "description": "Show model reasoning/thinking content in the chat",
+          "default": false
+        },
+        "completions": {
+          "$ref": "#/$defs/Completions",
+          "description": "Completions UI options"
         }
       },
       "additionalProperties": false,
