@@ -241,9 +241,9 @@ func withCrushOverrides(base env.Env) env.Env {
 	return env.NewFromMap(merged)
 }
 
-func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver VariableResolver, knownProviders []catwalk.Provider) error {
+func (c *Config) configureProviders(store *ConfigStore, env env.Env, _ VariableResolver, knownProviders []catwalk.Provider) error {
 	env = withCrushOverrides(env)
-	resolver = NewShellVariableResolver(env)
+	resolver := NewShellVariableResolver(env)
 	knownProviderNames := make(map[string]bool)
 
 	// When disable_default_providers is enabled, skip all default/embedded

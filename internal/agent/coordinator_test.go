@@ -26,6 +26,7 @@ func TestRetryAfterDuration(t *testing.T) {
 	t.Parallel()
 
 	t.Run("uses numeric retry-after seconds", func(t *testing.T) {
+		t.Parallel()
 		err := &fantasy.ProviderError{
 			StatusCode:      http.StatusTooManyRequests,
 			ResponseHeaders: map[string]string{"Retry-After": "7"},
@@ -35,12 +36,14 @@ func TestRetryAfterDuration(t *testing.T) {
 	})
 
 	t.Run("falls back when header missing", func(t *testing.T) {
+		t.Parallel()
 		err := &fantasy.ProviderError{StatusCode: http.StatusTooManyRequests}
 		got := retryAfterDuration(err)
 		require.Equal(t, 15*time.Second, got)
 	})
 
 	t.Run("caps very large retry-after", func(t *testing.T) {
+		t.Parallel()
 		err := &fantasy.ProviderError{
 			StatusCode:      http.StatusTooManyRequests,
 			ResponseHeaders: map[string]string{"Retry-After": "9999"},
@@ -442,6 +445,7 @@ func TestShouldUseFastModel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := shouldUseFastModel(tt.prompt, tt.attachments)
 			require.Equal(t, tt.want, got)
 		})
@@ -452,6 +456,7 @@ func TestApplyProviderAwareFastProfile(t *testing.T) {
 	t.Parallel()
 
 	t.Run("openai-compatible sets low reasoning and token cap", func(t *testing.T) {
+		t.Parallel()
 		model := Model{
 			ModelCfg: config.SelectedModel{
 				MaxTokens: 4096,
@@ -465,6 +470,7 @@ func TestApplyProviderAwareFastProfile(t *testing.T) {
 	})
 
 	t.Run("anthropic disables think", func(t *testing.T) {
+		t.Parallel()
 		model := Model{
 			ModelCfg: config.SelectedModel{
 				Think: true,
@@ -477,6 +483,7 @@ func TestApplyProviderAwareFastProfile(t *testing.T) {
 	})
 
 	t.Run("google injects lightweight thinking config", func(t *testing.T) {
+		t.Parallel()
 		model := Model{
 			ModelCfg: config.SelectedModel{},
 		}
@@ -534,6 +541,7 @@ func TestParseRunModePrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			gotMode, gotPrompt := parseRunModePrompt(tt.input)
 			require.Equal(t, tt.mode, gotMode)
 			require.Equal(t, tt.output, gotPrompt)

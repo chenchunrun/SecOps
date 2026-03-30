@@ -153,12 +153,16 @@ func renderHeaderDetails(
 }
 
 func renderHeaderAgentMode(com *common.Common) string {
+	if com == nil {
+		return ""
+	}
+
 	t := com.Styles
 	activeAgent := ""
-	if com != nil && com.Config() != nil && com.Config().Options != nil {
+	if com.Config() != nil && com.Config().Options != nil {
 		activeAgent = strings.TrimSpace(com.Config().Options.ActiveAgent)
 	}
-	if activeAgent == "" && com != nil && com.App != nil && com.App.AgentCoordinator != nil {
+	if activeAgent == "" && com.App != nil && com.App.AgentCoordinator != nil {
 		activeAgent = strings.TrimSpace(com.App.AgentCoordinator.ActiveAgentID())
 	}
 

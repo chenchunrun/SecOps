@@ -3180,12 +3180,12 @@ func parseAgentDirective(content string) (targetAgent string, normalized string)
 		return "", content
 	}
 
-	switch {
-	case directive == "/ops":
+	switch directive {
+	case "/ops":
 		return config.AgentOpsAgent, remainder
-	case directive == "/sec" || directive == "/security":
+	case "/sec", "/security":
 		return config.AgentSecurityExpertAgent, remainder
-	case directive == "/coder":
+	case "/coder":
 		return config.AgentCoder, remainder
 	default:
 		return "", content
