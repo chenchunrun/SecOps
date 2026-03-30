@@ -50,6 +50,7 @@ func TestApplyRunModePrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := applyRunModePrefix(tt.input, tt.mode)
 			require.Equal(t, tt.output, got)
 		})

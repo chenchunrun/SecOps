@@ -252,6 +252,7 @@ func TestNormalizeSecOpsParams(t *testing.T) {
 	t.Parallel()
 
 	t.Run("network diagnostic maps legacy fields and command", func(t *testing.T) {
+		t.Parallel()
 		in := map[string]interface{}{
 			"diagnostic_type": "ping",
 			"command":         "ping -c 3 8.8.8.8",
@@ -266,6 +267,7 @@ func TestNormalizeSecOpsParams(t *testing.T) {
 	})
 
 	t.Run("compliance check defaults framework", func(t *testing.T) {
+		t.Parallel()
 		got := normalizeSecOpsParams(secops.ToolTypeComplianceCheck, map[string]interface{}{})
 		if fmt.Sprint(got["framework"]) != "cis" {
 			t.Fatalf("expected framework=cis, got %v", got["framework"])
@@ -273,6 +275,7 @@ func TestNormalizeSecOpsParams(t *testing.T) {
 	})
 
 	t.Run("infrastructure query defaults required fields", func(t *testing.T) {
+		t.Parallel()
 		got := normalizeSecOpsParams(secops.ToolTypeInfrastructureQuery, map[string]interface{}{})
 		if fmt.Sprint(got["system_type"]) != "terraform" {
 			t.Fatalf("expected system_type=terraform, got %v", got["system_type"])

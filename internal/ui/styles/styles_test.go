@@ -64,6 +64,7 @@ func TestDefaultStylesInteractiveContrast(t *testing.T) {
 	t.Parallel()
 
 	forEachTheme(t, func(t *testing.T, _ Theme, s Styles, _ color.Color) {
+		t.Parallel()
 		assertContrastAtLeast(t, s.ButtonFocus.GetForeground(), s.ButtonFocus.GetBackground(), minReadableContrast)
 		assertContrastAtLeast(t, s.FilePicker.Selected.GetForeground(), s.FilePicker.Selected.GetBackground(), minReadableContrast)
 		assertContrastAtLeast(t, s.Dialog.SelectedItem.GetForeground(), s.Dialog.SelectedItem.GetBackground(), minReadableContrast)
@@ -238,6 +239,7 @@ func TestDefaultStylesFilePickerAndDialogContrast(t *testing.T) {
 			name = "dark"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			s := DefaultStyles(theme)
 
 			require.GreaterOrEqual(t,
@@ -345,6 +347,7 @@ func TestDefaultStylesLSPDiagnosticsContrast(t *testing.T) {
 	t.Parallel()
 
 	forEachTheme(t, func(t *testing.T, _ Theme, s Styles, bg color.Color) {
+		t.Parallel()
 		assertContrastAtLeastNamed(t, "lsp_error", s.LSP.ErrorDiagnostic.GetForeground(), bg, minReadableContrast)
 		assertContrastAtLeastNamed(t, "lsp_warning", s.LSP.WarningDiagnostic.GetForeground(), bg, minReadableContrast)
 		assertContrastAtLeastNamed(t, "lsp_hint", s.LSP.HintDiagnostic.GetForeground(), bg, minReadableContrast)

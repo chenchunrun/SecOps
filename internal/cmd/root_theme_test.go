@@ -26,6 +26,7 @@ func TestParseColorFGBG(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, ok := parseColorFGBG(tt.input)
 			require.Equal(t, tt.wantOK, ok)
 			if tt.wantOK {

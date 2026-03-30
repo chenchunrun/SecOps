@@ -84,6 +84,7 @@ func TestValidateRemoteSSHParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateRemoteSSHParams(tt.host, tt.user, tt.keyPath, tt.proxyJump, tt.port)
 			if tt.wantErr && err == nil {
 				t.Fatalf("expected error but got nil")
