@@ -213,7 +213,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		}
 	}
 
-	runCurrentModel := func(enableFastProfile bool) (*fantasy.AgentResult, error, config.ProviderConfig) {
+	runCurrentModel := func(enableFastProfile bool) (*fantasy.AgentResult, config.ProviderConfig, error) {
 		model := c.currentAgent.Model()
 		maxTokens := model.CatwalkCfg.DefaultMaxTokens
 		if model.ModelCfg.MaxTokens != 0 {
@@ -234,14 +234,14 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 
 		providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
 		if !ok {
-			return nil, errModelProviderNotConfigured, config.ProviderConfig{}
+			return nil, config.ProviderConfig{}, errModelProviderNotConfigured
 		}
 		if wait, limited := c.providerRateLimitWait(providerCfg.ID); limited {
-			return nil, fmt.Errorf(
+			return nil, providerCfg, fmt.Errorf(
 				"rate limit reached for requests on provider %s, retry in %ds or switch to /fast",
 				cmp.Or(providerCfg.Name, providerCfg.ID),
 				int(math.Ceil(wait.Seconds())),
-			), providerCfg
+			)
 		}
 
 		if enableFastProfile {
@@ -252,7 +252,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		if providerCfg.OAuthToken != nil && providerCfg.OAuthToken.IsExpired() {
 			slog.Debug("Token needs to be refreshed", "provider", providerCfg.ID)
 			if err := c.refreshOAuth2Token(ctx, providerCfg); err != nil {
-				return nil, err, providerCfg
+				return nil, providerCfg, err
 			}
 		}
 
@@ -269,10 +269,10 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 			FrequencyPenalty: freqPenalty,
 			PresencePenalty:  presPenalty,
 		})
-		return result, err, providerCfg
+		return result, providerCfg, err
 	}
 
-	result, originalErr, providerCfg := runCurrentModel(useFastProfile)
+	result, providerCfg, originalErr := runCurrentModel(useFastProfile)
 
 	if c.isUnauthorized(originalErr) {
 		switch {
@@ -282,7 +282,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 				return nil, originalErr
 			}
 			slog.Debug("Retrying request with refreshed OAuth token", "provider", providerCfg.ID)
-			res, err, _ := runCurrentModel(useFastProfile)
+			res, _, err := runCurrentModel(useFastProfile)
 			return res, err
 		case strings.Contains(providerCfg.APIKeyTemplate, "$"):
 			slog.Debug("Received 401. Refreshing API Key template and retrying", "provider", providerCfg.ID)
@@ -290,7 +290,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 				return nil, originalErr
 			}
 			slog.Debug("Retrying request with refreshed API key", "provider", providerCfg.ID)
-			res, err, _ := runCurrentModel(useFastProfile)
+			res, _, err := runCurrentModel(useFastProfile)
 			return res, err
 		}
 	}
@@ -299,7 +299,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		if shouldFallbackToDeepOnRateLimit(useFastProfile, hasAgentModels, largeModel, smallModel) {
 			slog.Debug("Fast profile hit 429, falling back to deep model", "session_id", sessionID, "provider", providerCfg.ID)
 			c.currentAgent.SetModels(largeModel, smallModel)
-			fallbackResult, fallbackErr, fallbackProvider := runCurrentModel(false)
+			fallbackResult, fallbackProvider, fallbackErr := runCurrentModel(false)
 			if fallbackErr == nil {
 				return fallbackResult, nil
 			}

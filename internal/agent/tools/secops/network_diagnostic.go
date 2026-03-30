@@ -389,9 +389,10 @@ func (ndt *NetworkDiagnosticTool) analyzePortScan(result *NetworkDiagnosticResul
 	filteredCount := 0
 
 	for _, port := range result.Ports {
-		if port.State == "open" {
+		switch port.State {
+		case "open":
 			openCount++
-		} else if port.State == "filtered" {
+		case "filtered":
 			filteredCount++
 		}
 	}

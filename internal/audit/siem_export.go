@@ -478,7 +478,7 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 		}
 
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		lastErr = fmt.Errorf("Splunk HEC request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		lastErr = fmt.Errorf("splunk HEC request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 
 		// Only retry on 5xx errors or connection errors
 		if resp.StatusCode < 500 {
@@ -486,7 +486,7 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 		}
 	}
 
-	return fmt.Errorf("Splunk export failed after %d retries: %w", maxRetries, lastErr)
+	return fmt.Errorf("splunk export failed after %d retries: %w", maxRetries, lastErr)
 }
 
 // ExportToAll exports to all configured SIEM systems.

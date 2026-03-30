@@ -1073,7 +1073,7 @@ func TestSecretAuditTool_Redacted(t *testing.T) {
 			// 确保脱敏后不再包含完整原始值（除了 private_key 等特殊情况）
 			if tt.secretType != "private_key" && tt.secretType != "password" {
 				if strings.Contains(got, "Secret") || strings.Contains(got, "EXAMPLE") {
-					// password 和特殊类型可能不适用此检查
+					t.Errorf("redacted() leaked original secret material for %v: %q", tt.secretType, got)
 				}
 			}
 		})
@@ -2132,8 +2132,8 @@ func TestInfrastructureQueryTool_TerraformOutputs(t *testing.T) {
 
 	// Verify database_url is redacted
 	if v, ok := iqResult.TerraformState.Outputs["database_url"]; ok {
-		if v == "postgres://..." || v == "" {
-			// OK, redacted
+		if v != "postgres://..." && v != "" {
+			t.Errorf("expected database_url to be redacted, got %q", v)
 		}
 	}
 }
@@ -2997,7 +2997,7 @@ func TestIncidentTimelineTool_Execute(t *testing.T) {
 	}
 
 	if tlResult.Duration == 0 && tlResult.Status == "resolved" {
-		// Duration can be 0 for ongoing incidents
+		t.Error("expected resolved incidents to have non-zero duration")
 	}
 }
 
@@ -3077,7 +3077,7 @@ func TestIncidentTimelineTool_IncidentFields(t *testing.T) {
 		t.Error("expected start time")
 	}
 	if tl.Duration == 0 && tl.Status == "open" {
-		// OK for open incidents
+		t.Log("open incidents may have zero duration")
 	}
 }
 
@@ -3674,11 +3674,11 @@ func TestResourceMonitorTool_MetricFields(t *testing.T) {
 		if m.Name == "" {
 			t.Error("expected metric name")
 		}
-		if m.Value == 0 && m.Name != "" {
-			// Some metrics like network connections could be 0 legitimately
+		if m.Value == 0 && m.Name == "cpu_cores" {
+			t.Error("expected cpu_cores to be non-zero")
 		}
-		if m.Unit == "" {
-			// Some metrics like load_avg have no unit
+		if m.Unit == "" && !strings.HasPrefix(m.Name, "load_avg") {
+			t.Errorf("expected unit for metric %q", m.Name)
 		}
 		if m.Timestamp.IsZero() {
 			t.Error("expected metric timestamp")

@@ -707,9 +707,10 @@ func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(params *Deploymen
 	rolloutProgress := "Deployment complete"
 	if len(svc.Deployments) > 0 {
 		state := strings.ToUpper(strings.TrimSpace(svc.Deployments[0].RolloutState))
-		if state == "IN_PROGRESS" {
+		switch state {
+		case "IN_PROGRESS":
 			rolloutProgress = "Rollout in progress"
-		} else if state == "FAILED" {
+		case "FAILED":
 			rolloutProgress = "Rollout failed"
 			healthStatus = "unhealthy"
 		}
