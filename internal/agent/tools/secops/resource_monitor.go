@@ -889,9 +889,6 @@ func parseRemoteMemory(raw string) (total, used, available, swapPct float64) {
 			if len(fields) > 6 {
 				available, _ = strconv.ParseFloat(fields[6], 64)
 			}
-			total = total
-			used = used
-			available = available
 			return total, used, available, 0
 		case "MemTotal":
 			kv := parseMeminfoValue(fields)

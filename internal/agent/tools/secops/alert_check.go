@@ -463,7 +463,10 @@ func (act *AlertCheckTool) queryPrometheusAlerts(params *AlertCheckParams) []Ale
 	if base == "" {
 		return nil
 	}
-	req, err := http.NewRequest(http.MethodGet, base+"/api/v1/alerts", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/v1/alerts", nil)
 	if err != nil {
 		return nil
 	}
@@ -547,10 +550,13 @@ func (act *AlertCheckTool) queryGrafanaAlerts(params *AlertCheckParams) []AlertI
 		"/api/alerts",
 	}
 	for _, path := range paths {
-		req, err := http.NewRequest(http.MethodGet, base+path, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 		if err != nil {
+			cancel()
 			continue
 		}
+		defer cancel()
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -621,7 +627,10 @@ func (act *AlertCheckTool) queryDatadogAlerts(params *AlertCheckParams) []AlertI
 	if q == "" {
 		q = "*"
 	}
-	req, err := http.NewRequest(http.MethodGet, base+"/api/v1/monitor/search?query="+q, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/v1/monitor/search?query="+q, nil)
 	if err != nil {
 		return nil
 	}
@@ -672,7 +681,10 @@ func (act *AlertCheckTool) queryPagerDutyAlerts(params *AlertCheckParams) []Aler
 	if token == "" {
 		return nil
 	}
-	req, err := http.NewRequest(http.MethodGet, base+"/incidents?limit=50", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/incidents?limit=50", nil)
 	if err != nil {
 		return nil
 	}

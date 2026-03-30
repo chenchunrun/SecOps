@@ -402,7 +402,7 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 		return cat.fetchCertificateFromServiceRemote(target, params)
 	}
 
-	dialer := &net.Dialer{Timeout: 2 * time.Second}
+	netDialer := &net.Dialer{Timeout: 2 * time.Second}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 	hostForVerify := target
 	if h, _, splitErr := net.SplitHostPort(target); splitErr == nil && strings.TrimSpace(h) != "" {
@@ -413,13 +413,25 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 	} else if net.ParseIP(hostForVerify) == nil {
 		tlsConfig.ServerName = hostForVerify
 	}
-	conn, err := tls.DialWithDialer(dialer, "tcp", target, tlsConfig)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	dialer := &tls.Dialer{
+		NetDialer: netDialer,
+		Config:    tlsConfig,
+	}
+	conn, err := dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
 		return nil
 	}
 	defer conn.Close()
 
-	state := conn.ConnectionState()
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		return nil
+	}
+
+	state := tlsConn.ConnectionState()
 	if len(state.PeerCertificates) == 0 {
 		return nil
 	}

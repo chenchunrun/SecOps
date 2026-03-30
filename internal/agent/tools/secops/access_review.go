@@ -307,7 +307,10 @@ func (art *AccessReviewTool) getAWSAccessEntries(params *AccessReviewParams) []A
 	if _, err := exec.LookPath("aws"); err != nil {
 		return nil
 	}
-	out, err := exec.Command("aws", "iam", "list-users", "--output", "json").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "aws", "iam", "list-users", "--output", "json").Output()
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -358,7 +361,10 @@ func (art *AccessReviewTool) getGCPAccessEntries(params *AccessReviewParams) []A
 	if project == "" {
 		return nil
 	}
-	out, err := exec.Command("gcloud", "projects", "get-iam-policy", project, "--format=json").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "gcloud", "projects", "get-iam-policy", project, "--format=json").Output()
 	if err != nil || len(out) == 0 {
 		return nil
 	}
