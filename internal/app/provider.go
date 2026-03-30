@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/chenchunrun/SecOps/internal/config"
 	xstrings "github.com/charmbracelet/x/exp/strings"
+	"github.com/chenchunrun/SecOps/internal/config"
 )
 
 // parseModelStr parses a model string into provider filter and model ID.

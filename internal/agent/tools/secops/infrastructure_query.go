@@ -115,7 +115,7 @@ type InfrastructureQueryResult struct {
 	CostInfo       []CostInfo      `json:"cost_info,omitempty"`
 	TerraformState *TerraformState `json:"terraform_state,omitempty"`
 	Error          string          `json:"error,omitempty"`
-	DataSource     string          `json:"data_source,omitempty"`   // live, fallback_sample
+	DataSource     string          `json:"data_source,omitempty"` // live, fallback_sample
 	FallbackReason string          `json:"fallback_reason,omitempty"`
 }
 

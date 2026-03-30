@@ -141,7 +141,7 @@ type DeploymentStatusResult struct {
 	Version         string            `json:"version,omitempty"`
 	PreviousVersion string            `json:"previous_version,omitempty"`
 	Error           string            `json:"error,omitempty"`
-	DataSource      string            `json:"data_source,omitempty"`   // live, fallback_sample
+	DataSource      string            `json:"data_source,omitempty"` // live, fallback_sample
 	FallbackReason  string            `json:"fallback_reason,omitempty"`
 }
 

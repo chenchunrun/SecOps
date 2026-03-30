@@ -25,12 +25,12 @@ type RotationCheckParams struct {
 
 // RotationCheckResult 轮换检查结果
 type RotationCheckResult struct {
-	LastRotated  string
-	AgeDays      int
-	Status       string // "ok", "due", "overdue", "unknown"
-	NextRotation string
-	PolicyDays   int
-	DataSource   string `json:"data_source,omitempty"`   // metadata, target_file, fallback_sample
+	LastRotated    string
+	AgeDays        int
+	Status         string // "ok", "due", "overdue", "unknown"
+	NextRotation   string
+	PolicyDays     int
+	DataSource     string `json:"data_source,omitempty"` // metadata, target_file, fallback_sample
 	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 

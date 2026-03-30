@@ -12,28 +12,28 @@ import (
 
 // DatabaseQueryParams for read-only database queries
 type DatabaseQueryParams struct {
-	System     string `json:"system"`      // mysql, postgresql, mongodb, redis
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	Database   string `json:"database"`
-	Query      string `json:"query"`       // SELECT only
-	TimeoutSec int    `json:"timeout_sec"`
-	RemoteHost string `json:"remote_host,omitempty"`
-	RemoteUser string `json:"remote_user,omitempty"`
-	RemotePort int    `json:"remote_port,omitempty"`
-	RemoteKeyPath string `json:"remote_key_path,omitempty"`
+	System          string `json:"system"` // mysql, postgresql, mongodb, redis
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	Database        string `json:"database"`
+	Query           string `json:"query"` // SELECT only
+	TimeoutSec      int    `json:"timeout_sec"`
+	RemoteHost      string `json:"remote_host,omitempty"`
+	RemoteUser      string `json:"remote_user,omitempty"`
+	RemotePort      int    `json:"remote_port,omitempty"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
 	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
 }
 
 // DatabaseQueryResult 数据库查询结果
 type DatabaseQueryResult struct {
-	System       string
-	RowsAffected int
-	Columns      []string
-	Data         [][]string
-	Duration     string
-	Error        string
-	DataSource   string `json:"data_source,omitempty"`   // live_local, live_remote, fallback_sample
+	System         string
+	RowsAffected   int
+	Columns        []string
+	Data           [][]string
+	Duration       string
+	Error          string
+	DataSource     string `json:"data_source,omitempty"` // live_local, live_remote, fallback_sample
 	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 
@@ -153,7 +153,7 @@ func (p *DatabaseQueryParams) ValidateParams() error {
 func (dqt *DatabaseQueryTool) performQuery(params *DatabaseQueryParams) *DatabaseQueryResult {
 	start := time.Now()
 	result := &DatabaseQueryResult{
-		System: params.System,
+		System:  params.System,
 		Columns: []string{},
 		Data:    [][]string{},
 	}

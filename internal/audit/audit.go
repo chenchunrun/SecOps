@@ -10,16 +10,16 @@ import (
 type AuditEventType string
 
 const (
-	EventTypePermissionRequest AuditEventType = "permission_request"
+	EventTypePermissionRequest  AuditEventType = "permission_request"
 	EventTypePermissionApproved AuditEventType = "permission_approved"
-	EventTypePermissionDenied AuditEventType = "permission_denied"
-	EventTypeCommandExecuted AuditEventType = "command_executed"
-	EventTypeCommandFailed AuditEventType = "command_failed"
-	EventTypeLoginSuccess AuditEventType = "login_success"
-	EventTypeLoginFailure AuditEventType = "login_failure"
-	EventTypeDataAccess AuditEventType = "data_access"
-	EventTypeConfigChange AuditEventType = "config_change"
-	EventTypeSecurityAlert AuditEventType = "security_alert"
+	EventTypePermissionDenied   AuditEventType = "permission_denied"
+	EventTypeCommandExecuted    AuditEventType = "command_executed"
+	EventTypeCommandFailed      AuditEventType = "command_failed"
+	EventTypeLoginSuccess       AuditEventType = "login_success"
+	EventTypeLoginFailure       AuditEventType = "login_failure"
+	EventTypeDataAccess         AuditEventType = "data_access"
+	EventTypeConfigChange       AuditEventType = "config_change"
+	EventTypeSecurityAlert      AuditEventType = "security_alert"
 )
 
 // AuditResult 审计结果
@@ -46,33 +46,33 @@ type AuditEvent struct {
 	SourceIP  string `json:"source_ip"`
 
 	// 操作信息
-	Action       string `json:"action"`       // 执行的操作
-	ResourceType string `json:"resource_type"` // 资源类型
-	ResourceName string `json:"resource_name"` // 资源名称
-	ResourcePath string `json:"resource_path"` // 资源路径
-	Transport    string `json:"transport,omitempty"`    // local / ssh / docker
-	TargetHost   string `json:"target_host,omitempty"`  // remote target host/user@host
-	TargetEnv    string `json:"target_env,omitempty"`   // prod / staging / dev
-	TargetID     string `json:"target_id,omitempty"`    // profile id or target group
+	Action       string `json:"action"`                // 执行的操作
+	ResourceType string `json:"resource_type"`         // 资源类型
+	ResourceName string `json:"resource_name"`         // 资源名称
+	ResourcePath string `json:"resource_path"`         // 资源路径
+	Transport    string `json:"transport,omitempty"`   // local / ssh / docker
+	TargetHost   string `json:"target_host,omitempty"` // remote target host/user@host
+	TargetEnv    string `json:"target_env,omitempty"`  // prod / staging / dev
+	TargetID     string `json:"target_id,omitempty"`   // profile id or target group
 
 	// 结果信息
 	Result   AuditResult `json:"result"`
 	ErrorMsg string      `json:"error_msg,omitempty"`
 
 	// 安全信息
-	RiskScore  int    `json:"risk_score"`
-	RiskLevel  string `json:"risk_level"`
-	Severity   string `json:"severity"`
+	RiskScore int    `json:"risk_score"`
+	RiskLevel string `json:"risk_level"`
+	Severity  string `json:"severity"`
 
 	// 详细信息
 	Details    map[string]interface{} `json:"details,omitempty"`
 	ChangeData *ChangeData            `json:"change_data,omitempty"`
 
 	// 合规和审批信息
-	ApprovalID   string    `json:"approval_id,omitempty"`
-	ApprovedBy   string    `json:"approved_by,omitempty"`
-	ApprovedAt   time.Time `json:"approved_at,omitempty"`
-	Reason       string    `json:"reason,omitempty"`
+	ApprovalID string    `json:"approval_id,omitempty"`
+	ApprovedBy string    `json:"approved_by,omitempty"`
+	ApprovedAt time.Time `json:"approved_at,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
 
 	// 签名和完整性（供未来使用）
 	Signature string `json:"signature,omitempty"`

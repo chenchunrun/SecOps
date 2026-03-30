@@ -71,17 +71,17 @@ type TimelineEvent struct {
 
 // IncidentTimelineResult 事件时间线结果
 type IncidentTimelineResult struct {
-	IncidentID string          `json:"incident_id"`
-	Title      string          `json:"title"`
-	StartTime  time.Time       `json:"start_time"`
-	EndTime    time.Time       `json:"end_time,omitempty"`
-	Duration   time.Duration   `json:"duration"`
-	Events     []TimelineEvent `json:"events"`
-	RootCause  string          `json:"root_cause,omitempty"`
-	Impact     string          `json:"impact,omitempty"`
-	Status     string          `json:"status"` // open, mitigated, resolved, closed
-	DataSource string          `json:"data_source,omitempty"`     // input_events, external_file, external_remote, fallback_template
-	FallbackReason string      `json:"fallback_reason,omitempty"`
+	IncidentID     string          `json:"incident_id"`
+	Title          string          `json:"title"`
+	StartTime      time.Time       `json:"start_time"`
+	EndTime        time.Time       `json:"end_time,omitempty"`
+	Duration       time.Duration   `json:"duration"`
+	Events         []TimelineEvent `json:"events"`
+	RootCause      string          `json:"root_cause,omitempty"`
+	Impact         string          `json:"impact,omitempty"`
+	Status         string          `json:"status"`                // open, mitigated, resolved, closed
+	DataSource     string          `json:"data_source,omitempty"` // input_events, external_file, external_remote, fallback_template
+	FallbackReason string          `json:"fallback_reason,omitempty"`
 }
 
 // ValidateParams 实现 Tool.ValidateParams

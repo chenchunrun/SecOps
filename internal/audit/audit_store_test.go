@@ -328,16 +328,16 @@ func TestInMemoryAuditStore_ListEvents_ByMinRiskScore(t *testing.T) {
 	store := NewInMemoryAuditStore()
 
 	event1 := &AuditEvent{
-		EventType:  EventTypeCommandExecuted,
-		RiskScore:  50,
-		RiskLevel:  "medium",
+		EventType: EventTypeCommandExecuted,
+		RiskScore: 50,
+		RiskLevel: "medium",
 	}
 	store.SaveEvent(event1)
 
 	event2 := &AuditEvent{
-		EventType:  EventTypeSecurityAlert,
-		RiskScore:  80,
-		RiskLevel:  "critical",
+		EventType: EventTypeSecurityAlert,
+		RiskScore: 80,
+		RiskLevel: "critical",
 	}
 	store.SaveEvent(event2)
 

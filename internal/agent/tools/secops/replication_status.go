@@ -24,12 +24,12 @@ type ReplicationStatusParams struct {
 
 // ReplicationStatusResult 复制状态结果
 type ReplicationStatusResult struct {
-	IsReplicating bool
-	LagSeconds    int
-	MasterHost    string
-	SlaveHosts    []string
-	Status        string
-	DataSource    string `json:"data_source,omitempty"`     // live_file, live_cli, live_remote, fallback_sample
+	IsReplicating  bool
+	LagSeconds     int
+	MasterHost     string
+	SlaveHosts     []string
+	Status         string
+	DataSource     string `json:"data_source,omitempty"` // live_file, live_cli, live_remote, fallback_sample
 	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 
