@@ -11,12 +11,12 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/chenchunrun/SecOps/internal/ui/util"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/exp/charmtone"
 )
 
 type APIKeyInputState int

@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // -----------------------------------------------------------------------------

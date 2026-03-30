@@ -27,6 +27,7 @@ import (
 //  7. Private key header     (-----BEGIN ... PRIVATE KEY-----)
 //  8. GitHub PAT             (ghp_*, github_pat_*)
 //  9. GCP service account    (gcp_*, GOOGLE_*, _GOOGLE)
+//
 // 10. Slack token            (xox[baprs]-*)
 // 11. Generic API key        (api_key=, apikey=, api-key=)
 // 12. Database DSN           (mysql://, postgres://, mongodb://, redis://)
@@ -87,32 +88,32 @@ func redactEvent(event *AuditEvent) *AuditEvent {
 		return nil
 	}
 	cp := &AuditEvent{
-		ID:          event.ID,
-		EventType:   event.EventType,
-		Timestamp:   event.Timestamp,
-		SessionID:   event.SessionID,
-		UserID:      event.UserID,
-		Username:    event.Username,
-		SourceIP:    event.SourceIP,
-		Action:      event.Action,
+		ID:           event.ID,
+		EventType:    event.EventType,
+		Timestamp:    event.Timestamp,
+		SessionID:    event.SessionID,
+		UserID:       event.UserID,
+		Username:     event.Username,
+		SourceIP:     event.SourceIP,
+		Action:       event.Action,
 		ResourceType: event.ResourceType,
 		ResourceName: event.ResourceName,
 		ResourcePath: event.ResourcePath,
-		Transport:   event.Transport,
-		TargetHost:  event.TargetHost,
-		TargetEnv:   event.TargetEnv,
-		TargetID:    event.TargetID,
-		Result:      event.Result,
-		ErrorMsg:    event.ErrorMsg,
-		RiskScore:   event.RiskScore,
-		RiskLevel:   event.RiskLevel,
-		Severity:    event.Severity,
-		Details:     make(map[string]interface{}),
-		ApprovalID:  event.ApprovalID,
-		ApprovedBy:  event.ApprovedBy,
-		ApprovedAt:  event.ApprovedAt,
-		Reason:      event.Reason,
-		Signature:   event.Signature,
+		Transport:    event.Transport,
+		TargetHost:   event.TargetHost,
+		TargetEnv:    event.TargetEnv,
+		TargetID:     event.TargetID,
+		Result:       event.Result,
+		ErrorMsg:     event.ErrorMsg,
+		RiskScore:    event.RiskScore,
+		RiskLevel:    event.RiskLevel,
+		Severity:     event.Severity,
+		Details:      make(map[string]interface{}),
+		ApprovalID:   event.ApprovalID,
+		ApprovedBy:   event.ApprovedBy,
+		ApprovedAt:   event.ApprovedAt,
+		Reason:       event.Reason,
+		Signature:    event.Signature,
 	}
 	for k, v := range event.Details {
 		cp.Details[k] = redactValue(v)
@@ -291,8 +292,8 @@ func sanitizeSyslogHeaderField(value string, maxLen int) string {
 // TLSEnabled defaults to true; plaintext HTTP exports are rejected to prevent
 // credential exposure. Pass a custom TLSConfig for cert pinning or other options.
 type ELKExporter struct {
-	Endpoint   string      // e.g. "https://localhost:9200"
-	Index      string      // e.g. "secops-audit"
+	Endpoint   string // e.g. "https://localhost:9200"
+	Index      string // e.g. "secops-audit"
 	Username   string
 	Password   string
 	TLSEnabled bool        // defaults to true; rejected if false
@@ -387,7 +388,7 @@ func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 // TLSEnabled defaults to true; plaintext HTTP exports are rejected to prevent
 // credential exposure. Pass a custom TLSConfig for cert pinning or other options.
 type SplunkExporter struct {
-	Endpoint   string      // e.g. "https://localhost:8088/services/collector"
+	Endpoint   string // e.g. "https://localhost:8088/services/collector"
 	Token      string
 	Index      string
 	TLSEnabled bool        // defaults to true; rejected if false
@@ -396,12 +397,12 @@ type SplunkExporter struct {
 
 // SplunkHECEvent represents a Splunk HEC event payload.
 type SplunkHECEvent struct {
-	Time     float64                `json:"time,omitempty"`
-	Host     string                 `json:"host,omitempty"`
-	Source   string                 `json:"source,omitempty"`
-	Sourcetype string               `json:"sourcetype,omitempty"`
-	Index    string                 `json:"index,omitempty"`
-	Event    map[string]interface{} `json:"event"`
+	Time       float64                `json:"time,omitempty"`
+	Host       string                 `json:"host,omitempty"`
+	Source     string                 `json:"source,omitempty"`
+	Sourcetype string                 `json:"sourcetype,omitempty"`
+	Index      string                 `json:"index,omitempty"`
+	Event      map[string]interface{} `json:"event"`
 }
 
 // Export sends events to Splunk HTTP Event Collector.

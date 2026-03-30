@@ -41,9 +41,9 @@ func TestDefaultService_Request_LowRisk(t *testing.T) {
 	svc := NewDefaultService()
 
 	req := &PermissionRequest{
-		SessionID: "sess-1",
-		ToolName:  "log_analyzer",
-		Action:    "read",
+		SessionID:    "sess-1",
+		ToolName:     "log_analyzer",
+		Action:       "read",
 		ResourceType: ResourceTypeFile,
 		ResourcePath: "/var/log/syslog",
 	}

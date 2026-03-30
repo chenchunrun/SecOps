@@ -2,9 +2,9 @@ package model
 
 import (
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/chenchunrun/SecOps/internal/agent"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
-	"github.com/charmbracelet/ultraviolet/layout"
 )
 
 // selectedLargeModel returns the currently selected large language model from

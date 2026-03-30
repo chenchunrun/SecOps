@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 	"github.com/chenchunrun/SecOps/internal/app"
 	"github.com/chenchunrun/SecOps/internal/lsp"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 )
 
 // LSPInfo wraps LSP client information with diagnostic counts by severity.

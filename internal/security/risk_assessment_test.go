@@ -24,29 +24,29 @@ func TestRiskAssessor_AssessCommand(t *testing.T) {
 		{
 			name:          "敏感路径读取",
 			command:       "cat /etc/shadow",
-			expectedLevel: RiskLevelLow,  // 单个敏感路径访问（25）< 40
+			expectedLevel: RiskLevelLow, // 单个敏感路径访问（25）< 40
 			minScore:      25,
 			hasFactors:    true,
 		},
 		{
 			name:          "禁用命令",
 			command:       "rm -rf /",
-			expectedLevel: RiskLevelMedium,  // 禁用命令（40）+ 敏感路径（可能检测到）
+			expectedLevel: RiskLevelMedium, // 禁用命令（40）+ 敏感路径（可能检测到）
 			minScore:      40,
 			hasFactors:    true,
 		},
 		{
 			name:          "凭证泄露",
 			command:       "mysql -pSecretPassword123",
-			expectedLevel: RiskLevelMedium,  // 凭证泄露（50）>= 40 且 < 60
+			expectedLevel: RiskLevelMedium, // 凭证泄露（50）>= 40 且 < 60
 			minScore:      50,
 			hasFactors:    true,
 		},
 		{
 			name:          "系统修改",
 			command:       "chmod 777 /etc/passwd",
-			expectedLevel: RiskLevelMedium,  // 系统修改（30）+ 敏感路径（25）>= 40
-			minScore:      55,  // 应该同时检测到系统修改和敏感路径
+			expectedLevel: RiskLevelMedium, // 系统修改（30）+ 敏感路径（25）>= 40
+			minScore:      55,              // 应该同时检测到系统修改和敏感路径
 			hasFactors:    true,
 		},
 		{
@@ -83,10 +83,10 @@ func TestRiskAssessor_AssessCommand(t *testing.T) {
 
 func TestRiskAssessor_RiskCategories(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        *RiskAssessorConfig
-		score         int
-		expectedLevel RiskLevel
+		name           string
+		config         *RiskAssessorConfig
+		score          int
+		expectedLevel  RiskLevel
 		expectedAction RiskAction
 	}{
 		{
@@ -143,8 +143,8 @@ func TestRiskAssessor_DetectBannedCommand(t *testing.T) {
 	ra := NewRiskAssessor()
 
 	tests := []struct {
-		name    string
-		command string
+		name     string
+		command  string
 		expected bool
 	}{
 		{"rm command", "rm file.txt", true},
@@ -168,8 +168,8 @@ func TestRiskAssessor_DetectCredentialExposure(t *testing.T) {
 	ra := NewRiskAssessor()
 
 	tests := []struct {
-		name    string
-		command string
+		name     string
+		command  string
 		expected bool
 	}{
 		{"password in mysql", "mysql -pMyPassword", true},
@@ -193,8 +193,8 @@ func TestRiskAssessor_DetectSensitivePathAccess(t *testing.T) {
 	ra := NewRiskAssessor()
 
 	tests := []struct {
-		name    string
-		command string
+		name     string
+		command  string
 		expected bool
 	}{
 		{"shadow file", "cat /etc/shadow", true},
@@ -218,8 +218,8 @@ func TestRiskAssessor_DetectSystemModification(t *testing.T) {
 	ra := NewRiskAssessor()
 
 	tests := []struct {
-		name    string
-		command string
+		name     string
+		command  string
 		expected bool
 	}{
 		{"chmod command", "chmod 777 /etc/passwd", true},

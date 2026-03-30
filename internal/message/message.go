@@ -48,7 +48,7 @@ type Service interface {
 
 // bufferedState holds pending writes for a single message.
 type bufferedState struct {
-	message  Message
+	message    Message
 	deltaCount int
 }
 
@@ -146,7 +146,6 @@ func (s *service) Update(ctx context.Context, message Message) error {
 	s.Publish(pubsub.UpdatedEvent, message.Clone())
 	return nil
 }
-
 
 // Call this at the end of each agent step to ensure the final state is saved.
 func (s *service) FlushBufferedUpdate(ctx context.Context) error {

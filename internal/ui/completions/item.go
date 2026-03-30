@@ -2,8 +2,8 @@ package completions
 
 import (
 	"charm.land/lipgloss/v2"
-	"github.com/chenchunrun/SecOps/internal/ui/list"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/chenchunrun/SecOps/internal/ui/list"
 	"github.com/rivo/uniseg"
 	"github.com/sahilm/fuzzy"
 )

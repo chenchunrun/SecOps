@@ -6,11 +6,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/chenchunrun/SecOps/internal/ui/anim"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // assistantMessageTruncateFormat is the text shown when an assistant message is
@@ -40,11 +40,11 @@ type AssistantMessageItem struct {
 func NewAssistantMessageItem(sty *styles.Styles, message *message.Message, showThinking bool) MessageItem {
 	a := &AssistantMessageItem{
 		highlightableMessageItem: defaultHighlighter(sty),
-		cachedMessageItem:       &cachedMessageItem{},
-		focusableMessageItem:    &focusableMessageItem{},
-		message:                 message,
-		sty:                     sty,
-		showThinking:            showThinking,
+		cachedMessageItem:        &cachedMessageItem{},
+		focusableMessageItem:     &focusableMessageItem{},
+		message:                  message,
+		sty:                      sty,
+		showThinking:             showThinking,
 	}
 
 	a.anim = anim.New(anim.Settings{

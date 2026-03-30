@@ -12,8 +12,8 @@ import (
 
 	"charm.land/log/v2"
 	"github.com/charmbracelet/colorprofile"
-	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/charmbracelet/x/term"
+	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/nxadm/tail"
 	"github.com/spf13/cobra"
 )

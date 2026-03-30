@@ -14,11 +14,11 @@ type RiskFactor struct {
 
 // RiskAssessment 风险评估结果
 type RiskAssessment struct {
-	Score   int           // 总风险分数 (0-100)
-	Level   RiskLevel     // 风险级别
-	Factors []RiskFactor  // 风险因子列表
-	Action  RiskAction    // 建议的决策
-	Details string        // 详细说明
+	Score   int          // 总风险分数 (0-100)
+	Level   RiskLevel    // 风险级别
+	Factors []RiskFactor // 风险因子列表
+	Action  RiskAction   // 建议的决策
+	Details string       // 详细说明
 }
 
 // RiskLevel 风险级别
@@ -35,10 +35,10 @@ const (
 type RiskAction string
 
 const (
-	RiskActionBlock         RiskAction = "block"
-	RiskActionAdminReview   RiskAction = "admin_review"
-	RiskActionUserConfirm   RiskAction = "user_confirm"
-	RiskActionAutoApprove   RiskAction = "auto_approve"
+	RiskActionBlock       RiskAction = "block"
+	RiskActionAdminReview RiskAction = "admin_review"
+	RiskActionUserConfirm RiskAction = "user_confirm"
+	RiskActionAutoApprove RiskAction = "auto_approve"
 )
 
 // RiskAssessor 风险评估器

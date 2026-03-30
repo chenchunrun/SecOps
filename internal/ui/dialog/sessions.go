@@ -9,11 +9,11 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/list"
 	"github.com/chenchunrun/SecOps/internal/ui/util"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // SessionsID is the identifier for the session selector dialog.

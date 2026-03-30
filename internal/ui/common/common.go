@@ -7,11 +7,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/chenchunrun/SecOps/internal/app"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/chenchunrun/SecOps/internal/ui/util"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // MaxAttachmentSize defines the maximum allowed size for file attachments (5 MB).

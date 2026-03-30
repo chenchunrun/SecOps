@@ -2,8 +2,8 @@ package audit
 
 import (
 	"context"
-	"sync/atomic"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )

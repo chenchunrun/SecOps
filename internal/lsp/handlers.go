@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/chenchunrun/SecOps/internal/lsp/util"
 	powernap "github.com/charmbracelet/x/powernap/pkg/lsp"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
+	"github.com/chenchunrun/SecOps/internal/lsp/util"
 )
 
 // HandleWorkspaceConfiguration handles workspace configuration requests

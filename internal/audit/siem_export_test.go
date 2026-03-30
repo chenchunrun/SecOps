@@ -678,8 +678,8 @@ func TestRedactValue_All13Patterns(t *testing.T) {
 func TestRedactValue_NestedStruct(t *testing.T) {
 	// Test that redaction works recursively on nested maps
 	input := map[string]interface{}{
-		"user":     "alice",
-		"db_conn":  "mysql://admin:secret123@localhost:3306/mydb",
+		"user":    "alice",
+		"db_conn": "mysql://admin:secret123@localhost:3306/mydb",
 		"metadata": map[string]interface{}{
 			"token":    "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
 			"note":     "this is safe",
@@ -735,7 +735,7 @@ func TestRedactEvent_DoesNotMutateOriginal(t *testing.T) {
 		Action:   "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
 		Details: map[string]interface{}{
 			"bearer_token": "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
-			"note":    "safe content",
+			"note":         "safe content",
 		},
 	}
 

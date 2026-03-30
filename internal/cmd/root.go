@@ -16,6 +16,10 @@ import (
 	"charm.land/fang/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/charmbracelet/x/term"
 	"github.com/chenchunrun/SecOps/internal/app"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/db"
@@ -25,10 +29,6 @@ import (
 	ui "github.com/chenchunrun/SecOps/internal/ui/model"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
 	"github.com/chenchunrun/SecOps/internal/version"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
-	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 

@@ -11,10 +11,10 @@ func TestApplyRunModePrefix(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		mode    dialog.RunMode
-		input   string
-		output  string
+		name   string
+		mode   dialog.RunMode
+		input  string
+		output string
 	}{
 		{
 			name:   "auto mode keeps content",

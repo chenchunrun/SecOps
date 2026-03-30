@@ -18,19 +18,19 @@ import (
 
 // SandboxConfig controls the execution environment for sandboxed commands.
 type SandboxConfig struct {
-	MaxMemoryMB     int64    // Maximum memory limit in MB
-	MaxCPU          int      // CPU limit (number of cores or percentage)
-	TimeoutSeconds  int      // Maximum execution time in seconds
-	AllowedHosts    []string // Whitelist of allowed hostnames/IPs
-	AllowedPorts    []int    // Whitelist of allowed ports
-	ReadOnlyPaths   []string // Paths that can be read but not written
-	DenyPaths       []string // Paths that are always denied
-	AuditLogPath    string   // Path for audit log output
-	TraceID         string   // Unique trace identifier for audit trail
+	MaxMemoryMB    int64    // Maximum memory limit in MB
+	MaxCPU         int      // CPU limit (number of cores or percentage)
+	TimeoutSeconds int      // Maximum execution time in seconds
+	AllowedHosts   []string // Whitelist of allowed hostnames/IPs
+	AllowedPorts   []int    // Whitelist of allowed ports
+	ReadOnlyPaths  []string // Paths that can be read but not written
+	DenyPaths      []string // Paths that are always denied
+	AuditLogPath   string   // Path for audit log output
+	TraceID        string   // Unique trace identifier for audit trail
 	// Execution mode: "local", "docker", "ssh"
-	Mode      string
-	DockerImage string   // Docker image to use (for docker mode)
-	SSHTarget   string   // SSH target user@host (for ssh mode)
+	Mode        string
+	DockerImage string // Docker image to use (for docker mode)
+	SSHTarget   string // SSH target user@host (for ssh mode)
 }
 
 // ExecutionResult contains the outcome of a sandboxed command execution.
@@ -74,7 +74,7 @@ var ErrModeUnsupported = errors.New("unsupported execution mode")
 // Dangerous path patterns that should never be executed.
 var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^\s*/etc/shadow`),
-	regexp.MustCompile(`(?i)^\s*/etc/passwd\s+-w`),  // passwd write attempts
+	regexp.MustCompile(`(?i)^\s*/etc/passwd\s+-w`), // passwd write attempts
 	regexp.MustCompile(`(?i)^\s*/etc/sudoers`),
 	regexp.MustCompile(`(?i)^\s*rm\s+-rf\s+/`),
 	regexp.MustCompile(`(?i)^\s*rm\s+-rf\s+/\*`),

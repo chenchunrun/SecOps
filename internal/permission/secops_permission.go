@@ -75,8 +75,8 @@ var sensitivePaths = []string{
 // DefaultService 默认权限服务实现
 type DefaultService struct {
 	mu           sync.RWMutex
-	permissions  map[string]*permissionEntry  // key: sessionID:toolName
-	capabilities map[string]*capabilityEntry  // key: userID
+	permissions  map[string]*permissionEntry // key: sessionID:toolName
+	capabilities map[string]*capabilityEntry // key: userID
 	auditLog     []auditRecord
 }
 

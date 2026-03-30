@@ -100,7 +100,6 @@ func TestSecuritySystemIntegration_IncidentResponse(t *testing.T) {
 		now.Add(-24*time.Hour),
 		now,
 	)
-
 	if err != nil {
 		t.Fatalf("GenerateReport() error = %v", err)
 	}
@@ -169,7 +168,6 @@ func TestComplianceFramework_Audit(t *testing.T) {
 		now.Add(-24*time.Hour),
 		now,
 	)
-
 	if err != nil {
 		t.Fatalf("error generating compliance report: %v", err)
 	}
@@ -226,7 +224,6 @@ func TestVulnerabilityScanAndResponse(t *testing.T) {
 	count, err := auditStore.CountEvents(&audit.AuditFilter{
 		Action: "vulnerability_scan",
 	})
-
 	if err != nil {
 		t.Fatalf("error counting events: %v", err)
 	}
@@ -494,7 +491,6 @@ func TestEndToEndSecurityIncident(t *testing.T) {
 		now.Add(-24*time.Hour),
 		now,
 	)
-
 	if err != nil {
 		t.Fatalf("error generating final report: %v", err)
 	}

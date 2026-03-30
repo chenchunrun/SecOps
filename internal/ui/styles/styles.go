@@ -75,7 +75,6 @@ func colorHex(c color.Color) string {
 	return fmt.Sprintf("#%02X%02X%02X", uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }
 
-
 type Styles struct {
 	WindowTooSmall lipgloss.Style
 

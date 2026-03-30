@@ -85,7 +85,7 @@ func TestCheckCommandSafetyDangerous(t *testing.T) {
 		"mkfs.ext4 /dev/sda",
 		"dd if=/dev/zero of=/dev/sdb",
 		":(){ :|:& };:", // fork bomb with function definition
-		":()",            // fork bomb shorthand
+		":()",           // fork bomb shorthand
 	}
 
 	for _, cmd := range dangerous {
@@ -240,8 +240,8 @@ func TestLocalExecutorAuditLog(t *testing.T) {
 	ctx := context.Background()
 	cfg := SandboxConfig{
 		TimeoutSeconds: 5,
-		TraceID:       "test-audit",
-		AuditLogPath:  auditFile,
+		TraceID:        "test-audit",
+		AuditLogPath:   auditFile,
 	}
 
 	_, err := exec.Execute(ctx, "echo test", cfg)
@@ -447,11 +447,11 @@ func TestDockerBuildArgs(t *testing.T) {
 	exec := NewDockerExecutor()
 
 	cfg := SandboxConfig{
-		MaxMemoryMB:  1024,
-		MaxCPU:       2,
-		DockerImage:  "my-image:latest",
+		MaxMemoryMB:   1024,
+		MaxCPU:        2,
+		DockerImage:   "my-image:latest",
 		ReadOnlyPaths: []string{"/data"},
-		DenyPaths:    []string{"/secret"},
+		DenyPaths:     []string{"/secret"},
 	}
 
 	args := exec.buildDockerArgs("echo test", cfg)
@@ -558,7 +558,7 @@ func TestAssessRisk(t *testing.T) {
 func TestAssessRiskCapAt100(t *testing.T) {
 	cfg := SandboxConfig{
 		Mode:           "ssh",
-		MaxMemoryMB:     8192,
+		MaxMemoryMB:    8192,
 		TimeoutSeconds: 1800,
 	}
 

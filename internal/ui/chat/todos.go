@@ -6,11 +6,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // -----------------------------------------------------------------------------

@@ -7,11 +7,11 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/list"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/sahilm/fuzzy"
 )
 

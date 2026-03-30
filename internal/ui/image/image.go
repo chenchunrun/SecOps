@@ -12,9 +12,9 @@ import (
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/chenchunrun/SecOps/internal/ui/util"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
+	"github.com/chenchunrun/SecOps/internal/ui/util"
 	"github.com/disintegration/imaging"
 	paintbrush "github.com/jordanella/go-ansi-paintbrush"
 )

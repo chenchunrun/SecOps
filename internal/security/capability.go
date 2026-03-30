@@ -7,12 +7,12 @@ import (
 
 // Capability 能力定义
 type Capability struct {
-	Name        string   // 能力名称 (e.g., "file:read:/var/log/*")
-	Description string   // 描述
-	ResourceType string   // 资源类型 (file, network, process, database, command)
-	Action      string    // 操作 (read, write, execute, delete, query)
-	Pattern     string    // 资源模式 (支持 glob)
-	RequiredRole string   // 所需角色
+	Name         string // 能力名称 (e.g., "file:read:/var/log/*")
+	Description  string // 描述
+	ResourceType string // 资源类型 (file, network, process, database, command)
+	Action       string // 操作 (read, write, execute, delete, query)
+	Pattern      string // 资源模式 (支持 glob)
+	RequiredRole string // 所需角色
 }
 
 // CapabilitySet 能力集合
@@ -341,26 +341,26 @@ const (
 	CapabilityMonitoringAlert = "monitoring:alert"
 
 	// 合规操作
-	CapabilityComplianceCheck   = "compliance:check"
-	CapabilityComplianceReport  = "compliance:report"
+	CapabilityComplianceCheck  = "compliance:check"
+	CapabilityComplianceReport = "compliance:report"
 
 	// 安全操作
-	CapabilitySecurityScan     = "security:scan"
-	CapabilitySecurityAudit    = "security:audit"
-	CapabilitySecurityAnalyze  = "security:analyze"
+	CapabilitySecurityScan    = "security:scan"
+	CapabilitySecurityAudit   = "security:audit"
+	CapabilitySecurityAnalyze = "security:analyze"
 
 	// 网络操作
-	CapabilityNetworkDiag      = "network:diagnose"
-	CapabilityNetworkTrace     = "network:trace"
-	CapabilityNetworkScan      = "network:scan"
+	CapabilityNetworkDiag  = "network:diagnose"
+	CapabilityNetworkTrace = "network:trace"
+	CapabilityNetworkScan  = "network:scan"
 
 	// 系统操作
-	CapabilityShellReadOnly    = "shell:read-only"
-	CapabilityShellReadWrite   = "shell:read-write"
-	CapabilityProcessQuery     = "process:query"
-	CapabilityProcessKill      = "process:kill"
+	CapabilityShellReadOnly  = "shell:read-only"
+	CapabilityShellReadWrite = "shell:read-write"
+	CapabilityProcessQuery   = "process:query"
+	CapabilityProcessKill    = "process:kill"
 
 	// 数据库操作
-	CapabilityDatabaseQuery    = "database:query"
-	CapabilityDatabaseModify   = "database:modify"
+	CapabilityDatabaseQuery  = "database:query"
+	CapabilityDatabaseModify = "database:modify"
 )

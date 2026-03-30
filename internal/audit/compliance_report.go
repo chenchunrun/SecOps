@@ -20,44 +20,44 @@ const (
 // ComplianceReport 合规报告
 type ComplianceReport struct {
 	// 报告元数据
-	ID            string              `json:"id"`
-	Framework     ComplianceFramework `json:"framework"`
-	GeneratedAt   time.Time           `json:"generated_at"`
-	ReportPeriod  *TimePeriod         `json:"report_period"`
-	ReportedBy    string              `json:"reported_by,omitempty"`
+	ID           string              `json:"id"`
+	Framework    ComplianceFramework `json:"framework"`
+	GeneratedAt  time.Time           `json:"generated_at"`
+	ReportPeriod *TimePeriod         `json:"report_period"`
+	ReportedBy   string              `json:"reported_by,omitempty"`
 
 	// 合规度量
-	TotalEvents        int              `json:"total_events"`
-	SuccessfulEvents   int              `json:"successful_events"`
-	FailedEvents       int              `json:"failed_events"`
-	DeniedEvents       int              `json:"denied_events"`
-	ComplianceScore    float64          `json:"compliance_score"` // 0-100
-	ComplianceStatus   string           `json:"compliance_status"` // pass, fail, warning
+	TotalEvents      int     `json:"total_events"`
+	SuccessfulEvents int     `json:"successful_events"`
+	FailedEvents     int     `json:"failed_events"`
+	DeniedEvents     int     `json:"denied_events"`
+	ComplianceScore  float64 `json:"compliance_score"`  // 0-100
+	ComplianceStatus string  `json:"compliance_status"` // pass, fail, warning
 
 	// 风险分析
-	TotalRiskScore     int              `json:"total_risk_score"`
-	HighRiskEvents     int              `json:"high_risk_events"`
-	CriticalRiskEvents int              `json:"critical_risk_events"`
-	RiskTrend          string           `json:"risk_trend"` // increasing, decreasing, stable
+	TotalRiskScore     int    `json:"total_risk_score"`
+	HighRiskEvents     int    `json:"high_risk_events"`
+	CriticalRiskEvents int    `json:"critical_risk_events"`
+	RiskTrend          string `json:"risk_trend"` // increasing, decreasing, stable
 
 	// 用户活动
-	UniqueUsers        int              `json:"unique_users"`
-	UniqueSessionIDs   int              `json:"unique_sessions"`
-	TopUsers           []*UserActivity  `json:"top_users,omitempty"`
+	UniqueUsers      int             `json:"unique_users"`
+	UniqueSessionIDs int             `json:"unique_sessions"`
+	TopUsers         []*UserActivity `json:"top_users,omitempty"`
 
 	// 操作统计
-	OperationStats     map[string]int   `json:"operation_stats"`
-	EventTypeStats     map[string]int   `json:"event_type_stats"`
+	OperationStats map[string]int `json:"operation_stats"`
+	EventTypeStats map[string]int `json:"event_type_stats"`
 
 	// 合规性详情
-	ViolatedControls   []*ComplianceControl `json:"violated_controls,omitempty"`
-	PassedControls     []*ComplianceControl `json:"passed_controls,omitempty"`
+	ViolatedControls []*ComplianceControl `json:"violated_controls,omitempty"`
+	PassedControls   []*ComplianceControl `json:"passed_controls,omitempty"`
 
 	// 建议
-	Recommendations    []string         `json:"recommendations,omitempty"`
+	Recommendations []string `json:"recommendations,omitempty"`
 
 	// 审计追踪
-	SuspiciousEvents   []*SuspiciousEvent `json:"suspicious_events,omitempty"`
+	SuspiciousEvents []*SuspiciousEvent `json:"suspicious_events,omitempty"`
 }
 
 // TimePeriod 时间周期
@@ -68,10 +68,10 @@ type TimePeriod struct {
 
 // UserActivity 用户活动
 type UserActivity struct {
-	UserID    string `json:"user_id"`
-	Username  string `json:"username"`
+	UserID     string `json:"user_id"`
+	Username   string `json:"username"`
 	EventCount int    `json:"event_count"`
-	RiskScore int    `json:"risk_score"`
+	RiskScore  int    `json:"risk_score"`
 }
 
 // ComplianceControl 合规控制
@@ -79,8 +79,8 @@ type ComplianceControl struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Framework   string `json:"framework"`
-	Status      string `json:"status"`        // pass, fail, warning
-	Severity    string `json:"severity"`      // critical, high, medium, low
+	Status      string `json:"status"`   // pass, fail, warning
+	Severity    string `json:"severity"` // critical, high, medium, low
 	Description string `json:"description"`
 	Evidence    string `json:"evidence"`
 	Remediation string `json:"remediation,omitempty"`
@@ -88,14 +88,14 @@ type ComplianceControl struct {
 
 // SuspiciousEvent 可疑事件
 type SuspiciousEvent struct {
-	EventID      string    `json:"event_id"`
-	EventType    string    `json:"event_type"`
-	Timestamp    time.Time `json:"timestamp"`
-	UserID       string    `json:"user_id"`
-	Username     string    `json:"username"`
-	Reason       string    `json:"reason"`
-	RiskScore    int       `json:"risk_score"`
-	Details      string    `json:"details,omitempty"`
+	EventID   string    `json:"event_id"`
+	EventType string    `json:"event_type"`
+	Timestamp time.Time `json:"timestamp"`
+	UserID    string    `json:"user_id"`
+	Username  string    `json:"username"`
+	Reason    string    `json:"reason"`
+	RiskScore int       `json:"risk_score"`
+	Details   string    `json:"details,omitempty"`
 }
 
 // ComplianceReportGenerator 合规报告生成器
@@ -123,16 +123,16 @@ func (g *ComplianceReportGenerator) GenerateReport(framework ComplianceFramework
 	}
 
 	report := &ComplianceReport{
-		ID:            fmt.Sprintf("rpt_%d", time.Now().Unix()),
-		Framework:     framework,
-		GeneratedAt:   time.Now(),
-		ReportPeriod:  &TimePeriod{StartTime: startTime, EndTime: endTime},
-		OperationStats: make(map[string]int),
-		EventTypeStats: make(map[string]int),
-		TopUsers:       make([]*UserActivity, 0),
-		PassedControls: make([]*ComplianceControl, 0),
+		ID:               fmt.Sprintf("rpt_%d", time.Now().Unix()),
+		Framework:        framework,
+		GeneratedAt:      time.Now(),
+		ReportPeriod:     &TimePeriod{StartTime: startTime, EndTime: endTime},
+		OperationStats:   make(map[string]int),
+		EventTypeStats:   make(map[string]int),
+		TopUsers:         make([]*UserActivity, 0),
+		PassedControls:   make([]*ComplianceControl, 0),
 		ViolatedControls: make([]*ComplianceControl, 0),
-		Recommendations: make([]string, 0),
+		Recommendations:  make([]string, 0),
 		SuspiciousEvents: make([]*SuspiciousEvent, 0),
 	}
 

@@ -15,6 +15,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/charmbracelet/x/term"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/db"
 	"github.com/chenchunrun/SecOps/internal/event"
@@ -22,9 +25,6 @@ import (
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/ui/chat"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
-	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 
