@@ -274,7 +274,9 @@ func (ndt *NetworkDiagnosticTool) performPortScan(params *NetworkDiagnosticParam
 
 	for _, port := range params.Ports {
 		address := net.JoinHostPort(params.Target, strconv.Itoa(port))
-		conn, err := net.DialTimeout("tcp", address, timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", address)
+		cancel()
 		state := "closed"
 		if err == nil {
 			state = "open"
@@ -731,7 +733,9 @@ func (ndt *NetworkDiagnosticTool) fallbackPingViaTCP(params *NetworkDiagnosticPa
 	received := 0
 	for i := 0; i < count; i++ {
 		start := time.Now()
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(params.Target, "443"), timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", net.JoinHostPort(params.Target, "443"))
+		cancel()
 		if err != nil {
 			continue
 		}
@@ -774,7 +778,9 @@ func (ndt *NetworkDiagnosticTool) fallbackPingViaTCP(params *NetworkDiagnosticPa
 func measureTCPRTT(target string, timeout time.Duration, ports []int) (float64, bool) {
 	for _, port := range ports {
 		start := time.Now()
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(target, strconv.Itoa(port)), timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", net.JoinHostPort(target, strconv.Itoa(port)))
+		cancel()
 		if err != nil {
 			continue
 		}

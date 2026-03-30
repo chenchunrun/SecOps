@@ -228,7 +228,10 @@ func (rst *ReplicationStatusTool) readMySQLReplicationFromCLI(params *Replicatio
 		return nil
 	}
 	query := "SHOW SLAVE STATUS\\G"
-	out, err := exec.Command("mysql", "-Nse", query).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "mysql", "-Nse", query).CombinedOutput()
 	if err != nil || len(out) == 0 {
 		return nil
 	}

@@ -882,7 +882,10 @@ func readSudoPolicyLines() ([]string, bool) {
 }
 
 func firewallEnabled() (bool, string) {
-	if out, err := exec.Command("ufw", "status").CombinedOutput(); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if out, err := exec.CommandContext(ctx, "ufw", "status").CombinedOutput(); err == nil {
 		s := strings.ToLower(string(out))
 		if strings.Contains(s, "status: active") {
 			return true, "ufw:active"
@@ -892,7 +895,9 @@ func firewallEnabled() (bool, string) {
 		}
 	}
 
-	if out, err := exec.Command("firewall-cmd", "--state").CombinedOutput(); err == nil {
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "firewall-cmd", "--state").CombinedOutput(); err == nil {
 		s := strings.TrimSpace(strings.ToLower(string(out)))
 		if s == "running" {
 			return true, "firewalld:running"
@@ -900,7 +905,9 @@ func firewallEnabled() (bool, string) {
 		return false, "firewalld:" + s
 	}
 
-	if out, err := exec.Command("iptables", "-S").CombinedOutput(); err == nil {
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "iptables", "-S").CombinedOutput(); err == nil {
 		s := string(out)
 		if strings.Contains(s, "-P INPUT DROP") || strings.Contains(s, "-P INPUT REJECT") {
 			return true, "iptables:default_restrictive"
@@ -915,7 +922,10 @@ func firewallEnabled() (bool, string) {
 }
 
 func defaultInboundDrop() (bool, string) {
-	if out, err := exec.Command("ufw", "status", "verbose").CombinedOutput(); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if out, err := exec.CommandContext(ctx, "ufw", "status", "verbose").CombinedOutput(); err == nil {
 		s := strings.ToLower(string(out))
 		if strings.Contains(s, "default: deny (incoming)") {
 			return true, "ufw:deny"
@@ -925,7 +935,9 @@ func defaultInboundDrop() (bool, string) {
 		}
 	}
 
-	if out, err := exec.Command("iptables", "-S").CombinedOutput(); err == nil {
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "iptables", "-S").CombinedOutput(); err == nil {
 		s := string(out)
 		if strings.Contains(s, "-P INPUT DROP") || strings.Contains(s, "-P INPUT REJECT") {
 			return true, "iptables:drop"
@@ -953,7 +965,10 @@ func readSysctlValue(key string) (string, bool) {
 		return strings.TrimSpace(string(data)), true
 	}
 
-	cmd := exec.Command("sysctl", "-n", key)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sysctl", "-n", key)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", false
