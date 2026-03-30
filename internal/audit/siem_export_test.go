@@ -264,7 +264,7 @@ func TestSplunkExporter_Export_RetryExhausted(t *testing.T) {
 // --- SyslogExporter tests ---
 
 func TestSyslogExporter_Export_UDP_Success(t *testing.T) {
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	conn, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen udp: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestSyslogExporter_Export_UDP_Success(t *testing.T) {
 }
 
 func TestSyslogExporter_Export_TCP_Success(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen tcp: %v", err)
 	}

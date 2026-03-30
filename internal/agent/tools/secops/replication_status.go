@@ -291,7 +291,10 @@ func (rst *ReplicationStatusTool) readPostgresReplicationFromCLI(params *Replica
 		return nil
 	}
 	query := "SELECT COALESCE(COUNT(*),0), COALESCE(MAX(EXTRACT(EPOCH FROM replay_lag)::int),0) FROM pg_stat_replication;"
-	out, err := exec.Command("psql", "-t", "-A", "-c", query).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "psql", "-t", "-A", "-c", query).CombinedOutput()
 	if err != nil || len(out) == 0 {
 		return nil
 	}

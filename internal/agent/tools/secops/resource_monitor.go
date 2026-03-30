@@ -551,7 +551,10 @@ func sampleLoadAverage() float64 {
 			}
 		}
 	}
-	out, err := exec.Command("uptime").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "uptime").Output()
 	if err != nil {
 		return 0
 	}
@@ -615,7 +618,10 @@ func sampleMemoryLinux() (total, used, available, swapUsedPct float64) {
 }
 
 func sampleMemoryDarwin() (total, used, available, swapUsedPct float64) {
-	totalOut, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	totalOut, err := exec.CommandContext(ctx, "sysctl", "-n", "hw.memsize").Output()
 	if err != nil {
 		return 0, 0, 0, 0
 	}
@@ -623,7 +629,9 @@ func sampleMemoryDarwin() (total, used, available, swapUsedPct float64) {
 	if err != nil {
 		return 0, 0, 0, 0
 	}
-	vmOut, err := exec.Command("vm_stat").Output()
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	vmOut, err := exec.CommandContext(ctx, "vm_stat").Output()
 	if err != nil {
 		return totalVal, 0, 0, 0
 	}
@@ -661,7 +669,10 @@ func parseVMStatPages(output []byte, label string) float64 {
 }
 
 func sampleDisk(path string) (total, used, inodesPct float64) {
-	out, err := exec.Command("df", "-k", path).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "df", "-k", path).Output()
 	if err != nil {
 		return 0, 0, 0
 	}
@@ -725,7 +736,10 @@ func sampleNetwork() (inKBs, outKBs, pktIn, pktOut float64) {
 }
 
 func sampleConnectionCount() float64 {
-	out, err := exec.Command("netstat", "-an").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "netstat", "-an").Output()
 	if err != nil {
 		return 0
 	}
@@ -739,7 +753,10 @@ func sampleConnectionCount() float64 {
 }
 
 func sampleProcessStats() (total, running, topCPU, topMem float64) {
-	out, err := exec.Command("ps", "-A", "-o", "state=,%cpu=,%mem=").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "ps", "-A", "-o", "state=,%cpu=,%mem=").Output()
 	if err != nil {
 		return 0, 0, 0, 0
 	}
@@ -770,7 +787,10 @@ func sampleProcessStats() (total, running, topCPU, topMem float64) {
 
 func sampleLocalLookupLatencyMS() float64 {
 	start := time.Now()
-	_, err := net.LookupHost("localhost")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := (&net.Resolver{}).LookupHost(ctx, "localhost")
 	if err != nil {
 		return 0
 	}
