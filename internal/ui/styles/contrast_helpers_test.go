@@ -21,6 +21,7 @@ func forEachTheme(t *testing.T, fn func(t *testing.T, theme Theme, s Styles, ter
 			name = "dark"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			s := DefaultStyles(theme)
 			fn(t, theme, s, terminalBackgroundForTheme(theme))
 		})

@@ -87,11 +87,13 @@ func TestSameProviderModel(t *testing.T) {
 	}
 
 	t.Run("same provider and model id", func(t *testing.T) {
+		t.Parallel()
 		other := base
 		require.True(t, sameProviderModel(base, other))
 	})
 
 	t.Run("same provider but different model", func(t *testing.T) {
+		t.Parallel()
 		other := base
 		other.CatwalkCfg.ID = "minimax/MiniMax-Text-01"
 		other.ModelCfg.Model = "minimax/MiniMax-Text-01"
@@ -99,6 +101,7 @@ func TestSameProviderModel(t *testing.T) {
 	})
 
 	t.Run("different provider", func(t *testing.T) {
+		t.Parallel()
 		other := base
 		other.ModelCfg.Provider = "openai"
 		require.False(t, sameProviderModel(base, other))
