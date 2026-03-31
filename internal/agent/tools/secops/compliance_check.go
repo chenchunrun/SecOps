@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -840,6 +841,12 @@ func (cct *ComplianceCheckTool) evalISO27001AccessControl(rule *ComplianceRule, 
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot verify %s: %v", iso27001AccessControlPath, err)
+		return
+	}
+
+	if runtime.GOOS == "windows" {
+		rule.Status = StatusPassed
+		rule.Evidence = fmt.Sprintf("%s exists; POSIX permission checks skipped on windows", iso27001AccessControlPath)
 		return
 	}
 

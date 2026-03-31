@@ -2,9 +2,11 @@ package log
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,12 +22,17 @@ var (
 
 func Setup(logFile string, debug bool) {
 	initOnce.Do(func() {
-		logRotator := &lumberjack.Logger{
-			Filename:   logFile,
-			MaxSize:    10,    // Max size in MB
-			MaxBackups: 0,     // Number of backups
-			MaxAge:     30,    // Days
-			Compress:   false, // Enable compression
+		var writer io.Writer
+		if strings.TrimSpace(logFile) == "" {
+			writer = io.Discard
+		} else {
+			writer = &lumberjack.Logger{
+				Filename:   logFile,
+				MaxSize:    10,    // Max size in MB
+				MaxBackups: 0,     // Number of backups
+				MaxAge:     30,    // Days
+				Compress:   false, // Enable compression
+			}
 		}
 
 		level := slog.LevelInfo
@@ -33,7 +40,7 @@ func Setup(logFile string, debug bool) {
 			level = slog.LevelDebug
 		}
 
-		logger := slog.NewJSONHandler(logRotator, &slog.HandlerOptions{
+		logger := slog.NewJSONHandler(writer, &slog.HandlerOptions{
 			Level:     level,
 			AddSource: true,
 		})

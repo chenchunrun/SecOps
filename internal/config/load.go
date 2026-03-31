@@ -53,11 +53,13 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 		cfg.Options.Debug = true
 	}
 
-	// Setup logs
-	log.Setup(
-		filepath.Join(cfg.Options.DataDirectory, "logs", fmt.Sprintf("%s.log", appName)),
-		cfg.Options.Debug,
-	)
+	// Setup logs.
+	// In tests, avoid opening temp-directory log files that can remain locked on Windows.
+	logPath := filepath.Join(cfg.Options.DataDirectory, "logs", fmt.Sprintf("%s.log", appName))
+	if testing.Testing() {
+		logPath = ""
+	}
+	log.Setup(logPath, cfg.Options.Debug)
 
 	// Load workspace config last so it has highest priority.
 	if wsData, err := os.ReadFile(store.workspacePath); err == nil && len(wsData) > 0 {
