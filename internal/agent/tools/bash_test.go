@@ -189,7 +189,27 @@ func TestEnforceRemoteCommandPolicy(t *testing.T) {
 func TestCommandPatternMatch(t *testing.T) {
 	require.True(t, commandPatternMatch("systemctl status *", "systemctl status nginx"))
 	require.True(t, commandPatternMatch("journalctl", "journalctl -u sshd -n 100"))
+	require.False(t, commandPatternMatch("journalctl", "echo journalctl -u sshd -n 100"))
 	require.False(t, commandPatternMatch("systemctl restart *", "systemctl status nginx"))
+}
+
+func TestSanitizeCommandForAudit(t *testing.T) {
+	t.Run("redacts equal assignments", func(t *testing.T) {
+		cmd := `curl -H "Authorization: Bearer abc123" https://x.test/api?token=abc`
+		out := sanitizeCommandForAudit(cmd)
+		require.NotContains(t, out, "abc123")
+		require.Contains(t, out, "Authorization: Bearer <redacted>")
+		require.Contains(t, out, "token=<redacted>")
+	})
+
+	t.Run("redacts flag values", func(t *testing.T) {
+		cmd := `tool --api-key sk-live-1 --password supersecret`
+		out := sanitizeCommandForAudit(cmd)
+		require.NotContains(t, out, "sk-live-1")
+		require.NotContains(t, out, "supersecret")
+		require.Contains(t, out, "--api-key <redacted>")
+		require.Contains(t, out, "--password <redacted>")
+	})
 }
 
 func TestBashTool_RemoteExecutionPermissionMetadata(t *testing.T) {

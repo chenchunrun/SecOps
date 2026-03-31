@@ -171,13 +171,20 @@ func normalizeKeyLen(key []byte) []byte {
 }
 
 func deriveKey() ([]byte, error) {
-	keys := deriveKeyCandidates()
+	keys := make([][]byte, 0, 2)
+	if envKey, ok := loadMasterKeyFromEnv(); ok {
+		keys = append(keys, envKey)
+	}
+	if fileKey, err := loadMasterKeyFile(); err == nil && len(fileKey) > 0 {
+		keys = append(keys, fileKey)
+	}
+
 	if len(keys) > 0 {
 		return keys[0], nil
 	}
 
 	// Encryption fallback: generate and persist a random master key if none
-	// exists yet.
+	// exists yet. We intentionally avoid identity-derived keys for new writes.
 	key, err := loadOrCreateMasterKeyFile()
 	if err != nil {
 		return nil, errors.New("no key material available")

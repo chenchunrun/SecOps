@@ -87,6 +87,28 @@ type remotePolicyDecision struct {
 	Result string
 }
 
+var commandRedactionPatterns = []struct {
+	replacement string
+	regex       *regexp.Regexp
+}{
+	{
+		regex:       regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret)\s*=\s*([^\s"'` + "`" + `]+)`),
+		replacement: `$1=<redacted>`,
+	},
+	{
+		regex:       regexp.MustCompile(`(?i)(--?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret)\b(?:\s+|=))([^\s"'` + "`" + `]+)`),
+		replacement: `$1<redacted>`,
+	},
+	{
+		regex:       regexp.MustCompile(`(?i)\b(authorization:\s*bearer)\s+([^\s"'` + "`" + `]+)`),
+		replacement: `$1 <redacted>`,
+	},
+	{
+		regex:       regexp.MustCompile(`(?i)\b(bearer)\s+([^\s"'` + "`" + `]+)`),
+		replacement: `$1 <redacted>`,
+	},
+}
+
 const (
 	BashToolName = "bash"
 
@@ -300,6 +322,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 			permissionPath = "ssh://" + remoteTarget
 		}
 		if !isSafeReadOnly || isRemoteExecution {
+			sanitizedCommand := sanitizeCommandForAudit(params.Command)
 			p, err := permissions.Request(ctx,
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
@@ -307,10 +330,10 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					ToolCallID:  call.ID,
 					ToolName:    BashToolName,
 					Action:      "execute",
-					Description: fmt.Sprintf("Execute command: %s", params.Command),
+					Description: fmt.Sprintf("Execute command: %s", sanitizedCommand),
 					Params: BashPermissionsParams{
 						Description:         params.Description,
-						Command:             params.Command,
+						Command:             sanitizedCommand,
 						WorkingDir:          params.WorkingDir,
 						RemoteProfile:       params.RemoteProfile,
 						RemoteHost:          params.RemoteHost,
@@ -650,7 +673,7 @@ func recordRemotePolicyDeny(sessionID, remoteTarget string, params BashParams, d
 		WithResult(audit.ResultDenied).
 		WithError(denyErr.Error()).
 		WithRemoteTarget("ssh", remoteTarget, strings.TrimSpace(params.RemoteEnv), strings.TrimSpace(params.RemoteProfile)).
-		WithDetail("command", params.Command).
+		WithDetail("command", sanitizeCommandForAudit(params.Command)).
 		WithDetail("policy_type", decision.Type).
 		WithDetail("policy_rule", decision.Rule).
 		WithDetail("policy_result", decision.Result).
@@ -764,7 +787,25 @@ func commandPatternMatch(pattern, command string) bool {
 	if strings.ContainsAny(p, "*?[") {
 		return wildcardMatch(p, c)
 	}
-	return strings.Contains(c, p)
+	if !strings.HasPrefix(c, p) {
+		return false
+	}
+	if len(c) == len(p) {
+		return true
+	}
+	next := c[len(p)]
+	return next == ' ' || next == '\t' || next == '\n' || next == '\r'
+}
+
+func sanitizeCommandForAudit(command string) string {
+	out := strings.TrimSpace(command)
+	if out == "" {
+		return out
+	}
+	for _, redactor := range commandRedactionPatterns {
+		out = redactor.regex.ReplaceAllString(out, redactor.replacement)
+	}
+	return out
 }
 
 func wildcardMatch(pattern, value string) bool {

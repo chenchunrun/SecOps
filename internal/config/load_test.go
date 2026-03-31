@@ -227,6 +227,25 @@ func TestEncryptDecrypt_UsesMasterKeyFileAcrossIdentityChanges(t *testing.T) {
 	require.Equal(t, key1, key2)
 }
 
+func TestDeriveKey_DoesNotUseIdentityDerivedKeyForEncryption(t *testing.T) {
+	tmpDir := t.TempDir()
+	homeDir := filepath.Join(tmpDir, "home")
+	require.NoError(t, os.MkdirAll(homeDir, 0o755))
+
+	t.Setenv("CRUSH_GLOBAL_CONFIG", tmpDir)
+	t.Setenv("CRUSH_MASTER_KEY", "")
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USER", "alice")
+	t.Setenv("LOGNAME", "alice")
+
+	identityKey, err := deriveKeyFromIdentity(homeDir, "alice")
+	require.NoError(t, err)
+
+	key, err := deriveKey()
+	require.NoError(t, err)
+	require.NotEqual(t, identityKey, key)
+}
+
 // testStore wraps a Config in a minimal ConfigStore for testing.
 func testStore(cfg *Config) *ConfigStore {
 	return &ConfigStore{config: cfg}
