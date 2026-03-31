@@ -905,6 +905,12 @@ func (cct *ComplianceCheckTool) evalDockerBenchSocketPermissions(rule *Complianc
 		return
 	}
 
+	if runtime.GOOS == "windows" {
+		rule.Status = StatusPassed
+		rule.Evidence = fmt.Sprintf("%s exists; POSIX permission checks skipped on windows", dockerBenchSocketPath)
+		return
+	}
+
 	mode := info.Perm
 	if mode&0o022 != 0 {
 		rule.Status = StatusFailed
