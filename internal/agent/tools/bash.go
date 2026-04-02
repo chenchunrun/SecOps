@@ -7,11 +7,9 @@ import (
 	_ "embed"
 	"fmt"
 	"html/template"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -277,6 +275,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 	desc := string(bashDescription(attribution, modelName))
 	decider := policy.NewDefaultDecider(bashPolicyEvaluator{}, nil)
 	localExecutor := execution.NewLocalExecutor()
+	remoteExecutor := execution.NewRemoteExecutor()
 
 	runBash := func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 		if params.Command == "" {
@@ -383,23 +382,35 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 				return fantasy.NewTextErrorResponse("remote background jobs are not supported yet"), nil
 			}
 			startTime := time.Now()
-			output, remoteErr := runRemoteSSHCommand(ctx, params)
+			remoteResult, remoteErr := remoteExecutor.Execute(ctx, execution.RemoteRequest{
+				SessionID:        sessionID,
+				ToolName:         BashToolName,
+				Command:          params.Command,
+				Description:      params.Description,
+				TargetHost:       params.RemoteHost,
+				TargetUser:       params.RemoteUser,
+				TargetPort:       params.RemotePort,
+				KeyPath:          params.RemoteKeyPath,
+				ProxyJump:        params.RemoteProxyJump,
+				RemoteWorkingDir: params.RemoteWorkingDir,
+				RemoteEnv:        params.RemoteEnv,
+			})
 			metadata := BashResponseMetadata{
 				StartTime:        startTime.UnixMilli(),
 				EndTime:          time.Now().UnixMilli(),
-				Output:           output,
+				Output:           remoteResult.Output,
 				Description:      params.Description,
-				WorkingDirectory: cmp.Or(params.RemoteWorkingDir, "~"),
+				WorkingDirectory: remoteResult.WorkingDirectory,
 				Remote:           true,
-				RemoteTarget:     remoteTarget,
+				RemoteTarget:     remoteResult.RemoteTarget,
 			}
 			if remoteErr != nil {
-				return fantasy.WithResponseMetadata(fantasy.NewTextErrorResponse(output), metadata), nil
+				return fantasy.WithResponseMetadata(fantasy.NewTextErrorResponse(remoteResult.Output), metadata), nil
 			}
-			if output == "" {
+			if remoteResult.Output == "" {
 				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
 			}
-			output += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(cmp.Or(params.RemoteWorkingDir, "~")))
+			output := remoteResult.Output + fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(remoteResult.WorkingDirectory))
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(output), metadata), nil
 		}
 
@@ -589,44 +600,6 @@ func formatRemoteTarget(user, host string) string {
 		return host
 	}
 	return user + "@" + host
-}
-
-func runRemoteSSHCommand(ctx context.Context, params BashParams) (string, error) {
-	host := strings.TrimSpace(params.RemoteHost)
-	if host == "" {
-		return "", fmt.Errorf("remote_host is required for remote execution")
-	}
-
-	target := formatRemoteTarget(params.RemoteUser, host)
-	args := []string{"-o", "BatchMode=yes"}
-	if params.RemotePort > 0 {
-		args = append(args, "-p", strconv.Itoa(params.RemotePort))
-	}
-	if key := strings.TrimSpace(params.RemoteKeyPath); key != "" {
-		args = append(args, "-i", key)
-	}
-	if jump := strings.TrimSpace(params.RemoteProxyJump); jump != "" {
-		args = append(args, "-J", jump)
-	}
-
-	remoteCommand := strings.TrimSpace(params.Command)
-	if wd := strings.TrimSpace(params.RemoteWorkingDir); wd != "" {
-		remoteCommand = "cd " + shellQuoteSingle(wd) + " && " + remoteCommand
-	}
-
-	args = append(args, target, "sh", "-lc", remoteCommand)
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	output := formatOutput(stdout.String(), stderr.String(), err)
-	return output, err
-}
-
-func shellQuoteSingle(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 func recordRemotePolicyDeny(sessionID, remoteTarget string, params BashParams, decision remotePolicyDecision, denyErr error) {

@@ -31,6 +31,30 @@ type LocalExecutor interface {
 	Execute(ctx context.Context, req LocalRequest) (LocalResult, error)
 }
 
+type RemoteRequest struct {
+	SessionID        string
+	ToolName         string
+	Command          string
+	Description      string
+	TargetHost       string
+	TargetUser       string
+	TargetPort       int
+	KeyPath          string
+	ProxyJump        string
+	RemoteWorkingDir string
+	RemoteEnv        string
+}
+
+type RemoteResult struct {
+	Output           string
+	WorkingDirectory string
+	RemoteTarget     string
+}
+
+type RemoteExecutor interface {
+	Execute(ctx context.Context, req RemoteRequest) (RemoteResult, error)
+}
+
 type LocalHandler func(ctx context.Context, req LocalRequest) (LocalResult, error)
 
 type LocalMiddleware func(next LocalHandler) LocalHandler

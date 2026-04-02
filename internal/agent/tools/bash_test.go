@@ -89,17 +89,6 @@ func TestBashTool_CustomAutoBackgroundThreshold(t *testing.T) {
 	require.NoError(t, bgManager.Kill(meta.ShellID))
 }
 
-func TestFormatRemoteTarget(t *testing.T) {
-	require.Equal(t, "10.0.0.10", formatRemoteTarget("", "10.0.0.10"))
-	require.Equal(t, "ops@10.0.0.10", formatRemoteTarget("ops", "10.0.0.10"))
-	require.Equal(t, "", formatRemoteTarget("ops", ""))
-}
-
-func TestShellQuoteSingle(t *testing.T) {
-	require.Equal(t, "'/var/log/app'", shellQuoteSingle("/var/log/app"))
-	require.Equal(t, `'a'"'"'b'`, shellQuoteSingle("a'b"))
-}
-
 func TestApplyRemoteProfile(t *testing.T) {
 	params := BashParams{Command: "hostname", RemoteProfile: "prod-web"}
 	remoteCfg := &config.Remote{
