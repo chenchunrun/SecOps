@@ -8,8 +8,6 @@ import (
 )
 
 func TestLocalExecutorExecuteCompletesSynchronously(t *testing.T) {
-	t.Parallel()
-
 	executor := NewLocalExecutor()
 	result, err := executor.Execute(context.Background(), LocalRequest{
 		Command:    "echo done",
@@ -21,8 +19,6 @@ func TestLocalExecutorExecuteCompletesSynchronously(t *testing.T) {
 }
 
 func TestLocalExecutorExecuteRunsInBackgroundWhenRequested(t *testing.T) {
-	t.Parallel()
-
 	executor := NewLocalExecutor()
 	result, err := executor.Execute(context.Background(), LocalRequest{
 		Command:         "sleep 2",

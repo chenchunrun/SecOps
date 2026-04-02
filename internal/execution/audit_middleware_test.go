@@ -10,8 +10,6 @@ import (
 )
 
 func TestAuditLocalMiddlewareRecordsStartAndCompletion(t *testing.T) {
-	t.Parallel()
-
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
@@ -42,8 +40,6 @@ func TestAuditLocalMiddlewareRecordsStartAndCompletion(t *testing.T) {
 }
 
 func TestAuditLocalMiddlewareRecordsFailureEventType(t *testing.T) {
-	t.Parallel()
-
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
