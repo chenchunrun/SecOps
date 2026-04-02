@@ -11,17 +11,28 @@ import (
 
 const DefaultAutoBackgroundAfter = 60
 
-type localExecutor struct{}
-
-func NewLocalExecutor() LocalExecutor {
-	return localExecutor{}
+type localExecutor struct {
+	handler LocalHandler
 }
 
-func (localExecutor) Execute(ctx context.Context, req LocalRequest) (LocalResult, error) {
-	if req.RunInBackground {
-		return runImmediatelyInBackground(req)
+func NewLocalExecutor(middlewares ...LocalMiddleware) LocalExecutor {
+	base := func(ctx context.Context, req LocalRequest) (LocalResult, error) {
+		if req.RunInBackground {
+			return runImmediatelyInBackground(req)
+		}
+		return runWithAutoBackground(ctx, req)
 	}
-	return runWithAutoBackground(ctx, req)
+	allMiddlewares := make([]LocalMiddleware, 0, len(middlewares)+1)
+	allMiddlewares = append(allMiddlewares, ErrorClassificationMiddleware())
+	allMiddlewares = append(allMiddlewares, middlewares...)
+
+	return localExecutor{
+		handler: ChainLocalMiddlewares(base, allMiddlewares...),
+	}
+}
+
+func (e localExecutor) Execute(ctx context.Context, req LocalRequest) (LocalResult, error) {
+	return e.handler(ctx, req)
 }
 
 func runImmediatelyInBackground(req LocalRequest) (LocalResult, error) {
@@ -29,7 +40,7 @@ func runImmediatelyInBackground(req LocalRequest) (LocalResult, error) {
 	bgManager.Cleanup()
 	bgShell, err := bgManager.Start(context.Background(), req.WorkingDir, req.BlockFuncs, req.Command, req.Description)
 	if err != nil {
-		return LocalResult{}, fmt.Errorf("error starting background shell: %w", err)
+		return LocalResult{}, &LocalExecutionError{Kind: LocalErrorKindStart, Cause: fmt.Errorf("error starting background shell: %w", err)}
 	}
 
 	time.Sleep(1 * time.Second)
@@ -62,7 +73,7 @@ func runWithAutoBackground(ctx context.Context, req LocalRequest) (LocalResult, 
 	bgManager.Cleanup()
 	bgShell, err := bgManager.Start(context.Background(), req.WorkingDir, req.BlockFuncs, req.Command, req.Description)
 	if err != nil {
-		return LocalResult{}, fmt.Errorf("error starting shell: %w", err)
+		return LocalResult{}, &LocalExecutionError{Kind: LocalErrorKindStart, Cause: fmt.Errorf("error starting shell: %w", err)}
 	}
 
 	ticker := time.NewTicker(100 * time.Millisecond)
