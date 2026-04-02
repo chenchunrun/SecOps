@@ -21,7 +21,7 @@ func AuditLocalMiddleware() LocalMiddleware {
 }
 
 func recordLocalAuditStart(req LocalRequest, startedAt time.Time) {
-	event := audit.NewAuditEventBuilder(audit.EventTypeCommandExecuted).
+	event := audit.NewAuditEventBuilder(audit.EventTypeCommandStarted).
 		WithSession(req.SessionID).
 		WithAction("local_command_started").
 		WithResource("command", req.ToolName, req.WorkingDir).
@@ -30,7 +30,6 @@ func recordLocalAuditStart(req LocalRequest, startedAt time.Time) {
 		WithDetail("background_requested", req.RunInBackground).
 		WithDetail("started_at", startedAt.Format(time.RFC3339Nano)).
 		Build()
-	event.Result = audit.ResultSuccess
 	_ = audit.RecordGlobal(event)
 }
 

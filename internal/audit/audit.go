@@ -13,6 +13,7 @@ const (
 	EventTypePermissionRequest  AuditEventType = "permission_request"
 	EventTypePermissionApproved AuditEventType = "permission_approved"
 	EventTypePermissionDenied   AuditEventType = "permission_denied"
+	EventTypeCommandStarted     AuditEventType = "command_started"
 	EventTypeCommandExecuted    AuditEventType = "command_executed"
 	EventTypeCommandFailed      AuditEventType = "command_failed"
 	EventTypeLoginSuccess       AuditEventType = "login_success"

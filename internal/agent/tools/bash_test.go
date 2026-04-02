@@ -342,6 +342,39 @@ func TestBashTool_RemotePolicyDenyRecordedToAudit_DefaultProfile(t *testing.T) {
 	require.Equal(t, "deny", events[0].Details["policy_result"])
 }
 
+func TestBashTool_RemotePolicyDenyDoesNotRequestPermission(t *testing.T) {
+	workingDir := t.TempDir()
+	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
+	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
+	tool := NewBashTool(
+		permissions,
+		workingDir,
+		attribution,
+		"test-model",
+		&config.Remote{
+			Profiles: []config.RemoteProfile{
+				{
+					ID:              "prod-web",
+					Host:            "127.0.0.1",
+					User:            "ops",
+					AllowedCommands: []string{"systemctl status *"},
+					DenyCommands:    []string{"*rm -rf*"},
+				},
+			},
+		},
+	)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+
+	resp := runBashTool(t, tool, ctx, BashParams{
+		Description:   "remote deny no prompt",
+		Command:       "echo ok && rm -rf /tmp/a",
+		RemoteProfile: "prod-web",
+	})
+
+	require.True(t, resp.IsError)
+	require.Empty(t, permissions.requests)
+}
+
 func newBashToolForTest(workingDir string) fantasy.AgentTool {
 	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}

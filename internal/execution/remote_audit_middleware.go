@@ -21,7 +21,7 @@ func AuditRemoteMiddleware() RemoteMiddleware {
 }
 
 func recordRemoteAuditStart(req RemoteRequest, startedAt time.Time) {
-	event := audit.NewAuditEventBuilder(audit.EventTypeCommandExecuted).
+	event := audit.NewAuditEventBuilder(audit.EventTypeCommandStarted).
 		WithSession(req.SessionID).
 		WithAction("remote_command_started").
 		WithResource("command", req.ToolName, req.RemoteWorkingDir).
@@ -29,7 +29,6 @@ func recordRemoteAuditStart(req RemoteRequest, startedAt time.Time) {
 		WithDetail("description", req.Description).
 		WithDetail("started_at", startedAt.Format(time.RFC3339Nano)).
 		Build()
-	event.Result = audit.ResultSuccess
 	_ = audit.RecordGlobal(event)
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/execution"
 	"github.com/chenchunrun/SecOps/internal/fsext"
@@ -320,6 +321,10 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		})
 		if err != nil {
 			return fantasy.ToolResponse{}, err
+		}
+		if !decision.Allowed && isRemoteExecution {
+			recordRemotePolicyDeny(sessionID, remoteTarget, params, decision)
+			return fantasy.NewTextErrorResponse(decision.Reason), nil
 		}
 		policyDecision := remotePolicyDecisionFromAuditFields(decision.AuditFields)
 
@@ -713,6 +718,23 @@ func remotePolicyDecisionFromAuditFields(fields map[string]any) remotePolicyDeci
 		Rule:   strings.TrimSpace(fmt.Sprint(fields["policy_rule"])),
 		Result: strings.TrimSpace(fmt.Sprint(fields["policy_result"])),
 	}
+}
+
+func recordRemotePolicyDeny(sessionID, remoteTarget string, params BashParams, decision policy.Decision) {
+	policyDecision := remotePolicyDecisionFromAuditFields(decision.AuditFields)
+	event := audit.NewAuditEventBuilder(audit.EventTypePermissionDenied).
+		WithSession(sessionID).
+		WithAction("remote_policy_deny").
+		WithResource("command", BashToolName, "ssh://"+remoteTarget).
+		WithResult(audit.ResultDenied).
+		WithError(decision.Reason).
+		WithRemoteTarget("ssh", remoteTarget, strings.TrimSpace(params.RemoteEnv), strings.TrimSpace(params.RemoteProfile)).
+		WithDetail("description", params.Description).
+		WithDetail("policy_type", policyDecision.Type).
+		WithDetail("policy_rule", policyDecision.Rule).
+		WithDetail("policy_result", policyDecision.Result).
+		Build()
+	_ = audit.RecordGlobal(event)
 }
 
 func commandPatternMatch(pattern, command string) bool {
