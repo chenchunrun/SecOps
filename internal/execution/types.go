@@ -59,6 +59,10 @@ type LocalHandler func(ctx context.Context, req LocalRequest) (LocalResult, erro
 
 type LocalMiddleware func(next LocalHandler) LocalHandler
 
+type RemoteHandler func(ctx context.Context, req RemoteRequest) (RemoteResult, error)
+
+type RemoteMiddleware func(next RemoteHandler) RemoteHandler
+
 type LocalErrorKind string
 
 const (

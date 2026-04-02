@@ -59,3 +59,36 @@ func TestNewLocalExecutorAppliesMiddleware(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "tracked", seen)
 }
+
+func TestChainRemoteMiddlewaresExecutesInOrder(t *testing.T) {
+	t.Parallel()
+
+	var order []string
+	base := func(ctx context.Context, req RemoteRequest) (RemoteResult, error) {
+		order = append(order, "base")
+		return RemoteResult{Output: req.Command}, nil
+	}
+
+	m1 := func(next RemoteHandler) RemoteHandler {
+		return func(ctx context.Context, req RemoteRequest) (RemoteResult, error) {
+			order = append(order, "m1-before")
+			res, err := next(ctx, req)
+			order = append(order, "m1-after")
+			return res, err
+		}
+	}
+	m2 := func(next RemoteHandler) RemoteHandler {
+		return func(ctx context.Context, req RemoteRequest) (RemoteResult, error) {
+			order = append(order, "m2-before")
+			res, err := next(ctx, req)
+			order = append(order, "m2-after")
+			return res, err
+		}
+	}
+
+	handler := ChainRemoteMiddlewares(base, m1, m2)
+	res, err := handler(context.Background(), RemoteRequest{Command: "hostname"})
+	require.NoError(t, err)
+	require.Equal(t, "hostname", res.Output)
+	require.Equal(t, []string{"m1-before", "m2-before", "base", "m2-after", "m1-after"}, order)
+}
