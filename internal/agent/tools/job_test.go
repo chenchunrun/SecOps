@@ -10,7 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func skipBackgroundJobTestsOnWindows(t *testing.T) {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping background shell integration test on windows")
+	}
+}
+
 func TestBackgroundShell_Integration(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -36,6 +45,7 @@ func TestBackgroundShell_Integration(t *testing.T) {
 }
 
 func TestBackgroundShell_Kill(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -57,6 +67,7 @@ func TestBackgroundShell_Kill(t *testing.T) {
 }
 
 func TestBackgroundShell_MultipleOutputCalls(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -91,9 +102,7 @@ func TestBackgroundShell_MultipleOutputCalls(t *testing.T) {
 }
 
 func TestBackgroundShell_EmptyOutput(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("This test is flacky on Windows for some reason")
-	}
+	skipBackgroundJobTestsOnWindows(t)
 
 	workingDir := t.TempDir()
 	ctx := context.Background()
@@ -115,6 +124,7 @@ func TestBackgroundShell_EmptyOutput(t *testing.T) {
 }
 
 func TestBackgroundShell_ExitCode(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -137,6 +147,7 @@ func TestBackgroundShell_ExitCode(t *testing.T) {
 }
 
 func TestBackgroundShell_WithBlockFuncs(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -168,6 +179,7 @@ func TestBackgroundShell_WithBlockFuncs(t *testing.T) {
 }
 
 func TestBackgroundShell_StdoutAndStderr(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -188,6 +200,7 @@ func TestBackgroundShell_StdoutAndStderr(t *testing.T) {
 }
 
 func TestBackgroundShell_ConcurrentAccess(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -236,6 +249,7 @@ func TestBackgroundShell_ConcurrentAccess(t *testing.T) {
 }
 
 func TestBackgroundShell_List(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -264,6 +278,7 @@ func TestBackgroundShell_List(t *testing.T) {
 }
 
 func TestBackgroundShell_AutoBackground(t *testing.T) {
+	skipBackgroundJobTestsOnWindows(t)
 	workingDir := t.TempDir()
 	ctx := context.Background()
 

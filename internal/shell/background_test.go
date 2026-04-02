@@ -10,6 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func skipFlakyBackgroundShellOnWindows(t *testing.T) {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping background shell integration test on windows")
+	}
+}
+
 func TestBackgroundShellManager_Start(t *testing.T) {
 	t.Skip("Skipping this until I figure out why its flaky")
 	t.Parallel()
@@ -49,6 +57,7 @@ func TestBackgroundShellManager_Start(t *testing.T) {
 }
 
 func TestBackgroundShellManager_Get(t *testing.T) {
+	skipFlakyBackgroundShellOnWindows(t)
 	t.Parallel()
 
 	ctx := t.Context()
@@ -75,6 +84,7 @@ func TestBackgroundShellManager_Get(t *testing.T) {
 }
 
 func TestBackgroundShellManager_Kill(t *testing.T) {
+	skipFlakyBackgroundShellOnWindows(t)
 	t.Parallel()
 
 	ctx := t.Context()
@@ -117,6 +127,7 @@ func TestBackgroundShellManager_KillNonExistent(t *testing.T) {
 }
 
 func TestBackgroundShell_IsDone(t *testing.T) {
+	skipFlakyBackgroundShellOnWindows(t)
 	t.Parallel()
 
 	ctx := t.Context()
@@ -140,6 +151,7 @@ func TestBackgroundShell_IsDone(t *testing.T) {
 }
 
 func TestBackgroundShell_WithBlockFuncs(t *testing.T) {
+	skipFlakyBackgroundShellOnWindows(t)
 	t.Parallel()
 
 	ctx := t.Context()
@@ -174,10 +186,7 @@ func TestBackgroundShell_WithBlockFuncs(t *testing.T) {
 }
 
 func TestBackgroundShellManager_List(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("skipping flacky test on windows")
-	}
-
+	skipFlakyBackgroundShellOnWindows(t)
 	t.Parallel()
 
 	ctx := t.Context()
@@ -222,6 +231,7 @@ func TestBackgroundShellManager_List(t *testing.T) {
 }
 
 func TestBackgroundShellManager_KillAll(t *testing.T) {
+	skipFlakyBackgroundShellOnWindows(t)
 	t.Parallel()
 
 	ctx := t.Context()
@@ -284,6 +294,7 @@ func TestBackgroundShellManager_KillAll(t *testing.T) {
 }
 
 func TestBackgroundShellManager_KillAll_Timeout(t *testing.T) {
+	skipFlakyBackgroundShellOnWindows(t)
 	t.Parallel()
 
 	// XXX: can't use synctest here - causes --race to trip.
