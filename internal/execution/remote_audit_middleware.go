@@ -25,7 +25,7 @@ func recordRemoteAuditStart(req RemoteRequest, startedAt time.Time) {
 		WithSession(req.SessionID).
 		WithAction("remote_command_started").
 		WithResource("command", req.ToolName, req.RemoteWorkingDir).
-		WithRemoteTarget("ssh", formatRemoteTarget(req.TargetUser, req.TargetHost), req.RemoteEnv, "").
+		WithRemoteTarget("ssh", formatRemoteTarget(req.TargetUser, req.TargetHost), req.RemoteEnv, req.TargetID).
 		WithDetail("description", req.Description).
 		WithDetail("started_at", startedAt.Format(time.RFC3339Nano)).
 		Build()
@@ -40,7 +40,7 @@ func recordRemoteAuditCompletion(req RemoteRequest, result RemoteResult, err err
 		WithSession(req.SessionID).
 		WithAction("remote_command_completed").
 		WithResource("command", req.ToolName, result.WorkingDirectory).
-		WithRemoteTarget("ssh", result.RemoteTarget, req.RemoteEnv, "").
+		WithRemoteTarget("ssh", result.RemoteTarget, req.RemoteEnv, req.TargetID).
 		WithDetail("description", req.Description).
 		WithDetail("started_at", startedAt.Format(time.RFC3339Nano))
 
@@ -51,7 +51,7 @@ func recordRemoteAuditCompletion(req RemoteRequest, result RemoteResult, err err
 			WithSession(req.SessionID).
 			WithAction("remote_command_completed").
 			WithResource("command", req.ToolName, result.WorkingDirectory).
-			WithRemoteTarget("ssh", result.RemoteTarget, req.RemoteEnv, "").
+			WithRemoteTarget("ssh", result.RemoteTarget, req.RemoteEnv, req.TargetID).
 			WithDetail("description", req.Description).
 			WithDetail("started_at", startedAt.Format(time.RFC3339Nano)).
 			WithError(err.Error())

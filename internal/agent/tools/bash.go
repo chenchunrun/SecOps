@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/execution"
 	"github.com/chenchunrun/SecOps/internal/fsext"
@@ -322,13 +321,6 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		if err != nil {
 			return fantasy.ToolResponse{}, err
 		}
-		if !decision.Allowed && isRemoteExecution {
-			if isRemoteExecution {
-				recordRemotePolicyDeny(sessionID, remoteTarget, params, remotePolicyDecisionFromAuditFields(decision.AuditFields), fmt.Errorf("%s", decision.Reason))
-			}
-			return fantasy.NewTextErrorResponse(decision.Reason), nil
-		}
-
 		policyDecision := remotePolicyDecisionFromAuditFields(decision.AuditFields)
 
 		permissionPath := execWorkingDir
@@ -385,6 +377,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 			remoteResult, remoteErr := remoteExecutor.Execute(ctx, execution.RemoteRequest{
 				SessionID:        sessionID,
 				ToolName:         BashToolName,
+				PolicyDecision:   &decision,
 				Command:          params.Command,
 				Description:      params.Description,
 				TargetHost:       params.RemoteHost,
@@ -394,6 +387,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 				ProxyJump:        params.RemoteProxyJump,
 				RemoteWorkingDir: params.RemoteWorkingDir,
 				RemoteEnv:        params.RemoteEnv,
+				TargetID:         strings.TrimSpace(params.RemoteProfile),
 			})
 			metadata := BashResponseMetadata{
 				StartTime:        startTime.UnixMilli(),
@@ -600,23 +594,6 @@ func formatRemoteTarget(user, host string) string {
 		return host
 	}
 	return user + "@" + host
-}
-
-func recordRemotePolicyDeny(sessionID, remoteTarget string, params BashParams, decision remotePolicyDecision, denyErr error) {
-	event := audit.NewAuditEventBuilder(audit.EventTypePermissionDenied).
-		WithSession(sessionID).
-		WithAction("remote_policy_deny").
-		WithResource("command", BashToolName, "ssh://"+remoteTarget).
-		WithResult(audit.ResultDenied).
-		WithError(denyErr.Error()).
-		WithRemoteTarget("ssh", remoteTarget, strings.TrimSpace(params.RemoteEnv), strings.TrimSpace(params.RemoteProfile)).
-		WithDetail("command", sanitizeCommandForAudit(params.Command)).
-		WithDetail("policy_type", decision.Type).
-		WithDetail("policy_rule", decision.Rule).
-		WithDetail("policy_result", decision.Result).
-		Build()
-
-	_ = audit.RecordGlobal(event)
 }
 
 func applyRemoteProfile(params BashParams, remote *config.Remote) (BashParams, *config.RemoteProfile, error) {

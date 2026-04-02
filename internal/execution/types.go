@@ -34,6 +34,7 @@ type LocalExecutor interface {
 type RemoteRequest struct {
 	SessionID        string
 	ToolName         string
+	PolicyDecision   *policy.Decision
 	Command          string
 	Description      string
 	TargetHost       string
@@ -43,6 +44,7 @@ type RemoteRequest struct {
 	ProxyJump        string
 	RemoteWorkingDir string
 	RemoteEnv        string
+	TargetID         string
 }
 
 type RemoteResult struct {

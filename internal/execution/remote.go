@@ -52,7 +52,7 @@ func NewRemoteExecutor(middlewares ...RemoteMiddleware) RemoteExecutor {
 	}
 
 	return remoteExecutor{
-		handler: ChainRemoteMiddlewares(base, append([]RemoteMiddleware{AuditRemoteMiddleware()}, middlewares...)...),
+		handler: ChainRemoteMiddlewares(base, append([]RemoteMiddleware{PolicyRemoteMiddleware(), AuditRemoteMiddleware()}, middlewares...)...),
 	}
 }
 
