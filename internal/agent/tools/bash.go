@@ -323,7 +323,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		if err != nil {
 			return fantasy.ToolResponse{}, err
 		}
-		if !decision.Allowed {
+		if !decision.Allowed && isRemoteExecution {
 			if isRemoteExecution {
 				recordRemotePolicyDeny(sessionID, remoteTarget, params, remotePolicyDecisionFromAuditFields(decision.AuditFields), fmt.Errorf("%s", decision.Reason))
 			}
@@ -407,6 +407,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		localResult, err := localExecutor.Execute(ctx, execution.LocalRequest{
 			SessionID:           sessionID,
 			ToolName:            BashToolName,
+			PolicyDecision:      &decision,
 			Command:             params.Command,
 			Description:         params.Description,
 			WorkingDir:          execWorkingDir,
@@ -415,6 +416,9 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 			BlockFuncs:          blockFuncs(),
 		})
 		if err != nil {
+			if execution.IsLocalErrorKind(err, execution.LocalErrorKindPolicy) {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
 			return fantasy.ToolResponse{}, err
 		}
 

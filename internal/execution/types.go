@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 
+	"github.com/chenchunrun/SecOps/internal/policy"
 	"github.com/chenchunrun/SecOps/internal/shell"
 )
 
 type LocalRequest struct {
 	SessionID           string
 	ToolName            string
+	PolicyDecision      *policy.Decision
 	Command             string
 	Description         string
 	WorkingDir          string
@@ -37,6 +39,7 @@ type LocalErrorKind string
 
 const (
 	LocalErrorKindStart     LocalErrorKind = "start"
+	LocalErrorKindPolicy    LocalErrorKind = "policy"
 	LocalErrorKindCancelled LocalErrorKind = "cancelled"
 	LocalErrorKindTimeout   LocalErrorKind = "timeout"
 	LocalErrorKindExecution LocalErrorKind = "execution"
