@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,10 +12,12 @@ import (
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
 	"github.com/chenchunrun/SecOps/internal/audit"
+	capregistry "github.com/chenchunrun/SecOps/internal/capability/registry"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/chenchunrun/SecOps/internal/security"
+	"github.com/stretchr/testify/require"
 )
 
 type testSecOpsTool struct{}
@@ -525,7 +528,8 @@ func TestAdapterRunRejectsUnsafeRemoteSSHParams(t *testing.T) {
 
 func TestAdapterRunAllowsSafeRemoteSSHParams(t *testing.T) {
 	a := &Adapter{
-		tool: &testSecOpsTool{},
+		tool:     &testSecOpsTool{},
+		registry: capregistry.NewSecOpsRegistry(),
 	}
 
 	resp, err := a.Run(context.Background(), fantasy.ToolCall{
@@ -542,6 +546,21 @@ func TestAdapterRunAllowsSafeRemoteSSHParams(t *testing.T) {
 	if resp.IsError {
 		t.Fatalf("expected safe remote params to pass, got %q", resp.Content)
 	}
+}
+
+func TestAdapterDecodeParamsUsesRegistry(t *testing.T) {
+	t.Parallel()
+
+	a := &Adapter{
+		tool:     &testSecOpsTool{},
+		registry: capregistry.NewSecOpsRegistry(),
+	}
+
+	decoded, err := a.decodeParams(json.RawMessage(`{"path":"/var/log/auth.log"}`))
+	require.NoError(t, err)
+
+	_, ok := decoded.(*secops.LogAnalyzeParams)
+	require.True(t, ok)
 }
 
 func TestEnforceRiskDecision_RemoteAuditIncludesProfileDetails(t *testing.T) {

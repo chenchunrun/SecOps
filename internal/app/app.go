@@ -35,6 +35,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/log"
 	"github.com/chenchunrun/SecOps/internal/lsp"
 	"github.com/chenchunrun/SecOps/internal/message"
+	"github.com/chenchunrun/SecOps/internal/orchestrator"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/chenchunrun/SecOps/internal/session"
@@ -588,8 +589,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 	if app.AgentCoordinator != nil {
 		app.AgentCoordinator.CancelAll()
 	}
-	var err error
-	app.AgentCoordinator, err = agent.NewCoordinator(
+	baseCoordinator, err := agent.NewCoordinator(
 		ctx,
 		app.config,
 		app.Sessions,
@@ -604,6 +604,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		slog.Error("Failed to create coder agent", "err", err)
 		return err
 	}
+	app.AgentCoordinator = orchestrator.NewTurnOrchestrator(baseCoordinator)
 	return nil
 }
 

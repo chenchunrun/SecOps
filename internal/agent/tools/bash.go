@@ -20,6 +20,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/fsext"
 	"github.com/chenchunrun/SecOps/internal/permission"
+	"github.com/chenchunrun/SecOps/internal/policy"
 	"github.com/chenchunrun/SecOps/internal/shell"
 )
 
@@ -86,6 +87,13 @@ type remotePolicyDecision struct {
 	Rule   string
 	Result string
 }
+
+type bashPolicyContext struct {
+	Params        BashParams
+	RemoteProfile *config.RemoteProfile
+}
+
+type bashPolicyEvaluator struct{}
 
 var commandRedactionPatterns = []struct {
 	replacement string
@@ -266,6 +274,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		remoteCfg = remote[0]
 	}
 	desc := string(bashDescription(attribution, modelName))
+	decider := policy.NewDefaultDecider(bashPolicyEvaluator{}, nil)
 
 	runBash := func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 		if params.Command == "" {
@@ -295,33 +304,37 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		execWorkingDir := cmp.Or(params.WorkingDir, workingDir)
 		remoteTarget := formatRemoteTarget(params.RemoteUser, params.RemoteHost)
 		isRemoteExecution := strings.TrimSpace(params.RemoteHost) != ""
-		policyDecision := remotePolicyDecision{Type: "none", Result: "allow"}
-		if isRemoteExecution {
-			var err error
-			policyDecision, err = enforceRemoteCommandPolicy(remoteProfile, params.Command)
-			if err != nil {
-				recordRemotePolicyDeny(sessionID, remoteTarget, params, policyDecision, err)
-				return fantasy.NewTextErrorResponse(err.Error()), nil
+		decision, err := decider.Decide(ctx, policy.Request{
+			PolicyKind:   "bash",
+			SessionID:    sessionID,
+			ToolCallID:   call.ID,
+			ToolName:     BashToolName,
+			Action:       "execute",
+			Description:  params.Description,
+			WorkingDir:   execWorkingDir,
+			RemoteTarget: remoteTarget,
+			Parameters: bashPolicyContext{
+				Params:        params,
+				RemoteProfile: remoteProfile,
+			},
+		})
+		if err != nil {
+			return fantasy.ToolResponse{}, err
+		}
+		if !decision.Allowed {
+			if isRemoteExecution {
+				recordRemotePolicyDeny(sessionID, remoteTarget, params, remotePolicyDecisionFromAuditFields(decision.AuditFields), fmt.Errorf("%s", decision.Reason))
 			}
+			return fantasy.NewTextErrorResponse(decision.Reason), nil
 		}
 
-		isSafeReadOnly := false
-		cmdLower := strings.ToLower(params.Command)
-
-		for _, safe := range safeCommands {
-			if strings.HasPrefix(cmdLower, safe) {
-				if len(cmdLower) == len(safe) || cmdLower[len(safe)] == ' ' || cmdLower[len(safe)] == '-' {
-					isSafeReadOnly = true
-					break
-				}
-			}
-		}
+		policyDecision := remotePolicyDecisionFromAuditFields(decision.AuditFields)
 
 		permissionPath := execWorkingDir
 		if isRemoteExecution {
 			permissionPath = "ssh://" + remoteTarget
 		}
-		if !isSafeReadOnly || isRemoteExecution {
+		if decision.RequiresApproval || isRemoteExecution {
 			sanitizedCommand := sanitizeCommandForAudit(params.Command)
 			p, err := permissions.Request(ctx,
 				permission.CreatePermissionRequest{
@@ -550,6 +563,48 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 	)
 }
 
+func (bashPolicyEvaluator) EvaluateBash(ctx context.Context, req policy.Request) (policy.Decision, error) {
+	_ = ctx
+
+	bashCtx, ok := req.Parameters.(bashPolicyContext)
+	if !ok {
+		return policy.Decision{}, fmt.Errorf("unexpected bash policy params type %T", req.Parameters)
+	}
+
+	params := bashCtx.Params
+	isRemoteExecution := strings.TrimSpace(params.RemoteHost) != ""
+	policyDecision := remotePolicyDecision{Type: "none", Result: "allow"}
+	if isRemoteExecution {
+		var err error
+		policyDecision, err = enforceRemoteCommandPolicy(bashCtx.RemoteProfile, params.Command)
+		if err != nil {
+			return policy.Decision{
+				Allowed: false,
+				Reason:  err.Error(),
+				AuditFields: map[string]any{
+					"tool_name":     BashToolName,
+					"policy_type":   policyDecision.Type,
+					"policy_rule":   policyDecision.Rule,
+					"policy_result": policyDecision.Result,
+				},
+			}, nil
+		}
+	}
+
+	requiresApproval := isRemoteExecution || !isSafeReadOnlyCommand(params.Command)
+	return policy.Decision{
+		Allowed:          true,
+		RequiresApproval: requiresApproval,
+		Reason:           "bash policy evaluated",
+		AuditFields: map[string]any{
+			"tool_name":     BashToolName,
+			"policy_type":   policyDecision.Type,
+			"policy_rule":   policyDecision.Rule,
+			"policy_result": policyDecision.Result,
+		},
+	}, nil
+}
+
 // formatOutput formats the output of a completed command with error handling
 func formatOutput(stdout, stderr string, execErr error) string {
 	interrupted := shell.IsInterrupt(execErr)
@@ -775,6 +830,30 @@ func enforceRemoteCommandPolicy(profile *config.RemoteProfile, command string) (
 
 	return remotePolicyDecision{Type: "allow_list", Rule: "<no allow rule matched>", Result: "deny"},
 		fmt.Errorf("remote command denied: no allow rule matched in profile %q", profile.ID)
+}
+
+func isSafeReadOnlyCommand(command string) bool {
+	cmdLower := strings.ToLower(strings.TrimSpace(command))
+	for _, safe := range safeCommands {
+		if strings.HasPrefix(cmdLower, safe) {
+			if len(cmdLower) == len(safe) || cmdLower[len(safe)] == ' ' || cmdLower[len(safe)] == '-' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func remotePolicyDecisionFromAuditFields(fields map[string]any) remotePolicyDecision {
+	if len(fields) == 0 {
+		return remotePolicyDecision{Type: "none", Result: "allow"}
+	}
+
+	return remotePolicyDecision{
+		Type:   strings.TrimSpace(fmt.Sprint(fields["policy_type"])),
+		Rule:   strings.TrimSpace(fmt.Sprint(fields["policy_rule"])),
+		Result: strings.TrimSpace(fmt.Sprint(fields["policy_result"])),
+	}
 }
 
 func commandPatternMatch(pattern, command string) bool {

@@ -193,6 +193,12 @@ func TestCommandPatternMatch(t *testing.T) {
 	require.False(t, commandPatternMatch("systemctl restart *", "systemctl status nginx"))
 }
 
+func TestIsSafeReadOnlyCommand(t *testing.T) {
+	require.True(t, isSafeReadOnlyCommand("ls -la"))
+	require.True(t, isSafeReadOnlyCommand("pwd"))
+	require.False(t, isSafeReadOnlyCommand("rm -rf /tmp/demo"))
+}
+
 func TestSanitizeCommandForAudit(t *testing.T) {
 	t.Run("redacts equal assignments", func(t *testing.T) {
 		cmd := `curl -H "Authorization: Bearer abc123" https://x.test/api?token=abc`
