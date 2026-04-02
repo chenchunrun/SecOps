@@ -23,6 +23,7 @@ func NewLocalExecutor(middlewares ...LocalMiddleware) LocalExecutor {
 		return runWithAutoBackground(ctx, req)
 	}
 	allMiddlewares := make([]LocalMiddleware, 0, len(middlewares)+1)
+	allMiddlewares = append(allMiddlewares, AuditLocalMiddleware())
 	allMiddlewares = append(allMiddlewares, ErrorClassificationMiddleware())
 	allMiddlewares = append(allMiddlewares, middlewares...)
 

@@ -8,6 +8,8 @@ import (
 )
 
 type LocalRequest struct {
+	SessionID           string
+	ToolName            string
 	Command             string
 	Description         string
 	WorkingDir          string

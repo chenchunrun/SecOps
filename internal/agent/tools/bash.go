@@ -405,6 +405,8 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 
 		startTime := time.Now()
 		localResult, err := localExecutor.Execute(ctx, execution.LocalRequest{
+			SessionID:           sessionID,
+			ToolName:            BashToolName,
 			Command:             params.Command,
 			Description:         params.Description,
 			WorkingDir:          execWorkingDir,
