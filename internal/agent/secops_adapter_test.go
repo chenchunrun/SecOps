@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"charm.land/fantasy"
@@ -19,6 +20,15 @@ import (
 	"github.com/chenchunrun/SecOps/internal/security"
 	"github.com/stretchr/testify/require"
 )
+
+var secOpsAuditStoreTestMu sync.Mutex
+
+func lockSecOpsAuditStoreTest(t *testing.T) {
+	t.Helper()
+
+	secOpsAuditStoreTestMu.Lock()
+	t.Cleanup(secOpsAuditStoreTestMu.Unlock)
+}
 
 type testSecOpsTool struct{}
 
@@ -290,6 +300,8 @@ func TestNormalizeSecOpsParams(t *testing.T) {
 }
 
 func TestEnforceRiskDecision_MediumUserApproved(t *testing.T) {
+	lockSecOpsAuditStoreTest(t)
+
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
@@ -353,6 +365,8 @@ func TestEnforceRiskDecision_MediumUserApproved(t *testing.T) {
 }
 
 func TestEnforceRiskDecision_MediumUserDenied(t *testing.T) {
+	lockSecOpsAuditStoreTest(t)
+
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
@@ -482,6 +496,8 @@ func TestParseRemoteContext(t *testing.T) {
 }
 
 func TestAdapterRunRejectsUnsafeRemoteSSHParams(t *testing.T) {
+	lockSecOpsAuditStoreTest(t)
+
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
@@ -564,6 +580,8 @@ func TestAdapterDecodeParamsUsesRegistry(t *testing.T) {
 }
 
 func TestEnforceRiskDecision_RemoteAuditIncludesProfileDetails(t *testing.T) {
+	lockSecOpsAuditStoreTest(t)
+
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })

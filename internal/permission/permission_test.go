@@ -11,6 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var permissionAuditStoreTestMu sync.Mutex
+
+func lockPermissionAuditStoreTest(t *testing.T) {
+	t.Helper()
+
+	permissionAuditStoreTestMu.Lock()
+	t.Cleanup(permissionAuditStoreTestMu.Unlock)
+}
+
 func TestPermissionService_AllowedCommands(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -161,6 +170,8 @@ func TestPermissionService_HighRiskCannotBypassGuards(t *testing.T) {
 }
 
 func TestPermissionService_BypassIntentEmitsAuditAlert(t *testing.T) {
+	lockPermissionAuditStoreTest(t)
+
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
@@ -229,6 +240,8 @@ func TestPermissionService_BypassIntentMarkersOverride(t *testing.T) {
 }
 
 func TestPermissionService_BypassIntentMarkersExtra(t *testing.T) {
+	lockPermissionAuditStoreTest(t)
+
 	store := audit.NewInMemoryAuditStore()
 	audit.SetGlobalStore(store)
 	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
