@@ -11,8 +11,6 @@ import (
 )
 
 func TestBackgroundShell_Integration(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -38,8 +36,6 @@ func TestBackgroundShell_Integration(t *testing.T) {
 }
 
 func TestBackgroundShell_Kill(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -61,8 +57,6 @@ func TestBackgroundShell_Kill(t *testing.T) {
 }
 
 func TestBackgroundShell_MultipleOutputCalls(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -97,8 +91,6 @@ func TestBackgroundShell_MultipleOutputCalls(t *testing.T) {
 }
 
 func TestBackgroundShell_EmptyOutput(t *testing.T) {
-	t.Parallel()
-
 	if runtime.GOOS == "windows" {
 		t.Skip("This test is flacky on Windows for some reason")
 	}
@@ -123,8 +115,6 @@ func TestBackgroundShell_EmptyOutput(t *testing.T) {
 }
 
 func TestBackgroundShell_ExitCode(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -147,8 +137,6 @@ func TestBackgroundShell_ExitCode(t *testing.T) {
 }
 
 func TestBackgroundShell_WithBlockFuncs(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -180,8 +168,6 @@ func TestBackgroundShell_WithBlockFuncs(t *testing.T) {
 }
 
 func TestBackgroundShell_StdoutAndStderr(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -202,8 +188,6 @@ func TestBackgroundShell_StdoutAndStderr(t *testing.T) {
 }
 
 func TestBackgroundShell_ConcurrentAccess(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -252,8 +236,6 @@ func TestBackgroundShell_ConcurrentAccess(t *testing.T) {
 }
 
 func TestBackgroundShell_List(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
@@ -282,14 +264,11 @@ func TestBackgroundShell_List(t *testing.T) {
 }
 
 func TestBackgroundShell_AutoBackground(t *testing.T) {
-	t.Parallel()
-
 	workingDir := t.TempDir()
 	ctx := context.Background()
 
 	// Test that a quick command completes synchronously
 	t.Run("quick command completes synchronously", func(t *testing.T) {
-		t.Parallel()
 		bgManager := shell.GetBackgroundShellManager()
 		bgShell, err := bgManager.Start(ctx, workingDir, nil, "echo 'quick'", "")
 		require.NoError(t, err)
@@ -310,7 +289,6 @@ func TestBackgroundShell_AutoBackground(t *testing.T) {
 
 	// Test that a long command stays in background
 	t.Run("long command stays in background", func(t *testing.T) {
-		t.Parallel()
 		bgManager := shell.GetBackgroundShellManager()
 		bgShell, err := bgManager.Start(ctx, workingDir, nil, "sleep 20 && echo '20 seconds completed'", "")
 		require.NoError(t, err)
