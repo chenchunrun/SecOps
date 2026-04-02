@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/chenchunrun/SecOps/internal/shell"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,4 +29,10 @@ func TestLocalExecutorExecuteRunsInBackgroundWhenRequested(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Background)
 	require.NotEmpty(t, result.ShellID)
+
+	bgManager := shell.GetBackgroundShellManager()
+	t.Cleanup(func() {
+		_ = bgManager.Kill(result.ShellID)
+		bgManager.Remove(result.ShellID)
+	})
 }
