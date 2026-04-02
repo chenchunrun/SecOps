@@ -65,8 +65,10 @@ type RemoteHandler func(ctx context.Context, req RemoteRequest) (RemoteResult, e
 
 type RemoteMiddleware func(next RemoteHandler) RemoteHandler
 
-type LocalErrorKind string
-type RemoteErrorKind string
+type (
+	LocalErrorKind  string
+	RemoteErrorKind string
+)
 
 const (
 	LocalErrorKindStart     LocalErrorKind = "start"
