@@ -17,7 +17,10 @@ func NewRemoteExecutor(middlewares ...RemoteMiddleware) RemoteExecutor {
 	base := func(ctx context.Context, req RemoteRequest) (RemoteResult, error) {
 		host := strings.TrimSpace(req.TargetHost)
 		if host == "" {
-			return RemoteResult{}, fmt.Errorf("remote_host is required for remote execution")
+			return RemoteResult{}, &RemoteExecutionError{
+				Kind:  RemoteErrorKindStart,
+				Cause: fmt.Errorf("remote_host is required for remote execution"),
+			}
 		}
 
 		target := formatRemoteTarget(req.TargetUser, host)
@@ -52,7 +55,7 @@ func NewRemoteExecutor(middlewares ...RemoteMiddleware) RemoteExecutor {
 	}
 
 	return remoteExecutor{
-		handler: ChainRemoteMiddlewares(base, append([]RemoteMiddleware{PolicyRemoteMiddleware(), AuditRemoteMiddleware()}, middlewares...)...),
+		handler: ChainRemoteMiddlewares(base, append([]RemoteMiddleware{ErrorClassificationRemoteMiddleware(), PolicyRemoteMiddleware(), AuditRemoteMiddleware()}, middlewares...)...),
 	}
 }
 

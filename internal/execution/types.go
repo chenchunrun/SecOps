@@ -66,6 +66,7 @@ type RemoteHandler func(ctx context.Context, req RemoteRequest) (RemoteResult, e
 type RemoteMiddleware func(next RemoteHandler) RemoteHandler
 
 type LocalErrorKind string
+type RemoteErrorKind string
 
 const (
 	LocalErrorKindStart     LocalErrorKind = "start"
@@ -73,6 +74,14 @@ const (
 	LocalErrorKindCancelled LocalErrorKind = "cancelled"
 	LocalErrorKindTimeout   LocalErrorKind = "timeout"
 	LocalErrorKindExecution LocalErrorKind = "execution"
+)
+
+const (
+	RemoteErrorKindStart     RemoteErrorKind = "start"
+	RemoteErrorKindPolicy    RemoteErrorKind = "policy"
+	RemoteErrorKindCancelled RemoteErrorKind = "cancelled"
+	RemoteErrorKindTimeout   RemoteErrorKind = "timeout"
+	RemoteErrorKindExecution RemoteErrorKind = "execution"
 )
 
 type LocalExecutionError struct {
@@ -99,6 +108,36 @@ func (e *LocalExecutionError) Unwrap() error {
 
 func IsLocalErrorKind(err error, kind LocalErrorKind) bool {
 	var target *LocalExecutionError
+	if !errors.As(err, &target) {
+		return false
+	}
+	return target.Kind == kind
+}
+
+type RemoteExecutionError struct {
+	Kind  RemoteErrorKind
+	Cause error
+}
+
+func (e *RemoteExecutionError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Cause == nil {
+		return string(e.Kind)
+	}
+	return e.Cause.Error()
+}
+
+func (e *RemoteExecutionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func IsRemoteErrorKind(err error, kind RemoteErrorKind) bool {
+	var target *RemoteExecutionError
 	if !errors.As(err, &target) {
 		return false
 	}

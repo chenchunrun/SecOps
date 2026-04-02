@@ -22,7 +22,10 @@ func PolicyRemoteMiddleware() RemoteMiddleware {
 			if reason == "" {
 				reason = "remote execution denied by policy"
 			}
-			return RemoteResult{}, errors.New(reason)
+			return RemoteResult{}, &RemoteExecutionError{
+				Kind:  RemoteErrorKindPolicy,
+				Cause: errors.New(reason),
+			}
 		}
 	}
 }
