@@ -574,6 +574,16 @@
           },
           "type": "array",
           "description": "Additional bypass-intent markers appended to default markers"
+        },
+        "secops_capability_grants": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object",
+          "description": "Additional SecOps capability grants by role or agent ID"
         }
       },
       "additionalProperties": false,
