@@ -61,16 +61,14 @@ internal/
 
 ## Project Docs
 
-Tracked project records now live under `docs/`:
+Public `docs/` content should stay limited to stable guides and
+legal/licensing materials.
 
-- `docs/security/SECOPS_DOD_MATRIX.md`
-- `docs/security/SECURITY_HARDENING.md`
-- `docs/project/PROJECT_COMPLETION_CHECKLIST_2026-03-28.md`
-- `docs/project/CURRENT_MAINLINE_STATUS_2026-03-28.md`
-- `docs/release/VALIDATION_REPORT_2026-04-04.md`
-
-Local-only materials should use the existing `LOCAL_*` naming convention and
-remain out of release-facing navigation unless they are intentionally promoted.
+Process records, validation logs, release-closeout notes, and working security
+documents should remain local-only. These are intentionally excluded from the
+public repository through `.gitignore` rules for `docs/project/`,
+`docs/release/`, `docs/security/`, and `LOCAL_*` materials unless
+intentionally reclassified for publication.
 
 ### Key Dependency Roles
 

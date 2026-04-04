@@ -43,27 +43,27 @@ Core contributor:
 - **Toolset unification:** fixed built-in tools now use dataset-backed builders and catalog helpers instead of scattered ad hoc registration.
 - **Execution middleware refactor:** policy and audit concerns were lifted into shared middleware around local and remote execution.
 - **Security hardening:** SIEM exporters require real HTTPS endpoints, SSH targets enforce host/port allowlists, and dangerous path access is checked earlier in the execution path.
-- **Release-closeout evidence:** validation, audit, release, and project-status records are now organized under [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md).
+- **Public-docs split:** durable public guides stay under [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md), while process records stay local-only.
 
 ## Documentation
 
 - Product and usage guide:
   [`docs/guides/secops_README.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/secops_README.md)
-- Release and validation records:
-  [`docs/release/VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md)
-- Security and audit records:
-  [`docs/security/SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md)
+- Installation guide:
+  [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/INSTALL_ONECLICK_zh-CN.md)
+- Licensing and contributor records:
+  [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+  [`docs/legal/CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/CONTRIBUTORS.md)
 - Full documentation index:
   [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md)
 
-## SecOps Validation
+## Validation
 
-This fork includes SecOps runtime capabilities (18 tools, risk/capability gates,
-audit/SIEM, and persistence hardening).
+This fork includes SecOps runtime capabilities, risk-aware permissions,
+auditing, and secure execution controls.
 
-Some release-closeout and project-governance materials are tracked in this fork
-repository. Their presence should be treated as fork-specific project records,
-not as upstream release policy.
+Release-closeout and project-governance materials are maintained as local-only
+process records and are intentionally excluded from the public repository.
 
 Recommended release verification commands:
 
@@ -75,10 +75,9 @@ CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go test ./... -count=1
 CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 ```
 
-Latest recorded validation baseline:
+Public reference material:
 
-- [`docs/release/VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md)
-- [`docs/security/SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md)
+- [`docs/guides/secops_README.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/secops_README.md)
 - [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
 - [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
 - [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md)
@@ -109,7 +108,6 @@ go install github.com/chenchunrun/SecOps@latest
 One-click packaging and Windows notes:
 
 - [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/INSTALL_ONECLICK_zh-CN.md)
-- [`docs/release/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
 
 > [!WARNING]
 > Productivity may increase when using SecOps and you may find yourself nerd

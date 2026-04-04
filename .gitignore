@@ -65,3 +65,7 @@ crush
 /WINDOWS_TEST_STABILITY_GUIDE_*.md
 /CLAUDE.md
 /SecOps-macos-test
+/docs/project/
+/docs/release/
+/docs/security/
+/docs/SECOPS_E2E_TEST_PLAN.md
