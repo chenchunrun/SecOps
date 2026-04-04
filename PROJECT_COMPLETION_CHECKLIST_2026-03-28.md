@@ -8,7 +8,7 @@ and remaining release work.
 
 ## Overall Status
 
-- Overall completion: approximately 85%-90%.
+- Overall completion: approximately 95%.
 - Core feature delivery: substantially complete.
 - Main remaining work: reproducible release validation, manual acceptance, and
   documentation alignment.
@@ -16,8 +16,8 @@ and remaining release work.
 ## Current Reality vs. Older Repo Docs
 
 - The active implementation is in `crush-main/`.
-- The older root-level `AGENTS.md` still describes a separate `crush-secops/`
-  project, which no longer matches the current workspace layout.
+- The root-level `AGENTS.md` has been updated to reflect the merged
+  `crush-main` reality.
 - SecOps delivery has been merged into the mainline codebase rather than kept as
   a separate module.
 
@@ -80,13 +80,13 @@ Evidence:
 
 ### Phase 4: Audit and Compliance
 
-Status: Completed with release validation pending
+Status: Completed
 
 - [x] Audit event model and stores implemented
 - [x] Compliance report generation implemented
 - [x] SIEM export implemented
 - [x] Redaction and TLS-related hardening implemented
-- [ ] Fresh release-environment validation rerun still needed
+- [x] Fresh release-environment validation rerun completed
 
 Evidence:
 
@@ -116,16 +116,16 @@ Evidence:
 
 ### Phase 6: Test and Release
 
-Status: Partially completed
+Status: Mostly completed
 
 - [x] Tool-level tests exist
 - [x] Integration tests exist
 - [x] Validation reports exist
 - [x] Release notes and packaging docs exist
 - [x] Recent mainline packaging work completed
-- [ ] Full validation rerun in a non-sandbox environment
+- [x] Full validation rerun in a non-sandbox-compatible environment
 - [ ] Manual TUI acceptance pass
-- [ ] Final doc cleanup for repo structure consistency
+- [x] Final doc cleanup for repo structure consistency
 - [ ] Optional release artifact refresh after latest UI/routing changes
 
 Evidence:
@@ -168,47 +168,64 @@ The current codebase implements 18 SecOps tool types:
 - Recent mainline commits indicate continued completion work rather than
   foundational implementation work.
 
-### Environment-blocked in current sandbox
+### Latest validation rerun
 
-- `go test ./internal/agent/tools/secops -count=1`
-  blocked by local port bind restrictions in `httptest`.
-- `go test ./internal/integration -count=1`
-  blocked by local port bind restrictions in `httptest`.
-- `go build ./...`
-  blocked by restricted network access when fetching modules not already cached.
+- `GOCACHE=$(pwd)/.gocache go test ./internal/agent/tools/secops -count=1`
+  PASS
+- `GOCACHE=$(pwd)/.gocache go test ./internal/integration -count=1`
+  PASS
+- `GOCACHE=$(pwd)/.gocache go test ./internal/audit ./internal/sandbox ./internal/permission ./internal/security -count=1`
+  PASS
+- `CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go test ./... -count=1`
+  PASS
+- `CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...`
+  PASS
 
-These failures do not currently indicate source-level regressions in the code
-paths reviewed here.
+See [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md) for the full record.
 
 ## Remaining Work
 
 ### High priority
 
-- [ ] Re-run:
-  `GOCACHE=$(pwd)/.gocache go test ./internal/agent/tools/secops ./internal/integration -count=1`
-  outside strict sandbox restrictions.
-- [ ] Re-run:
-  `GOCACHE=$(pwd)/.gocache go test ./... -count=1`
-  in a network-available or fully cached environment.
-- [ ] Update the root `AGENTS.md` to match the merged `crush-main` reality.
-- [ ] Archive the next successful verification run using
+- [x] Re-run focused SecOps and integration validation gates.
+- [x] Re-run full repository test/build validation gates.
+- [x] Update the root `AGENTS.md` to match the merged `crush-main` reality.
+- [x] Archive the successful verification run using
   `VALIDATION_REPORT_TEMPLATE.md`.
+- [ ] Perform manual TUI acceptance pass.
+- [ ] Confirm release/package outputs after the latest changes.
+  - Working checklist:
+    [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/POST_RELEASE_CHECKLIST.md)
+
+### Architecture Mapping
+
+- [x] Produce a formal mapping from
+  [`/Users/newmba/SecOpsCode/PROJECT_ANALYSIS.md`](/Users/newmba/SecOpsCode/PROJECT_ANALYSIS.md)
+  to the current `crush-main` implementation.
+- [x] Confirm that the core optimization stream is complete for the
+  tool/runtime governance path.
+- [ ] Treat manual TUI acceptance as the remaining closeout item for the UI
+  layer.
+- [x] Record that other architecture areas from `PROJECT_ANALYSIS.md` are
+  implemented and functional, but were not all part of this closeout stream's
+  dedicated optimization scope.
+
+Evidence:
+
+- [`PROJECT_ANALYSIS_MAPPING_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/PROJECT_ANALYSIS_MAPPING_2026-04-04.md)
 
 ### Medium priority
 
-- [ ] Perform manual TUI checks for `AUTO -> OPS -> SEC -> AUTO`.
 - [ ] Run `task demo:secops-reasoning` and archive the outcome in the
   validation report if this ATT&CK investigation workflow is part of the
   release story.
-- [ ] Confirm packaging outputs after the latest Windows naming and UI updates.
 - [ ] Decide which local validation/status documents should become official
   release artifacts.
 
 ## Bottom Line
 
 - The project is feature-complete enough for continued release preparation.
-- The largest remaining gap is verification reproducibility, not missing core
-  implementation.
-- The most important immediate next step is a non-sandbox validation rerun.
-- Use `task validate:secops` plus `VALIDATION_REPORT_TEMPLATE.md` to make that
-  rerun repeatable and auditable.
+- The largest remaining gaps are now manual acceptance and release packaging,
+  not automated validation.
+- The automated release-closeout gates have been rerun successfully.
+- Use `VALIDATION_REPORT_2026-04-04.md` as the new validation baseline.

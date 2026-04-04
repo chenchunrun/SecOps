@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
+	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/stretchr/testify/assert"
@@ -205,6 +207,96 @@ func agentResultWithText(text string) *fantasy.AgentResult {
 			},
 		},
 	}
+}
+
+func toolNames(agentTools []fantasy.AgentTool) []string {
+	names := make([]string, 0, len(agentTools))
+	for _, tool := range agentTools {
+		names = append(names, tool.Info().Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func newBuildToolsCoordinator(t *testing.T) (*coordinator, fakeEnv) {
+	t.Helper()
+
+	env := testEnv(t)
+	cfg, err := config.Init(env.workingDir, "", false)
+	require.NoError(t, err)
+
+	return &coordinator{
+		cfg:         cfg,
+		sessions:    env.sessions,
+		messages:    env.messages,
+		permissions: env.permissions,
+		history:     env.history,
+		filetracker: *env.filetracker,
+	}, env
+}
+
+func TestBuildToolsUsesFixedToolsetBuilders(t *testing.T) {
+	t.Parallel()
+
+	coord, env := newBuildToolsCoordinator(t)
+	autoLSP := false
+	coord.cfg.Config().Options.AutoLSP = &autoLSP
+	coord.cfg.Config().MCP = config.MCPs{}
+
+	expectedTools := append([]fantasy.AgentTool{}, tools.BuildBashToolSet(env.permissions, env.workingDir, coord.cfg.Config().Options.Attribution, "", coord.cfg.Config().Remote)...)
+	expectedTools = append(expectedTools, tools.BuildRuntimeToolSet(nil, env.permissions, *env.filetracker, env.sessions, env.workingDir, coord.cfg.Config().Options.SkillsPaths)...)
+	expectedTools = append(expectedTools, tools.BuildRemoteToolSet(env.permissions, env.workingDir, nil)...)
+	expectedTools = append(expectedTools, tools.BuildSearchToolSet(env.permissions, env.workingDir, coord.cfg.Config().Tools.Grep, coord.cfg.Config().Tools.Ls)...)
+	expectedTools = append(expectedTools, tools.BuildEditToolSet(nil, env.permissions, env.history, *env.filetracker, env.workingDir)...)
+	expectedTools = append(expectedTools, tools.BuildJobToolSet()...)
+
+	agent := config.Agent{
+		AllowedTools: toolNames(expectedTools),
+	}
+
+	got, err := coord.buildTools(t.Context(), agent)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, toolNames(expectedTools), toolNames(got))
+}
+
+func TestBuildToolsAddsLSPToolSetWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	coord, _ := newBuildToolsCoordinator(t)
+	autoLSP := true
+	coord.cfg.Config().Options.AutoLSP = &autoLSP
+
+	expectedTools := tools.BuildLSPToolSet(nil)
+	agent := config.Agent{
+		AllowedTools: toolNames(expectedTools),
+	}
+
+	got, err := coord.buildTools(t.Context(), agent)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, toolNames(expectedTools), toolNames(got))
+}
+
+func TestBuildToolsAddsMCPToolSetWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	coord, env := newBuildToolsCoordinator(t)
+	autoLSP := false
+	coord.cfg.Config().Options.AutoLSP = &autoLSP
+	coord.cfg.Config().MCP = config.MCPs{
+		"test": {Type: config.MCPStdio},
+	}
+
+	expectedTools := tools.BuildMCPToolSet(coord.cfg, env.permissions)
+	agent := config.Agent{
+		AllowedTools: toolNames(expectedTools),
+	}
+
+	got, err := coord.buildTools(t.Context(), agent)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, toolNames(expectedTools), toolNames(got))
 }
 
 func TestRunSubAgent(t *testing.T) {

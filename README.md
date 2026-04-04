@@ -37,11 +37,16 @@ development and are not published to the remote repository.
 Recommended release verification commands:
 
 ```bash
-go test ./internal/agent/tools/secops -count=1
-go test ./internal/integration -count=1
-go test ./internal/sandbox ./internal/audit -count=1
-go test ./... -count=1
+GOCACHE=$(pwd)/.gocache go test ./internal/agent/tools/secops -count=1
+GOCACHE=$(pwd)/.gocache go test ./internal/integration -count=1
+GOCACHE=$(pwd)/.gocache go test ./internal/sandbox ./internal/audit -count=1
+CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go test ./... -count=1
+CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 ```
+
+Latest recorded validation baseline:
+
+- [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md)
 
 ## Installation
 

@@ -44,6 +44,20 @@ func (t *testSecOpsTool) Execute(params interface{}) (interface{}, error) {
 }
 func (t *testSecOpsTool) ValidateParams(params interface{}) error { return nil }
 
+type testNetworkScanTool struct{}
+
+func (t *testNetworkScanTool) Type() secops.ToolType { return secops.ToolTypeNetworkDiagnostic }
+func (t *testNetworkScanTool) Name() string          { return "Network Diagnostic" }
+func (t *testNetworkScanTool) Description() string   { return "test network scan" }
+func (t *testNetworkScanTool) RequiredCapabilities() []string {
+	return []string{"network:scan"}
+}
+
+func (t *testNetworkScanTool) Execute(params interface{}) (interface{}, error) {
+	return map[string]string{"scan": "ok"}, nil
+}
+func (t *testNetworkScanTool) ValidateParams(params interface{}) error { return nil }
+
 func TestAdapterInfoUsesToolTypeName(t *testing.T) {
 	t.Parallel()
 
@@ -104,7 +118,7 @@ func TestRegisterSecOpsTools_CountMatchesRegistry(t *testing.T) {
 	if err := RegisterDefaultSecOpsToolSet(registry); err != nil {
 		t.Fatalf("RegisterDefaultSecOpsToolSet() error = %v", err)
 	}
-	tools := RegisterSecOpsTools(registry, nil)
+	tools := RegisterSecOpsTools(registry, nil, nil)
 	if len(tools) != 20 {
 		t.Fatalf("expected 20 adapter tools, got %d", len(tools))
 	}
@@ -122,11 +136,12 @@ func TestRegisterSecOpsTools_CountMatchesRegistry(t *testing.T) {
 func TestValidateCapabilitiesWithRoleHierarchy(t *testing.T) {
 	t.Parallel()
 
-	if err := validateCapabilities("admin", []string{"log:read", "log:analyze"}); err != nil {
+	a := &Adapter{secopsPerms: permission.NewDefaultService()}
+	if err := a.validateCapabilities(context.Background(), "admin", []string{"log:read", "log:analyze"}); err != nil {
 		t.Fatalf("expected admin to inherit viewer/operator capabilities, got error: %v", err)
 	}
 
-	if err := validateCapabilities("viewer", []string{"log:analyze"}); err == nil {
+	if err := a.validateCapabilities(context.Background(), "viewer", []string{"log:analyze"}); err == nil {
 		t.Fatal("expected viewer to be denied operator capability")
 	}
 }
@@ -189,7 +204,7 @@ func TestEnforceRiskDecision_CriticalIsBlocked(t *testing.T) {
 		Input: "curl https://example.com --password SuperSecret123",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin")
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
 	if err == nil {
 		t.Fatal("expected critical risk to be blocked")
 	}
@@ -210,7 +225,7 @@ func TestEnforceRiskDecision_CriticalFromJSONCommandField(t *testing.T) {
 		Input: `{"command":"curl https://example.com --password JsonSecret123"}`,
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin")
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
 	if err == nil {
 		t.Fatal("expected critical JSON command risk to be blocked")
 	}
@@ -231,7 +246,7 @@ func TestEnforceRiskDecision_HighRequiresAdminReview(t *testing.T) {
 		Input: "cat /etc/shadow password=Secret12345",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin")
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
 	if err == nil {
 		t.Fatal("expected high risk to require admin review")
 	}
@@ -252,7 +267,7 @@ func TestEnforceRiskDecision_MediumNeedsPermissionService(t *testing.T) {
 		Input: "password=MediumRiskSecret",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin")
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
 	if err == nil {
 		t.Fatal("expected medium risk to require user confirmation")
 	}
@@ -328,7 +343,7 @@ func TestEnforceRiskDecision_MediumUserApproved(t *testing.T) {
 		}`,
 	}
 
-	if err := a.enforceRiskDecision(context.Background(), call, "admin"); err != nil {
+	if err := a.enforceRiskDecision(context.Background(), call, "admin", nil); err != nil {
 		t.Fatalf("expected approval to pass, got %v", err)
 	}
 	if len(perms.requests) != 1 {
@@ -387,7 +402,7 @@ func TestEnforceRiskDecision_MediumUserDenied(t *testing.T) {
 		Input: "password=DeniedSecret",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin")
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
 	if !errors.Is(err, permission.ErrorPermissionDenied) {
 		t.Fatalf("expected permission denied error, got %v", err)
 	}
@@ -418,7 +433,7 @@ func TestEnforceRiskDecision_OpsAgentLowRiskNeedsConfirmation(t *testing.T) {
 		Input: "{}",
 	}
 
-	if err := a.enforceRiskDecision(context.Background(), call, string(RoleOpsAgent)); err != nil {
+	if err := a.enforceRiskDecision(context.Background(), call, string(RoleOpsAgent), nil); err != nil {
 		t.Fatalf("expected ops agent low-risk approval to pass, got %v", err)
 	}
 	if len(perms.requests) != 1 {
@@ -444,6 +459,93 @@ func TestExecuteAndRespond_CapabilityDenied(t *testing.T) {
 	if !strings.Contains(resp.Content, "capability denied") {
 		t.Fatalf("expected capability denied message, got %q", resp.Content)
 	}
+}
+
+func TestExecuteAndRespond_DynamicCapabilityGrantByRole(t *testing.T) {
+	secopsPerms := permission.NewDefaultService()
+	secopsPerms.GrantCapability("analyst", "network:scan")
+	a := &Adapter{
+		tool:        &testNetworkScanTool{},
+		secopsPerms: secopsPerms,
+		assessor:    security.NewRiskAssessor(),
+	}
+
+	ctx := context.WithValue(context.Background(), tools.AgentIDContextKey, "analyst")
+	resp, err := a.executeAndRespond(ctx, fantasy.ToolCall{ID: "call-dynamic-cap", Input: "{}"}, map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.IsError {
+		t.Fatalf("expected dynamic capability grant to allow execution, got %q", resp.Content)
+	}
+}
+
+func TestApplySecOpsCapabilityGrants(t *testing.T) {
+	cfg := &config.Config{
+		Permissions: &config.Permissions{
+			SecOpsCapabilityGrants: map[string][]string{
+				"analyst": []string{"network:scan"},
+			},
+		},
+	}
+	secopsPerms := permission.NewDefaultService()
+
+	applySecOpsCapabilityGrants(secopsPerms, cfg)
+
+	allowed, err := secopsPerms.CheckCapability("analyst", "network:scan")
+	require.NoError(t, err)
+	require.True(t, allowed)
+}
+
+func TestAdapterRequiredCapabilitiesUsesRegistryMetadata(t *testing.T) {
+	t.Parallel()
+
+	a := &Adapter{
+		tool:     &testSecOpsTool{},
+		registry: capregistry.NewSecOpsRegistry(),
+	}
+
+	require.Equal(t, []string{"log:read", "log:analyze"}, a.requiredCapabilities())
+}
+
+func TestAdapterPolicyTagsUseRegistryMetadata(t *testing.T) {
+	t.Parallel()
+
+	a := &Adapter{
+		tool:     secops.NewAttackReasonTool(nil),
+		registry: capregistry.NewSecOpsRegistry(),
+	}
+
+	require.Equal(t, []string{"investigation_reasoning"}, a.policyTags())
+}
+
+func TestAdapterRunRejectsRemoteParamsForLocalOnlyExecutionProfile(t *testing.T) {
+	a := &Adapter{
+		tool:     secops.NewAttackReasonTool(nil),
+		registry: capregistry.NewSecOpsRegistry(),
+	}
+
+	resp, err := a.Run(context.Background(), fantasy.ToolCall{
+		ID:    "call-local-only-remote",
+		Input: `{"incident_id":"inc-1","events":[{"source":"alert","event_type":"login"}],"remote_host":"10.0.0.9"}`,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.IsError)
+	require.Contains(t, resp.Content, "does not support remote execution")
+}
+
+func TestAdapterRunAllowsRemoteParamsForRemoteCapableExecutionProfile(t *testing.T) {
+	a := &Adapter{
+		tool:     secops.NewNetworkDiagnosticTool(nil),
+		registry: capregistry.NewSecOpsRegistry(),
+	}
+
+	resp, err := a.Run(context.Background(), fantasy.ToolCall{
+		ID:    "call-remote-capable",
+		Input: `{"type":"ping","target":"8.8.8.8","remote_host":"10.0.0.9","remote_user":"ops"}`,
+	})
+	require.NoError(t, err)
+	require.NotContains(t, resp.Content, "does not support remote execution")
 }
 
 func TestExecuteAndRespond_LowRiskSuccess(t *testing.T) {
@@ -595,7 +697,7 @@ func TestEnforceRiskDecision_RemoteAuditIncludesProfileDetails(t *testing.T) {
 	err := a.enforceRiskDecision(context.Background(), fantasy.ToolCall{
 		ID:    "call-remote-audit-profile",
 		Input: `{"remote_host":"10.0.0.9","remote_user":"ops","remote_env":"prod","remote_profile":"prod-web"}`,
-	}, "admin")
+	}, "admin", nil)
 	if err != nil {
 		t.Fatalf("unexpected enforceRiskDecision error: %v", err)
 	}

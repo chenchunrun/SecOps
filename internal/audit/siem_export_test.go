@@ -3,6 +3,7 @@ package audit
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,10 @@ import (
 	"time"
 )
 
+func newTLSTestConfig() *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}
+}
+
 // --- ELKExporter tests ---
 
 func TestELKExporter_Export_Success(t *testing.T) {
@@ -22,7 +27,7 @@ func TestELKExporter_Export_Success(t *testing.T) {
 	var receivedContentType string
 	var receivedAuth string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedContentType = r.Header.Get("Content-Type")
 		receivedAuth = r.Header.Get("Authorization")
 		body, _ := io.ReadAll(r.Body)
@@ -37,6 +42,7 @@ func TestELKExporter_Export_Success(t *testing.T) {
 		Username:   "elastic",
 		Password:   "secret",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{
@@ -77,7 +83,7 @@ func TestELKExporter_Export_Success(t *testing.T) {
 }
 
 func TestELKExporter_Export_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("internal error"))
 	}))
@@ -87,6 +93,7 @@ func TestELKExporter_Export_ServerError(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "test-index",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypePermissionRequest)}
@@ -99,7 +106,7 @@ func TestELKExporter_Export_ServerError(t *testing.T) {
 
 func TestELKExporter_Export_RetryOnFailure(t *testing.T) {
 	attempt := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempt++
 		if attempt < 3 {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -113,6 +120,7 @@ func TestELKExporter_Export_RetryOnFailure(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "test-index",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)}
@@ -127,7 +135,7 @@ func TestELKExporter_Export_RetryOnFailure(t *testing.T) {
 }
 
 func TestELKExporter_Export_RetryExhausted(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
@@ -136,6 +144,7 @@ func TestELKExporter_Export_RetryExhausted(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "test-index",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
@@ -152,7 +161,7 @@ func TestSplunkExporter_Export_Success(t *testing.T) {
 	var receivedBody []byte
 	var receivedAuth string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuth = r.Header.Get("Authorization")
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = body
@@ -165,6 +174,7 @@ func TestSplunkExporter_Export_Success(t *testing.T) {
 		Token:      "test-token",
 		Index:      "test-index",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{
@@ -192,7 +202,7 @@ func TestSplunkExporter_Export_Success(t *testing.T) {
 }
 
 func TestSplunkExporter_Export_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer server.Close()
@@ -201,6 +211,7 @@ func TestSplunkExporter_Export_ServerError(t *testing.T) {
 		Endpoint:   server.URL,
 		Token:      "bad-token",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeLoginFailure)}
@@ -213,7 +224,7 @@ func TestSplunkExporter_Export_ServerError(t *testing.T) {
 
 func TestSplunkExporter_Export_RetryOnFailure(t *testing.T) {
 	attempt := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempt++
 		if attempt < 3 {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -228,6 +239,7 @@ func TestSplunkExporter_Export_RetryOnFailure(t *testing.T) {
 		Token:      "test-token",
 		Index:      "test-index",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeConfigChange)}
@@ -242,7 +254,7 @@ func TestSplunkExporter_Export_RetryOnFailure(t *testing.T) {
 }
 
 func TestSplunkExporter_Export_RetryExhausted(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
@@ -251,6 +263,7 @@ func TestSplunkExporter_Export_RetryExhausted(t *testing.T) {
 		Endpoint:   server.URL,
 		Token:      "test-token",
 		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
@@ -477,18 +490,18 @@ func TestSyslogExporter_Export_EmptyEvents(t *testing.T) {
 // --- ExportToAll tests ---
 
 func TestExportToAll_Success(t *testing.T) {
-	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server1 := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server1.Close()
 
-	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server2 := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server2.Close()
 
-	elk := &ELKExporter{Endpoint: server1.URL, Index: "test", TLSEnabled: true}
-	splunk := &SplunkExporter{Endpoint: server2.URL, Token: "tok", Index: "test", TLSEnabled: true}
+	elk := &ELKExporter{Endpoint: server1.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
+	splunk := &SplunkExporter{Endpoint: server2.URL, Token: "tok", Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)}
 
@@ -499,12 +512,12 @@ func TestExportToAll_Success(t *testing.T) {
 }
 
 func TestExportToAll_StopsOnFirstError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
-	elk := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true}
+	elk := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypePermissionRequest)}
 
@@ -525,13 +538,13 @@ func TestExportToAll_EmptyExporters(t *testing.T) {
 // --- Integration-style tests ---
 
 func TestELKExporter_Export_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true}
+	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -544,13 +557,13 @@ func TestELKExporter_Export_ContextCancellation(t *testing.T) {
 }
 
 func TestSplunkExporter_Export_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true}
+	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -563,7 +576,7 @@ func TestSplunkExporter_Export_ContextCancellation(t *testing.T) {
 }
 
 func TestELKExporter_Export_EmptyEvents(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if len(body) > 0 {
 			t.Errorf("expected empty body, got %d bytes", len(body))
@@ -572,7 +585,7 @@ func TestELKExporter_Export_EmptyEvents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true}
+	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
 	err := exporter.Export(context.Background(), []*AuditEvent{})
 	if err != nil {
 		t.Fatalf("expected no error with empty events, got %v", err)
@@ -580,7 +593,7 @@ func TestELKExporter_Export_EmptyEvents(t *testing.T) {
 }
 
 func TestSplunkExporter_Export_EmptyEvents(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var payload []map[string]interface{}
 		if err := json.Unmarshal(body, &payload); err != nil {
@@ -593,7 +606,7 @@ func TestSplunkExporter_Export_EmptyEvents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true}
+	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
 	err := exporter.Export(context.Background(), []*AuditEvent{})
 	if err != nil {
 		t.Fatalf("expected no error with empty events, got %v", err)
@@ -779,6 +792,22 @@ func TestELKExporter_TLSRequired(t *testing.T) {
 	}
 }
 
+func TestELKExporter_RejectsNonHTTPSWhenTLSEnabled(t *testing.T) {
+	exporter := &ELKExporter{
+		Endpoint:   "http://insecure.example.com/_bulk",
+		Index:      "test",
+		TLSEnabled: true,
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)})
+	if err == nil {
+		t.Fatal("expected error when endpoint is not https, got nil")
+	}
+	if !strings.Contains(err.Error(), "https") {
+		t.Fatalf("expected https enforcement error, got %v", err)
+	}
+}
+
 func TestSplunkExporter_TLSRequired(t *testing.T) {
 	exporter := &SplunkExporter{
 		Endpoint:   "http://insecure.example.com/services/collector",
@@ -793,6 +822,23 @@ func TestSplunkExporter_TLSRequired(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "TLS") {
 		t.Errorf("expected TLS error message, got %v", err)
+	}
+}
+
+func TestSplunkExporter_RejectsNonHTTPSWhenTLSEnabled(t *testing.T) {
+	exporter := &SplunkExporter{
+		Endpoint:   "http://insecure.example.com/services/collector",
+		Token:      "tok",
+		Index:      "test",
+		TLSEnabled: true,
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)})
+	if err == nil {
+		t.Fatal("expected error when endpoint is not https, got nil")
+	}
+	if !strings.Contains(err.Error(), "https") {
+		t.Fatalf("expected https enforcement error, got %v", err)
 	}
 }
 

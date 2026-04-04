@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
+	capregistry "github.com/chenchunrun/SecOps/internal/capability/registry"
 	"github.com/chenchunrun/SecOps/internal/csync"
 	"github.com/chenchunrun/SecOps/internal/env"
 	"github.com/chenchunrun/SecOps/internal/oauth"
@@ -214,10 +215,11 @@ func (c Completions) Limits() (depth, items int) {
 }
 
 type Permissions struct {
-	AllowedTools             []string `json:"allowed_tools,omitempty" jsonschema:"description=List of tools that don't require permission prompts,example=bash,example=view"` // Tools that don't require permission prompts
-	BypassIntentMarkers      []string `json:"bypass_intent_markers,omitempty" jsonschema:"description=Override default bypass-intent markers used to force permission confirmation for risky prompts"`
-	ExtraBypassIntentMarkers []string `json:"extra_bypass_intent_markers,omitempty" jsonschema:"description=Additional bypass-intent markers appended to default markers"`
-	SkipRequests             bool     `json:"-"` // Automatically accept all permissions (YOLO mode)
+	AllowedTools             []string            `json:"allowed_tools,omitempty" jsonschema:"description=List of tools that don't require permission prompts,example=bash,example=view"` // Tools that don't require permission prompts
+	BypassIntentMarkers      []string            `json:"bypass_intent_markers,omitempty" jsonschema:"description=Override default bypass-intent markers used to force permission confirmation for risky prompts"`
+	ExtraBypassIntentMarkers []string            `json:"extra_bypass_intent_markers,omitempty" jsonschema:"description=Additional bypass-intent markers appended to default markers"`
+	SecOpsCapabilityGrants   map[string][]string `json:"secops_capability_grants,omitempty" jsonschema:"description=Additional SecOps capability grants by role or agent ID,example={\"analyst\":[\"network:scan\"]}"`
+	SkipRequests             bool                `json:"-"` // Automatically accept all permissions (YOLO mode)
 }
 
 type RemoteAuth struct {
@@ -506,7 +508,10 @@ func (c *Config) SmallModel() *catwalk.Model {
 
 const maxRecentModelsPerType = 5
 
-func allToolNames() []string {
+// fixedBuiltInToolNames is the config-local catalog of non-SecOps built-in
+// tool names. SecOps tool names come from the capability registry so config
+// does not maintain a second copy.
+func fixedBuiltInToolNames() []string {
 	return []string{
 		"agent",
 		"bash",
@@ -530,37 +535,48 @@ func allToolNames() []string {
 		"write",
 		"list_mcp_resources",
 		"read_mcp_resource",
-		// SecOps tools
-		"log_analyze",
-		"monitoring_query",
-		"compliance_check",
-		"certificate_audit",
-		"security_scan",
-		"configuration_audit",
-		"network_diagnostic",
-		"database_query",
-		"backup_check",
-		"replication_status",
-		"secret_audit",
-		"rotation_check",
-		"access_review",
-		"infrastructure_query",
-		"deployment_status",
-		"alert_check",
-		"incident_timeline",
-		"resource_monitor",
-		"attack_reason",
-		"incident_assess",
-		// compatibility aliases
-		"Infrastructure Query",
-		"Compliance Check",
-		"Compliance Checker",
-		"Network Diagnostic",
-		"Network Diagnostics",
-		"Monitoring Query",
-		"Log Analyze",
-		"Log Analysis",
 	}
+}
+
+// readOnlyToolNames defines the built-in tools exposed to the task/read-only
+// agent profile before disabled-tool filtering is applied.
+func readOnlyToolNames() []string {
+	return []string{"glob", "grep", "ls", "sourcegraph", "view"}
+}
+
+// secOpsRuntimeSupportToolNames defines the non-SecOps support tools exposed
+// to the SecOps-focused agent profiles before SecOps registry names are added.
+func secOpsRuntimeSupportToolNames() []string {
+	return []string{
+		"bash",
+		"glob",
+		"grep",
+		"ls",
+		"view",
+		"fetch",
+		"download",
+		"sourcegraph",
+		"todos",
+		"todo",
+	}
+}
+
+// allToolNames returns the full default tool catalog used by the coder agent
+// and as the basis for disabled-tool filtering.
+func allToolNames() []string {
+	names := fixedBuiltInToolNames()
+	names = append(names, capregistry.SecOpsToolNames()...)
+	names = append(names, capregistry.SecOpsCompatibilityAliasNames()...)
+	return names
+}
+
+// secOpsRuntimeToolNames returns the SecOps-focused agent tool catalog,
+// combining support tools with the capability-registry SecOps names.
+func secOpsRuntimeToolNames() []string {
+	names := secOpsRuntimeSupportToolNames()
+	names = append(names, capregistry.SecOpsToolNames()...)
+	names = append(names, capregistry.SecOpsCompatibilityAliasNames()...)
+	return names
 }
 
 func resolveAllowedTools(allTools []string, disabledTools []string) []string {
@@ -572,56 +588,12 @@ func resolveAllowedTools(allTools []string, disabledTools []string) []string {
 }
 
 func resolveReadOnlyTools(tools []string) []string {
-	readOnlyTools := []string{"glob", "grep", "ls", "sourcegraph", "view"}
 	// filter to only include tools that are in allowedtools (include mode)
-	return filterSlice(tools, readOnlyTools, true)
+	return filterSlice(tools, readOnlyToolNames(), true)
 }
 
 func resolveSecOpsRuntimeTools(tools []string) []string {
-	secOpsRuntimeTools := []string{
-		// Basic context and diagnostics access.
-		"bash",
-		"glob",
-		"grep",
-		"ls",
-		"view",
-		"fetch",
-		"download",
-		"sourcegraph",
-		"todos",
-		"todo",
-		// SecOps tools.
-		"log_analyze",
-		"monitoring_query",
-		"compliance_check",
-		"certificate_audit",
-		"security_scan",
-		"configuration_audit",
-		"network_diagnostic",
-		"database_query",
-		"backup_check",
-		"replication_status",
-		"secret_audit",
-		"rotation_check",
-		"access_review",
-		"infrastructure_query",
-		"deployment_status",
-		"alert_check",
-		"incident_timeline",
-		"resource_monitor",
-		"attack_reason",
-		"incident_assess",
-		// compatibility aliases
-		"Infrastructure Query",
-		"Compliance Check",
-		"Compliance Checker",
-		"Network Diagnostic",
-		"Network Diagnostics",
-		"Monitoring Query",
-		"Log Analyze",
-		"Log Analysis",
-	}
-	return filterSlice(tools, secOpsRuntimeTools, true)
+	return filterSlice(tools, secOpsRuntimeToolNames(), true)
 }
 
 func filterSlice(data []string, mask []string, include bool) []string {

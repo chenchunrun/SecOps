@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"charm.land/catwalk/pkg/catwalk"
+	capregistry "github.com/chenchunrun/SecOps/internal/capability/registry"
 	"github.com/chenchunrun/SecOps/internal/csync"
 	"github.com/chenchunrun/SecOps/internal/env"
 	"github.com/stretchr/testify/assert"
@@ -746,7 +747,7 @@ func TestConfig_setupAgentsWithNoDisabledTools(t *testing.T) {
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
-	assert.Equal(t, []string{"glob", "grep", "ls", "sourcegraph", "view"}, taskAgent.AllowedTools)
+	assert.Equal(t, readOnlyToolNames(), taskAgent.AllowedTools)
 
 	opsAgent, ok := cfg.Agents[AgentOpsAgent]
 	require.True(t, ok)
@@ -770,28 +771,7 @@ func TestConfig_setupAgentsSecOpsIncludeAllToolsByDefault(t *testing.T) {
 
 	cfg.SetupAgents()
 
-	secOpsTools := []string{
-		"log_analyze",
-		"monitoring_query",
-		"compliance_check",
-		"certificate_audit",
-		"security_scan",
-		"configuration_audit",
-		"network_diagnostic",
-		"database_query",
-		"backup_check",
-		"replication_status",
-		"secret_audit",
-		"rotation_check",
-		"access_review",
-		"infrastructure_query",
-		"deployment_status",
-		"alert_check",
-		"incident_timeline",
-		"resource_monitor",
-		"attack_reason",
-		"incident_assess",
-	}
+	secOpsTools := capregistry.SecOpsToolNames()
 
 	opsAgent, ok := cfg.Agents[AgentOpsAgent]
 	require.True(t, ok)
@@ -824,7 +804,7 @@ func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
-	assert.Equal(t, []string{"glob", "ls", "sourcegraph", "view"}, taskAgent.AllowedTools)
+	assert.Equal(t, filterSlice(readOnlyToolNames(), cfg.Options.DisabledTools, false), taskAgent.AllowedTools)
 
 	opsAgent, ok := cfg.Agents[AgentOpsAgent]
 	require.True(t, ok)

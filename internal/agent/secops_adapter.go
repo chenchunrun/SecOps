@@ -35,6 +35,7 @@ type secopsPolicyContext struct {
 	Call         fantasy.ToolCall
 	Role         string
 	RequiredCaps []string
+	RiskTags     []string
 }
 
 type secopsPolicyEvaluator struct {
@@ -47,6 +48,15 @@ type remoteValidationError struct {
 }
 
 func (e *remoteValidationError) Error() string {
+	return e.msg
+}
+
+type executionProfileError struct {
+	profile string
+	msg     string
+}
+
+func (e *executionProfileError) Error() string {
 	return e.msg
 }
 
@@ -68,6 +78,9 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 		}
 	}
 	paramsMap = normalizeSecOpsParams(a.tool.Type(), paramsMap)
+	if err := a.validateExecutionProfile(paramsMap); err != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid params: %v", err)), nil
+	}
 	if err := validateRemoteSSHParams(paramsMap); err != nil {
 		a.recordRemoteValidationAuditEvent(ctx, call, paramsMap, err)
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid remote ssh parameters: %v", err)), nil
@@ -330,7 +343,8 @@ func fillNetworkTypeAndTargetFromCommand(out map[string]interface{}, command str
 
 // executeAndRespond calls tool.Execute and serializes the result to a ToolResponse.
 func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, params interface{}) (fantasy.ToolResponse, error) {
-	caps := a.tool.RequiredCapabilities()
+	caps := a.requiredCapabilities()
+	riskTags := a.policyTags()
 	if len(caps) > 0 {
 		slog.Debug("SecOps tool capabilities check", "tool", a.tool.Type(), "caps", caps)
 	}
@@ -346,10 +360,12 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 			Description:  call.Input,
 			Role:         role,
 			RequiredCaps: caps,
+			RiskTags:     riskTags,
 			Parameters: secopsPolicyContext{
 				Call:         call,
 				Role:         role,
 				RequiredCaps: caps,
+				RiskTags:     riskTags,
 			},
 		})
 		if err != nil {
@@ -359,11 +375,11 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 			return fantasy.NewTextErrorResponse(decision.Reason), nil
 		}
 	} else {
-		if err := validateCapabilities(role, caps); err != nil {
+		if err := a.validateCapabilities(ctx, role, caps); err != nil {
 			return fantasy.NewTextErrorResponse(err.Error()), nil
 		}
 
-		if err := a.enforceRiskDecision(ctx, call, role); err != nil {
+		if err := a.enforceRiskDecision(ctx, call, role, nil); err != nil {
 			return fantasy.NewTextErrorResponse(err.Error()), nil
 		}
 	}
@@ -391,44 +407,15 @@ func (a *Adapter) SetProviderOptions(opts fantasy.ProviderOptions) {}
 
 // RegisterDefaultSecOpsToolSet registers the built-in SecOps tools.
 func RegisterDefaultSecOpsToolSet(registry *secops.SecOpsToolRegistry) error {
-	if registry == nil {
-		return fmt.Errorf("secops registry is nil")
-	}
-	constructors := []func(*secops.SecOpsToolRegistry) secops.SecOpsTool{
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewLogAnalyzeTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewMonitoringQueryTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewComplianceCheckTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewCertificateAuditTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewSecurityScanTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewConfigurationAuditTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewNetworkDiagnosticTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewDatabaseQueryTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewBackupCheckTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewReplicationStatusTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewSecretAuditTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewRotationCheckTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewAccessReviewTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewInfrastructureQueryTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewDeploymentStatusTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewAlertCheckTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewIncidentTimelineTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewResourceMonitorTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewAttackReasonTool(nil) },
-		func(*secops.SecOpsToolRegistry) secops.SecOpsTool { return secops.NewIncidentAssessTool(nil) },
-	}
-	for _, ctor := range constructors {
-		if err := registry.Register(ctor(registry)); err != nil {
-			return fmt.Errorf("register secops tool: %w", err)
-		}
-	}
-	return nil
+	return capregistry.RegisterSecOpsToolSet(registry)
 }
 
 // RegisterSecOpsTools registers all SecOps tools with the Crush coordinator's tool list.
 // It returns a slice of fantasy.AgentTool that can be passed to SetTools.
-func RegisterSecOpsTools(registry *secops.SecOpsToolRegistry, perms permission.Service) []fantasy.AgentTool {
+func RegisterSecOpsTools(registry *secops.SecOpsToolRegistry, perms permission.Service, cfg *config.Config) []fantasy.AgentTool {
 	var tools []fantasy.AgentTool
 	secopsPerms := permission.NewDefaultService()
+	applySecOpsCapabilityGrants(secopsPerms, cfg)
 	assessor := security.NewRiskAssessor()
 	descriptorRegistry := capregistry.NewSecOpsRegistry()
 
@@ -453,12 +440,84 @@ func (a *Adapter) decodeParams(raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("capability registry is not configured")
 	}
 
-	desc, ok := a.registry.Get(a.tool.Type())
-	if !ok {
-		return nil, fmt.Errorf("unsupported tool type: %s", a.tool.Type())
+	params, err := a.registry.Decode(string(a.tool.Type()), raw)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "unsupported descriptor key: ") {
+			return nil, fmt.Errorf("unsupported tool type: %s", a.tool.Type())
+		}
+		return nil, err
 	}
 
-	return desc.Decode(raw)
+	return params, nil
+}
+
+func (a *Adapter) validateExecutionProfile(params map[string]interface{}) error {
+	if a.registry == nil {
+		return nil
+	}
+
+	profile, ok := a.registry.ExecutionProfileFor(string(a.tool.Type()))
+	if !ok {
+		return nil
+	}
+	if profile != capregistry.ExecutionProfileLocalOnly {
+		return nil
+	}
+	if !hasRemoteExecutionParams(params) {
+		return nil
+	}
+
+	return &executionProfileError{
+		profile: string(profile),
+		msg:     fmt.Sprintf("tool %s does not support remote execution", a.tool.Type()),
+	}
+}
+
+func hasRemoteExecutionParams(params map[string]interface{}) bool {
+	if len(params) == 0 {
+		return false
+	}
+	for _, key := range []string{"remote_host", "remote_user", "remote_port", "remote_key_path", "remote_proxy_jump", "remote_profile", "remote_env"} {
+		v, ok := params[key]
+		if !ok || v == nil {
+			continue
+		}
+		switch t := v.(type) {
+		case string:
+			if strings.TrimSpace(t) != "" {
+				return true
+			}
+		case float64:
+			if t != 0 {
+				return true
+			}
+		case int:
+			if t != 0 {
+				return true
+			}
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Adapter) requiredCapabilities() []string {
+	if a.registry != nil {
+		if caps := a.registry.RequiredCapabilities(string(a.tool.Type())); len(caps) > 0 {
+			return caps
+		}
+	}
+	return a.tool.RequiredCapabilities()
+}
+
+func (a *Adapter) policyTags() []string {
+	if a.registry != nil {
+		if tags := a.registry.PolicyTags(string(a.tool.Type())); len(tags) > 0 {
+			return tags
+		}
+	}
+	return nil
 }
 
 func (e secopsPolicyEvaluator) EvaluateSecOps(ctx context.Context, req policy.Request) (policy.Decision, error) {
@@ -467,7 +526,7 @@ func (e secopsPolicyEvaluator) EvaluateSecOps(ctx context.Context, req policy.Re
 		return policy.Decision{}, fmt.Errorf("unexpected secops policy params type %T", req.Parameters)
 	}
 
-	if err := validateCapabilities(secopsCtx.Role, secopsCtx.RequiredCaps); err != nil {
+	if err := e.adapter.validateCapabilities(ctx, secopsCtx.Role, secopsCtx.RequiredCaps); err != nil {
 		return policy.Decision{
 			Allowed: false,
 			Reason:  err.Error(),
@@ -478,7 +537,7 @@ func (e secopsPolicyEvaluator) EvaluateSecOps(ctx context.Context, req policy.Re
 		}, nil
 	}
 
-	if err := e.adapter.enforceRiskDecision(ctx, secopsCtx.Call, secopsCtx.Role); err != nil {
+	if err := e.adapter.enforceRiskDecision(ctx, secopsCtx.Call, secopsCtx.Role, secopsCtx.RiskTags); err != nil {
 		return policy.Decision{
 			Allowed: false,
 			Reason:  err.Error(),
@@ -499,7 +558,7 @@ func (e secopsPolicyEvaluator) EvaluateSecOps(ctx context.Context, req policy.Re
 	}, nil
 }
 
-func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall, role string) error {
+func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall, role string, riskTags []string) error {
 	if a.secopsPerms == nil || a.assessor == nil {
 		return nil
 	}
@@ -527,7 +586,7 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 		Username:     role,
 		RequestTime:  timeNowUTC(),
 		RiskScore:    assessment.Score,
-		RiskFactors:  riskFactorNames(assessment.Factors),
+		RiskFactors:  mergeRiskTags(riskFactorNames(assessment.Factors), riskTags),
 		Transport:    remoteCtx.Transport,
 		TargetHost:   remoteCtx.TargetHost,
 		TargetEnv:    remoteCtx.TargetEnv,
@@ -591,6 +650,37 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	}
 
 	return nil
+}
+
+func mergeRiskTags(factors []string, tags []string) []string {
+	if len(tags) == 0 {
+		return factors
+	}
+	seen := make(map[string]struct{}, len(factors)+len(tags))
+	out := make([]string, 0, len(factors)+len(tags))
+	for _, item := range factors {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	for _, item := range tags {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
 }
 
 func (a *Adapter) assessRisk(input string) *security.RiskAssessment {
@@ -659,22 +749,57 @@ func isRiskStringKey(key string) bool {
 	}
 }
 
-func validateCapabilities(role string, caps []string) error {
+func applySecOpsCapabilityGrants(svc permission.SecOpsService, cfg *config.Config) {
+	if svc == nil || cfg == nil || cfg.Permissions == nil {
+		return
+	}
+	for subject, caps := range cfg.Permissions.SecOpsCapabilityGrants {
+		subject = strings.ToLower(strings.TrimSpace(subject))
+		if subject == "" {
+			continue
+		}
+		for _, cap := range caps {
+			cap = strings.TrimSpace(cap)
+			if cap == "" {
+				continue
+			}
+			svc.GrantCapability(subject, cap)
+		}
+	}
+}
+
+func (a *Adapter) validateCapabilities(ctx context.Context, role string, caps []string) error {
 	for _, cap := range caps {
-		if !roleHasCapability(role, cap) {
+		allowed, err := a.roleHasCapability(ctx, role, cap)
+		if err != nil {
+			return fmt.Errorf("capability check failed: %w", err)
+		}
+		if !allowed {
 			return fmt.Errorf("capability denied: role=%s missing %s", role, cap)
 		}
 	}
 	return nil
 }
 
-func roleHasCapability(role, capability string) bool {
+func (a *Adapter) roleHasCapability(ctx context.Context, role, capability string) (bool, error) {
 	for _, candidate := range expandedRoles(role) {
 		if security.CheckCapability(candidate, capability) {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	if a == nil || a.secopsPerms == nil {
+		return false, nil
+	}
+	for _, subject := range capabilityGrantSubjects(ctx, role) {
+		ok, err := a.secopsPerms.CheckCapability(subject, capability)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func expandedRoles(role string) []string {
@@ -689,6 +814,31 @@ func expandedRoles(role string) []string {
 	default:
 		return []string{role}
 	}
+}
+
+func capabilityGrantSubjects(ctx context.Context, role string) []string {
+	var subjects []string
+	seen := make(map[string]struct{})
+
+	add := func(subject string) {
+		subject = strings.ToLower(strings.TrimSpace(subject))
+		if subject == "" {
+			return
+		}
+		if _, ok := seen[subject]; ok {
+			return
+		}
+		seen[subject] = struct{}{}
+		subjects = append(subjects, subject)
+	}
+
+	add(role)
+	for _, candidate := range expandedRoles(role) {
+		add(candidate)
+	}
+	add(tools.GetAgentIDFromContext(ctx))
+
+	return subjects
 }
 
 func secOpsRoleFromContext(ctx context.Context) string {

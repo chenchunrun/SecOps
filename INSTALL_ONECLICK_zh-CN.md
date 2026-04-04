@@ -75,12 +75,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 ./install.ps1
 
 # 3) 验证
-crush --version
+secops-agent --version
 ```
 
 默认安装路径：
 
-- `%LOCALAPPDATA%\Programs\crush-secops\crush.exe`
+- `%LOCALAPPDATA%\Programs\SecOps\secops-agent.exe`
+- 兼容别名：`%LOCALAPPDATA%\Programs\SecOps\crush.exe`
 
 自定义安装目录：
 

@@ -28,6 +28,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/agent/prompt"
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
+	capregistry "github.com/chenchunrun/SecOps/internal/capability/registry"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/filetracker"
 	"github.com/chenchunrun/SecOps/internal/history"
@@ -741,34 +742,22 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		}
 	}
 
-	allTools = append(allTools,
-		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelName, c.cfg.Config().Remote),
-		tools.NewJobOutputTool(),
-		tools.NewJobKillTool(),
-		tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir(), nil),
-		tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
-		tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
-		tools.NewFetchTool(c.permissions, c.cfg.WorkingDir(), nil),
-		tools.NewGlobTool(c.cfg.WorkingDir()),
-		tools.NewGrepTool(c.cfg.WorkingDir(), c.cfg.Config().Tools.Grep),
-		tools.NewLsTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Ls),
-		tools.NewSourcegraphTool(nil),
-		tools.NewTodosTool(c.sessions),
-		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
-		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
-	)
+	// Fixed built-in tools are assembled through dataset-backed toolset
+	// builders so their constructors stay centralized in internal/agent/tools.
+	allTools = append(allTools, tools.BuildBashToolSet(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelName, c.cfg.Config().Remote)...)
+	allTools = append(allTools, tools.BuildRuntimeToolSet(c.lspManager, c.permissions, c.filetracker, c.sessions, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths)...)
+	allTools = append(allTools, tools.BuildRemoteToolSet(c.permissions, c.cfg.WorkingDir(), nil)...)
+	allTools = append(allTools, tools.BuildSearchToolSet(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Grep, c.cfg.Config().Tools.Ls)...)
+	allTools = append(allTools, tools.BuildEditToolSet(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir())...)
+	allTools = append(allTools, tools.BuildJobToolSet()...)
 
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
 	if len(c.cfg.Config().LSP) > 0 || c.cfg.Config().Options.AutoLSP == nil || *c.cfg.Config().Options.AutoLSP {
-		allTools = append(allTools, tools.NewDiagnosticsTool(c.lspManager), tools.NewReferencesTool(c.lspManager), tools.NewLSPRestartTool(c.lspManager))
+		allTools = append(allTools, tools.BuildLSPToolSet(c.lspManager)...)
 	}
 
 	if len(c.cfg.Config().MCP) > 0 {
-		allTools = append(
-			allTools,
-			tools.NewListMCPResourcesTool(c.cfg, c.permissions),
-			tools.NewReadMCPResourceTool(c.cfg, c.permissions),
-		)
+		allTools = append(allTools, tools.BuildMCPToolSet(c.cfg, c.permissions)...)
 	}
 
 	// Register SecOps tools as agent tools
@@ -777,7 +766,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		return nil, fmt.Errorf("register default secops tool set: %w", err)
 	}
 
-	secOpsTools := RegisterSecOpsTools(secOpsRegistry, c.permissions)
+	secOpsTools := RegisterSecOpsTools(secOpsRegistry, c.permissions, c.cfg.Config())
 	allTools = append(allTools, secOpsTools...)
 	allTools = append(allTools, compatibilityAliases(allTools)...)
 	slog.Debug("Registered SecOps tools with agent", "count", len(secOpsTools))
@@ -819,14 +808,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 }
 
 func compatibilityAliases(base []fantasy.AgentTool) []fantasy.AgentTool {
-	aliasMap := map[string][]string{
-		"todos":                {"todo", "Todo"},
-		"infrastructure_query": {"Infrastructure Query"},
-		"compliance_check":     {"Compliance Check", "Compliance Checker"},
-		"network_diagnostic":   {"Network Diagnostic", "Network Diagnostics"},
-		"monitoring_query":     {"Monitoring Query"},
-		"log_analyze":          {"Log Analyze", "Log Analysis"},
-	}
+	aliasMap := capregistry.SecOpsCompatibilityAliases()
+	aliasMap["todos"] = []string{"todo", "Todo"}
 
 	seen := make(map[string]struct{}, len(base))
 	byName := make(map[string]fantasy.AgentTool, len(base))

@@ -89,7 +89,7 @@ func TestCheckCommandSafetyDangerous(t *testing.T) {
 	}
 
 	for _, cmd := range dangerous {
-		err := checkCommandSafety(cmd)
+		err := checkCommandSafety(cmd, SandboxConfig{})
 		assert.Error(t, err, "command %q should be flagged as dangerous", cmd)
 		assert.True(t, errors.Is(err, ErrDangerousPath), "should be ErrDangerousPath for: %s", cmd)
 	}
@@ -104,7 +104,7 @@ func TestCheckCommandSafetyDeniedPaths(t *testing.T) {
 	}
 
 	for _, cmd := range denied {
-		err := checkCommandSafety(cmd)
+		err := checkCommandSafety(cmd, SandboxConfig{})
 		assert.Error(t, err, "command %q should be flagged for denied path", cmd)
 		assert.True(t, errors.Is(err, ErrDangerousPath), "should be ErrDangerousPath for: %s", cmd)
 	}
@@ -125,9 +125,25 @@ func TestCheckCommandSafetyAllowed(t *testing.T) {
 	}
 
 	for _, cmd := range safe {
-		err := checkCommandSafety(cmd)
+		err := checkCommandSafety(cmd, SandboxConfig{})
 		assert.NoError(t, err, "command %q should be allowed", cmd)
 	}
+}
+
+func TestCheckCommandSafetyConfiguredDenyPaths(t *testing.T) {
+	err := checkCommandSafety("cat /etc/secrets/token", SandboxConfig{
+		DenyPaths: []string{"/etc/secrets"},
+	})
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrDangerousPath))
+}
+
+func TestCheckCommandSafetyConfiguredReadOnlyWriteAttempt(t *testing.T) {
+	err := checkCommandSafety("touch /var/log/app.log", SandboxConfig{
+		ReadOnlyPaths: []string{"/var/log"},
+	})
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrDangerousPath))
 }
 
 func TestLocalExecutorExecuteSimpleCommand(t *testing.T) {
@@ -357,6 +373,60 @@ func TestSSHExecutorUsesSafeHostKeyCheckingDefaults(t *testing.T) {
 	assert.Contains(t, cmdline, "StrictHostKeyChecking=yes")
 	assert.NotContains(t, cmdline, "StrictHostKeyChecking=no")
 	assert.NotContains(t, cmdline, "UserKnownHostsFile=/dev/null")
+}
+
+func TestSSHExecutorAllowedHostsEnforced(t *testing.T) {
+	exec := &SSHExecutor{}
+	cfg := SandboxConfig{
+		Mode:         "ssh",
+		SSHTarget:    "ops@disallowed.example.com",
+		AllowedHosts: []string{"allowed.example.com"},
+	}
+
+	result, err := exec.Execute(context.Background(), "uptime", cfg)
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrDangerousPath))
+	assert.Equal(t, 100, result.RiskScore)
+}
+
+func TestSSHExecutorAllowedPortsEnforced(t *testing.T) {
+	exec := &SSHExecutor{}
+	cfg := SandboxConfig{
+		Mode:         "ssh",
+		SSHTarget:    "ops@127.0.0.1",
+		AllowedPorts: []int{2222},
+	}
+
+	result, err := exec.Execute(context.Background(), "uptime", cfg)
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrDangerousPath))
+	assert.Equal(t, 100, result.RiskScore)
+}
+
+func TestParseSSHTargetHostPort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		host   string
+		port   int
+	}{
+		{name: "user host", target: "ops@example.com", host: "example.com", port: 22},
+		{name: "host port", target: "example.com:2222", host: "example.com", port: 2222},
+		{name: "ipv6 default", target: "ops@[2001:db8::1]", host: "2001:db8::1", port: 22},
+		{name: "ipv6 explicit port", target: "ops@[2001:db8::1]:2200", host: "2001:db8::1", port: 2200},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			host, port, err := parseSSHTargetHostPort(tt.target)
+			require.NoError(t, err)
+			assert.Equal(t, tt.host, host)
+			assert.Equal(t, tt.port, port)
+		})
+	}
 }
 
 func TestDefaultSandboxConfig(t *testing.T) {
@@ -855,8 +925,9 @@ func BenchmarkAssessRisk(b *testing.B) {
 // BenchmarkCheckCommandSafety benchmarks the command safety check.
 func BenchmarkCheckCommandSafety(b *testing.B) {
 	cmd := "curl -s https://example.com/api | grep -o 'data'"
+	cfg := SandboxConfig{}
 
 	for i := 0; i < b.N; i++ {
-		_ = checkCommandSafety(cmd)
+		_ = checkCommandSafety(cmd, cfg)
 	}
 }

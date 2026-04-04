@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
-PRODUCT_NAME="${PRODUCT_NAME:-secops-agent}"
+PRODUCT_NAME="${PRODUCT_NAME:-SecOps}"
 TARGETS="${TARGETS:-darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64}"
 DIST_DIR="${ROOT_DIR}/dist"
 
@@ -28,31 +28,37 @@ for target in $TARGETS; do
   rm -rf "$work_dir"
   mkdir -p "$work_dir"
 
-  if [[ "$goos" == "windows" ]]; then
-    bin_name="${PRODUCT_NAME}.exe"
-  else
-    bin_name="crush"
-  fi
-
   echo "[build] ${goos}/${goarch}"
-  CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-    go build -ldflags "-X github.com/chenchunrun/SecOps/internal/version.Version=${VERSION}" \
-    -o "$work_dir/$bin_name" .
-
-  if [[ "$goos" == "windows" && "$bin_name" != "crush.exe" ]]; then
-    cp "$work_dir/$bin_name" "$work_dir/crush.exe"
+  if [[ "$goos" == "windows" ]]; then
+    primary_bin="secops-agent.exe"
+    compat_bin="crush.exe"
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+      go build -ldflags "-X github.com/chenchunrun/SecOps/internal/version.Version=${VERSION}" \
+      -o "$work_dir/$primary_bin" .
+    cp "$work_dir/$primary_bin" "$work_dir/$compat_bin"
+  else
+    primary_bin="SecOps"
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+      go build -ldflags "-X github.com/chenchunrun/SecOps/internal/version.Version=${VERSION}" \
+      -o "$work_dir/$primary_bin" .
   fi
 
   if command -v shasum >/dev/null 2>&1; then
-    (cd "$work_dir" && shasum -a 256 "$bin_name" > "${bin_name}.sha256")
-    if [[ "$goos" == "windows" && -f "$work_dir/crush.exe" && "$bin_name" != "crush.exe" ]]; then
-      (cd "$work_dir" && shasum -a 256 "crush.exe" > "crush.exe.sha256")
-    fi
+    (
+      cd "$work_dir"
+      shasum -a 256 "$primary_bin" > "${primary_bin}.sha256"
+      if [[ "$goos" == "windows" ]]; then
+        shasum -a 256 "$compat_bin" > "${compat_bin}.sha256"
+      fi
+    )
   elif command -v sha256sum >/dev/null 2>&1; then
-    (cd "$work_dir" && sha256sum "$bin_name" > "${bin_name}.sha256")
-    if [[ "$goos" == "windows" && -f "$work_dir/crush.exe" && "$bin_name" != "crush.exe" ]]; then
-      (cd "$work_dir" && sha256sum "crush.exe" > "crush.exe.sha256")
-    fi
+    (
+      cd "$work_dir"
+      sha256sum "$primary_bin" > "${primary_bin}.sha256"
+      if [[ "$goos" == "windows" ]]; then
+        sha256sum "$compat_bin" > "${compat_bin}.sha256"
+      fi
+    )
   fi
 
   if [[ "$goos" == "windows" ]]; then
@@ -66,25 +72,31 @@ $BinSrc = Join-Path $ScriptDir $PrimaryName
 if (-not (Test-Path $BinSrc)) {
   throw "$PrimaryName not found in package directory: $BinSrc"
 }
+$CompatSrc = Join-Path $ScriptDir $CompatName
+if (-not (Test-Path $CompatSrc)) {
+  throw "$CompatName not found in package directory: $CompatSrc"
+}
 
 $TargetDir = $env:CRUSH_INSTALL_DIR
 if ([string]::IsNullOrWhiteSpace($TargetDir)) {
-  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\secops-agent"
+  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\SecOps"
 }
 
 New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
 Copy-Item $BinSrc (Join-Path $TargetDir $PrimaryName) -Force
-Copy-Item $BinSrc (Join-Path $TargetDir $CompatName) -Force
+Copy-Item $CompatSrc (Join-Path $TargetDir $CompatName) -Force
 Write-Host "Installed: $(Join-Path $TargetDir $PrimaryName)"
-Write-Host "Compatibility alias: $(Join-Path $TargetDir $CompatName)"
+Write-Host "Installed: $(Join-Path $TargetDir $CompatName)"
 
 $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($currentUserPath -notlike "*$TargetDir*") {
   [Environment]::SetEnvironmentVariable("Path", "$currentUserPath;$TargetDir", "User")
   Write-Host "Added to user PATH: $TargetDir"
-  Write-Host "Please open a new terminal, then run: secops-agent or crush"
+  Write-Host "Please open a new terminal, then run: secops-agent"
+  Write-Host "Compatibility alias also available: crush"
 } else {
-  Write-Host "Run: secops-agent or crush"
+  Write-Host "Run: secops-agent"
+  Write-Host "Compatibility alias also available: crush"
 }
 PS1
 
@@ -93,7 +105,7 @@ $ErrorActionPreference = "Stop"
 
 $TargetDir = $env:CRUSH_INSTALL_DIR
 if ([string]::IsNullOrWhiteSpace($TargetDir)) {
-  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\secops-agent"
+  $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\SecOps"
 }
 
 $Names = @("secops-agent.exe", "crush.exe")
@@ -116,13 +128,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 ./install.ps1
 ```
 
-After install, you can run either:
+After install, you can run:
 
 ```powershell
 secops-agent
 ```
 
-or:
+Compatibility alias:
 
 ```powershell
 crush
@@ -154,10 +166,10 @@ DOC
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN_SRC="${SCRIPT_DIR}/crush"
+BIN_SRC="${SCRIPT_DIR}/SecOps"
 
 if [[ ! -x "$BIN_SRC" ]]; then
-  echo "Error: crush binary not found in package directory: $BIN_SRC" >&2
+  echo "Error: SecOps binary not found in package directory: $BIN_SRC" >&2
   exit 1
 fi
 
@@ -171,15 +183,15 @@ if [[ -z "$TARGET_DIR" ]]; then
 fi
 
 mkdir -p "$TARGET_DIR"
-install -m 0755 "$BIN_SRC" "$TARGET_DIR/crush"
+install -m 0755 "$BIN_SRC" "$TARGET_DIR/SecOps"
 
-echo "Installed: $TARGET_DIR/crush"
-if ! command -v crush >/dev/null 2>&1 || [[ "$(command -v crush)" != "$TARGET_DIR/crush" ]]; then
+echo "Installed: $TARGET_DIR/SecOps"
+if ! command -v SecOps >/dev/null 2>&1 || [[ "$(command -v SecOps)" != "$TARGET_DIR/SecOps" ]]; then
   echo "If command not found, add to PATH:"
   echo "  export PATH=\"$TARGET_DIR:\$PATH\""
 fi
 
-echo "Run: crush"
+echo "Run: SecOps"
 SH
 
     cat > "$work_dir/uninstall.sh" <<'SH'
@@ -188,18 +200,18 @@ set -euo pipefail
 
 TARGET_DIR="${CRUSH_INSTALL_DIR:-}"
 if [[ -z "$TARGET_DIR" ]]; then
-  if [[ -e "/usr/local/bin/crush" ]]; then
+  if [[ -e "/usr/local/bin/SecOps" ]]; then
     TARGET_DIR="/usr/local/bin"
   else
     TARGET_DIR="$HOME/.local/bin"
   fi
 fi
 
-if [[ -e "$TARGET_DIR/crush" ]]; then
-  rm -f "$TARGET_DIR/crush"
-  echo "Removed: $TARGET_DIR/crush"
+if [[ -e "$TARGET_DIR/SecOps" ]]; then
+  rm -f "$TARGET_DIR/SecOps"
+  echo "Removed: $TARGET_DIR/SecOps"
 else
-  echo "Not found: $TARGET_DIR/crush"
+  echo "Not found: $TARGET_DIR/SecOps"
 fi
 SH
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
@@ -96,6 +97,14 @@ func ValidateConfig(cfg *SandboxConfig) error {
 	if cfg.MaxMemoryMB < 0 {
 		return fmt.Errorf("%w: memory limit cannot be negative", ErrConfigInvalid)
 	}
+	if cfg.MaxCPU < 0 {
+		return fmt.Errorf("%w: cpu limit cannot be negative", ErrConfigInvalid)
+	}
+	for _, port := range cfg.AllowedPorts {
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("%w: allowed port %d must be between 1 and 65535", ErrConfigInvalid, port)
+		}
+	}
 
 	// Check for overlapping read-only and deny paths
 	for _, ro := range cfg.ReadOnlyPaths {
@@ -110,7 +119,7 @@ func ValidateConfig(cfg *SandboxConfig) error {
 }
 
 // checkCommandSafety validates a command string against dangerous patterns.
-func checkCommandSafety(cmd string) error {
+func checkCommandSafety(cmd string, cfg SandboxConfig) error {
 	for _, pattern := range dangerousPatterns {
 		if pattern.MatchString(cmd) {
 			return fmt.Errorf("%w: dangerous pattern detected", ErrDangerousPath)
@@ -128,6 +137,28 @@ func checkCommandSafety(cmd string) error {
 	} {
 		if strings.Contains(cmdLower, deny) {
 			return fmt.Errorf("%w: denied path %q referenced", ErrDangerousPath, deny)
+		}
+	}
+
+	for _, deny := range cfg.DenyPaths {
+		deny = strings.ToLower(strings.TrimSpace(deny))
+		if deny == "" {
+			continue
+		}
+		if strings.Contains(cmdLower, deny) {
+			return fmt.Errorf("%w: denied path %q referenced", ErrDangerousPath, deny)
+		}
+	}
+
+	if commandMayWrite(cmdLower) {
+		for _, ro := range cfg.ReadOnlyPaths {
+			ro = strings.ToLower(strings.TrimSpace(ro))
+			if ro == "" {
+				continue
+			}
+			if strings.Contains(cmdLower, ro) {
+				return fmt.Errorf("%w: read-only path %q targeted by write-like command", ErrDangerousPath, ro)
+			}
 		}
 	}
 
@@ -158,7 +189,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, cmd string, cfg SandboxConf
 		return &ExecutionResult{Error: err, RiskScore: 100}, err
 	}
 
-	if err := checkCommandSafety(cmd); err != nil {
+	if err := checkCommandSafety(cmd, cfg); err != nil {
 		return &ExecutionResult{RiskScore: 100, Error: err}, err
 	}
 
@@ -281,7 +312,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd string, cfg SandboxCon
 		return &ExecutionResult{Error: err, RiskScore: 100}, err
 	}
 
-	if err := checkCommandSafety(cmd); err != nil {
+	if err := checkCommandSafety(cmd, cfg); err != nil {
 		return &ExecutionResult{RiskScore: 100, Error: err}, err
 	}
 
@@ -393,7 +424,7 @@ func (e *SSHExecutor) Execute(ctx context.Context, cmd string, cfg SandboxConfig
 		return &ExecutionResult{Error: err, RiskScore: 100}, err
 	}
 
-	if err := checkCommandSafety(cmd); err != nil {
+	if err := checkCommandSafety(cmd, cfg); err != nil {
 		return &ExecutionResult{RiskScore: 100, Error: err}, err
 	}
 
@@ -412,6 +443,9 @@ func (e *SSHExecutor) Execute(ctx context.Context, cmd string, cfg SandboxConfig
 	if cfg.SSHTarget == "" {
 		return &ExecutionResult{Error: fmt.Errorf("%w: SSHTarget not configured", ErrConfigInvalid), RiskScore: 100},
 			fmt.Errorf("%w: SSHTarget not configured", ErrConfigInvalid)
+	}
+	if err := validateSSHExecutionTarget(cfg); err != nil {
+		return &ExecutionResult{Error: err, RiskScore: 100}, err
 	}
 
 	// Verify ssh is available
@@ -491,6 +525,103 @@ func buildSSHExecutorArgs(e *SSHExecutor, cfg SandboxConfig, cmd string) []strin
 
 	args = append(args, cfg.SSHTarget, cmd)
 	return args
+}
+
+func commandMayWrite(cmdLower string) bool {
+	writeIndicators := []string{
+		">", ">>", " tee ", "touch ", "rm ", "mv ", "cp ", "install ",
+		"chmod ", "chown ", "truncate ", "dd ", "sed -i", "perl -pi", "echo ",
+	}
+	for _, indicator := range writeIndicators {
+		if strings.Contains(cmdLower, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateSSHExecutionTarget(cfg SandboxConfig) error {
+	host, port, err := parseSSHTargetHostPort(cfg.SSHTarget)
+	if err != nil {
+		return fmt.Errorf("%w: invalid ssh target: %v", ErrConfigInvalid, err)
+	}
+
+	if len(cfg.AllowedHosts) > 0 {
+		allowed := false
+		for _, candidate := range cfg.AllowedHosts {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" {
+				continue
+			}
+			if strings.EqualFold(candidate, host) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("%w: ssh target host %q is not in allowed_hosts", ErrDangerousPath, host)
+		}
+	}
+
+	if len(cfg.AllowedPorts) > 0 {
+		allowed := false
+		for _, candidate := range cfg.AllowedPorts {
+			if candidate == port {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("%w: ssh target port %d is not in allowed_ports", ErrDangerousPath, port)
+		}
+	}
+
+	return nil
+}
+
+func parseSSHTargetHostPort(target string) (string, int, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", 0, fmt.Errorf("empty target")
+	}
+
+	if at := strings.LastIndex(target, "@"); at >= 0 {
+		target = strings.TrimSpace(target[at+1:])
+	}
+	if target == "" {
+		return "", 0, fmt.Errorf("missing host")
+	}
+
+	if strings.HasPrefix(target, "[") {
+		end := strings.Index(target, "]")
+		if end < 0 {
+			return "", 0, fmt.Errorf("unterminated ipv6 host")
+		}
+		host := target[1:end]
+		remainder := strings.TrimSpace(target[end+1:])
+		port := 22
+		if remainder != "" {
+			if !strings.HasPrefix(remainder, ":") {
+				return "", 0, fmt.Errorf("invalid ipv6 target suffix")
+			}
+			parsedPort, err := strconv.Atoi(strings.TrimPrefix(remainder, ":"))
+			if err != nil {
+				return "", 0, fmt.Errorf("invalid port")
+			}
+			port = parsedPort
+		}
+		return host, port, nil
+	}
+
+	if host, parsedPort, err := net.SplitHostPort(target); err == nil {
+		port, convErr := strconv.Atoi(parsedPort)
+		if convErr != nil {
+			return "", 0, fmt.Errorf("invalid port")
+		}
+		return host, port, nil
+	}
+
+	return target, 22, nil
 }
 
 // NewSSHExecutor creates an SSHExecutor with the given credentials.

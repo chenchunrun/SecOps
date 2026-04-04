@@ -42,14 +42,36 @@ stability, and release readiness.
 
 ## Verification Summary
 
-Executed and passed on RC3:
+Original RC3 gate:
 
 ```bash
 go test ./... -count=1
 go build ./...
 ```
 
+Latest closeout validation baseline:
+
+```bash
+GOCACHE=$(pwd)/.gocache go test ./internal/agent/tools/secops -count=1
+GOCACHE=$(pwd)/.gocache go test ./internal/integration -count=1
+GOCACHE=$(pwd)/.gocache go test ./internal/audit ./internal/sandbox ./internal/permission ./internal/security -count=1
+CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go test ./... -count=1
+CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
+```
+
+Recorded in:
+
+- [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md)
+
 ## Notes
 
 - `gh` CLI is not installed in this environment; release artifact publication is
   expected to be completed via GitHub web UI using this note.
+- Remaining release-closeout work is now manual:
+  - TUI acceptance
+  - packaging verification
+  - optional reasoning demo archival
+- Working records:
+  - [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
+  - [`WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
+  - [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/POST_RELEASE_CHECKLIST.md)

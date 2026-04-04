@@ -18,6 +18,12 @@ type SecOpsService interface {
 	// 检查能力
 	CheckCapability(userID, capability string) (bool, error)
 
+	// 授予能力
+	GrantCapability(userID, capability string)
+
+	// 撤销能力
+	RevokeCapability(userID, capability string)
+
 	// 评估风险
 	EvaluateRisk(req *PermissionRequest) (int, Severity, error)
 

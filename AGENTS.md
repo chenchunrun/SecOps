@@ -85,6 +85,10 @@ repository tracking:
 - **Config is a Service**: accessed via `config.Service`, not global state.
 - **Tools are self-documenting**: each tool has a `.go` implementation and a
   `.md` description file in `internal/agent/tools/`.
+- **Fixed tool families use toolset builders**: when adding a fixed built-in
+  agent tool, prefer extending an existing `Build*ToolSet(...)` dataset or
+  adding a new dataset-backed toolset in `internal/agent/tools/` instead of
+  appending raw constructors in `coordinator.buildTools`.
 - **System prompts are Go templates**: `internal/agent/templates/*.md.tpl`
   with runtime data injected.
 - **Context files**: Crush reads AGENTS.md, CRUSH.md, CLAUDE.md, GEMINI.md

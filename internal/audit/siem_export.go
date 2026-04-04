@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -305,6 +306,9 @@ func (e *ELKExporter) Export(ctx context.Context, events []*AuditEvent) error {
 	if !e.TLSEnabled {
 		return errors.New("ELKExporter: TLS must be enabled to prevent credential exposure over plaintext HTTP")
 	}
+	if err := validateHTTPSURL("ELKExporter", e.Endpoint); err != nil {
+		return err
+	}
 	if len(events) == 0 {
 		return nil
 	}
@@ -410,6 +414,9 @@ func (e *SplunkExporter) Export(ctx context.Context, events []*AuditEvent) error
 	if !e.TLSEnabled {
 		return errors.New("SplunkExporter: TLS must be enabled to prevent credential exposure over plaintext HTTP")
 	}
+	if err := validateHTTPSURL("SplunkExporter", e.Endpoint); err != nil {
+		return err
+	}
 	if len(events) == 0 {
 		return nil
 	}
@@ -496,5 +503,24 @@ func ExportToAll(ctx context.Context, events []*AuditEvent, exporters ...SIEMExp
 			return fmt.Errorf("SIEM export failed: %w", err)
 		}
 	}
+	return nil
+}
+
+func validateHTTPSURL(exporterName string, endpoint string) error {
+	if strings.TrimSpace(endpoint) == "" {
+		return fmt.Errorf("%s: endpoint is required", exporterName)
+	}
+
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("%s: invalid endpoint: %w", exporterName, err)
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return fmt.Errorf("%s: endpoint must use https", exporterName)
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return fmt.Errorf("%s: endpoint host is required", exporterName)
+	}
+
 	return nil
 }
