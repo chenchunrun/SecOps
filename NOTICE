@@ -12,6 +12,16 @@ This repository includes original modifications and additions by chenchunrun,
 including SecOps-specific agent/tooling, risk controls, audit/SIEM integration,
 and release/test hardening.
 
+License structure:
+- Repository-level inherited and derivative code remains under
+  `FSL-1.1-MIT`; see [`LICENSE.md`](/Users/newmba/SecOpsCode/crush-main/LICENSE.md).
+- Selected independent fork-added files may also be published under MIT; see
+  [`LICENSES/MIT-CHENCHUNRUN.txt`](/Users/newmba/SecOpsCode/crush-main/LICENSES/MIT-CHENCHUNRUN.txt)
+  and [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md).
+
+Core contributor contact:
+- chenchunrun <chenchunrun@gmail.com>
+
 Trademark notice:
 Crush and Charmbracelet marks are owned by their respective holders.
 Use of those marks in this repository is for attribution only.

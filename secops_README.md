@@ -3,6 +3,10 @@
 SecOps Agent is an independent security-operations fork based on Crush.
 It is maintained and released by **chenchunrun**.
 
+Core contributor:
+
+- `chenchunrun` `<chenchunrun@gmail.com>`
+
 - Upstream base: Crush by Charmbracelet
 - Repository module: `github.com/chenchunrun/SecOps`
 - Scope: SecOps tools, risk/capability enforcement, audit/SIEM, and secure runtime workflows
@@ -159,6 +163,12 @@ Example:
 
 - License: see `LICENSE.md`
 - Attribution and fork notice: see `NOTICE`
+- Mixed-license readiness assessment: see
+  [`MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+- File-level license map: see
+  [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
+- Contributors: see
+  [`CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/CONTRIBUTORS.md)
 - This project is an independent fork and is not affiliated with or endorsed by
   Charmbracelet.
 

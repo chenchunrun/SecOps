@@ -11,6 +11,10 @@
 > Based on the original Crush project by Charmbracelet. Not affiliated with or
 > endorsed by Charmbracelet.
 
+Core contributor:
+
+- `chenchunrun` `<chenchunrun@gmail.com>`
+
 <p align="center">Your new coding bestie, now available in your favourite terminal.<br />Your tools, your code, and your workflows, wired into your LLM of choice.</p>
 <p align="center">终端里的编程新搭档，<br />无缝接入你的工具、代码与工作流，全面兼容主流 LLM 模型。</p>
 
@@ -31,8 +35,9 @@
 This fork includes SecOps runtime capabilities (18 tools, risk/capability gates,
 audit/SIEM, and persistence hardening).
 
-Internal planning and design documents are intentionally kept local-only during
-development and are not published to the remote repository.
+Some release-closeout and project-governance materials are tracked in this fork
+repository. Their presence should be treated as fork-specific project records,
+not as upstream release policy.
 
 Recommended release verification commands:
 
@@ -47,6 +52,9 @@ CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 Latest recorded validation baseline:
 
 - [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md)
+- [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/SECURITY_AUDIT_2026-04-04.md)
+- [`MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+- [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
 
 ## Installation
 
@@ -848,7 +856,18 @@ We’d love to hear your thoughts on this project. Need help? We gotchu. You can
 
 ## License
 
-[FSL-1.1-MIT](https://github.com/chenchunrun/SecOps/raw/main/LICENSE.md)
+This repository is a mixed-license fork.
+
+- The inherited and derivative Crush codebase remains governed by
+  [`LICENSE.md`](/Users/newmba/SecOpsCode/crush-main/LICENSE.md), which
+  contains the upstream `FSL-1.1-MIT` terms.
+- Selected independent fork additions may be published under
+  [`LICENSES/MIT-CHENCHUNRUN.txt`](/Users/newmba/SecOpsCode/crush-main/LICENSES/MIT-CHENCHUNRUN.txt).
+- The current file-level designation is recorded in
+  [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md).
+
+This repository should not currently be represented as a single-license MIT
+project or as wholly OSI-open-source.
 
 ---
 
