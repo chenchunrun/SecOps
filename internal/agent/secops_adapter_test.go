@@ -484,7 +484,7 @@ func TestApplySecOpsCapabilityGrants(t *testing.T) {
 	cfg := &config.Config{
 		Permissions: &config.Permissions{
 			SecOpsCapabilityGrants: map[string][]string{
-				"analyst": []string{"network:scan"},
+				"analyst": {"network:scan"},
 			},
 		},
 	}

@@ -1,8 +1,10 @@
 package registry
 
-import "testing"
+import (
+	"testing"
 
-import "github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/require"
+)
 
 func requireDescriptorKeysMatch(t *testing.T, descs []Descriptor, expected []string) {
 	t.Helper()
