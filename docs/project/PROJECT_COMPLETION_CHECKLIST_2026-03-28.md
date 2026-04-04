@@ -181,7 +181,7 @@ The current codebase implements 18 SecOps tool types:
 - `CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...`
   PASS
 
-See [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md) for the full record.
+See [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md) for the full record.
 
 ## Remaining Work
 
@@ -195,7 +195,7 @@ See [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALI
 - [ ] Perform manual TUI acceptance pass.
 - [ ] Confirm release/package outputs after the latest changes.
   - Working checklist:
-    [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/POST_RELEASE_CHECKLIST.md)
+    [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/POST_RELEASE_CHECKLIST.md)
 
 ### Architecture Mapping
 
@@ -212,7 +212,7 @@ See [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALI
 
 Evidence:
 
-- [`PROJECT_ANALYSIS_MAPPING_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/PROJECT_ANALYSIS_MAPPING_2026-04-04.md)
+- [`PROJECT_ANALYSIS_MAPPING_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/project/PROJECT_ANALYSIS_MAPPING_2026-04-04.md)
 
 ### Medium priority
 

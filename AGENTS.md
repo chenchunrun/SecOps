@@ -59,15 +59,18 @@ internal/
   agent/tools/secops/              SecOps tool implementations (18 categories)
 ```
 
-## Local-only Development Docs
+## Project Docs
 
-The following files are intentionally local-only and ignored from remote
-repository tracking:
+Tracked project records now live under `docs/`:
 
-- `SECOPS_DOD_MATRIX.md`
-- `SECOPS_FEATURES.md`
-- `SECOPS_PROJECT_PLAN.md`
-- `SECURITY_HARDENING.md`
+- `docs/security/SECOPS_DOD_MATRIX.md`
+- `docs/security/SECURITY_HARDENING.md`
+- `docs/project/PROJECT_COMPLETION_CHECKLIST_2026-03-28.md`
+- `docs/project/CURRENT_MAINLINE_STATUS_2026-03-28.md`
+- `docs/release/VALIDATION_REPORT_2026-04-04.md`
+
+Local-only materials should use the existing `LOCAL_*` naming convention and
+remain out of release-facing navigation unless they are intentionally promoted.
 
 ### Key Dependency Roles
 

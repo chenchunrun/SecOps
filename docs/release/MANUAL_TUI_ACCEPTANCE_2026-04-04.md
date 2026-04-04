@@ -14,7 +14,7 @@
 
 Automated baseline already passed:
 
-- [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md)
+- [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md)
 
 ## Environment
 

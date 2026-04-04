@@ -12,7 +12,7 @@
 
 Related references:
 
-- [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/POST_RELEASE_CHECKLIST.md)
+- [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/POST_RELEASE_CHECKLIST.md)
 - [`INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/INSTALL_ONECLICK_zh-CN.md)
 - [`scripts/package_cross_platform.sh`](/Users/newmba/SecOpsCode/crush-main/scripts/package_cross_platform.sh)
 
@@ -122,4 +122,4 @@ Known precheck outcome from current non-Windows environment:
 - Windows install guide:
   [`INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/INSTALL_ONECLICK_zh-CN.md)
 - Overall closeout checklist:
-  [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/POST_RELEASE_CHECKLIST.md)
+  [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/POST_RELEASE_CHECKLIST.md)

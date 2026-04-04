@@ -61,7 +61,7 @@ CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 
 Recorded in:
 
-- [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md)
+- [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md)
 
 ## Notes
 
@@ -72,6 +72,6 @@ Recorded in:
   - packaging verification
   - optional reasoning demo archival
 - Working records:
-  - [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
-  - [`WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
-  - [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/POST_RELEASE_CHECKLIST.md)
+  - [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
+  - [`WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
+  - [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/POST_RELEASE_CHECKLIST.md)

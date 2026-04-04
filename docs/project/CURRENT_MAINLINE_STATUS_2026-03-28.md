@@ -179,7 +179,7 @@ Current build status:
 
 - Mainline builds successfully.
 - Validation baseline is now
-  [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md).
+  [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md).
 - The working tree includes ongoing local source and documentation changes tied
   to closeout work; validation was run against that current workspace state.
 
@@ -197,7 +197,7 @@ The current architecture-level closeout conclusion is:
 
 Reference:
 
-- [`PROJECT_ANALYSIS_MAPPING_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/PROJECT_ANALYSIS_MAPPING_2026-04-04.md)
+- [`PROJECT_ANALYSIS_MAPPING_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/project/PROJECT_ANALYSIS_MAPPING_2026-04-04.md)
 
 ## Current Residual Items
 

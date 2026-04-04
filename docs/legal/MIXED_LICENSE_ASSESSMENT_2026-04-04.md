@@ -73,9 +73,9 @@ Examples from the recent closeout stream:
 - [`internal/agent/tools/mcp_toolset.go`](/Users/newmba/SecOpsCode/crush-main/internal/agent/tools/mcp_toolset.go)
 - [`internal/agent/tools/remote_toolset.go`](/Users/newmba/SecOpsCode/crush-main/internal/agent/tools/remote_toolset.go)
 - [`internal/agent/tools/runtime_toolset.go`](/Users/newmba/SecOpsCode/crush-main/internal/agent/tools/runtime_toolset.go)
-- [`CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/CONTRIBUTORS.md)
-- [`PROJECT_ANALYSIS_MAPPING_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/PROJECT_ANALYSIS_MAPPING_2026-04-04.md)
-- [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/SECURITY_AUDIT_2026-04-04.md)
+- [`CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/CONTRIBUTORS.md)
+- [`PROJECT_ANALYSIS_MAPPING_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/project/PROJECT_ANALYSIS_MAPPING_2026-04-04.md)
+- [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md)
 
 Assessment basis:
 
@@ -89,10 +89,10 @@ Assessment basis:
 
 These are not licensing blockers by themselves, but they need explicit policy:
 
-- [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/POST_RELEASE_CHECKLIST.md)
-- [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
-- [`WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
-- [`CURRENT_MAINLINE_STATUS_2026-03-28.md`](/Users/newmba/SecOpsCode/crush-main/CURRENT_MAINLINE_STATUS_2026-03-28.md)
+- [`POST_RELEASE_CHECKLIST.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/POST_RELEASE_CHECKLIST.md)
+- [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
+- [`WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
+- [`CURRENT_MAINLINE_STATUS_2026-03-28.md`](/Users/newmba/SecOpsCode/crush-main/docs/project/CURRENT_MAINLINE_STATUS_2026-03-28.md)
 
 These should either:
 

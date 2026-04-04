@@ -145,7 +145,7 @@ Key files:
 
 - [`internal/ui/model/header.go`](/Users/newmba/SecOpsCode/crush-main/internal/ui/model/header.go)
 - [`internal/ui/model/ui.go`](/Users/newmba/SecOpsCode/crush-main/internal/ui/model/ui.go)
-- [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
+- [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
 
 ### 7. Extensions and Integrations
 

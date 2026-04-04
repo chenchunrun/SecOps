@@ -61,7 +61,7 @@ CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 - The previously documented local-port bind concern did not reproduce in this
   environment; both the focused integration suite and full suite passed.
 - A follow-up closeout security audit also completed on 2026-04-04; see
-  [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/SECURITY_AUDIT_2026-04-04.md).
+  [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md).
 
 ## Follow-up Actions
 1. Perform the remaining manual TUI acceptance pass for `AUTO -> OPS -> SEC -> AUTO`.

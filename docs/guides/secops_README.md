@@ -164,11 +164,11 @@ Example:
 - License: see `LICENSE.md`
 - Attribution and fork notice: see `NOTICE`
 - Mixed-license readiness assessment: see
-  [`MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+  [`MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
 - File-level license map: see
   [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
 - Contributors: see
-  [`CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/CONTRIBUTORS.md)
+  [`CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/CONTRIBUTORS.md)
 - This project is an independent fork and is not affiliated with or endorsed by
   Charmbracelet.
 

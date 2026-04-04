@@ -1,34 +1,60 @@
-# SecOps Agent (Based on Crush)
+# SecOps Agent
 
 <p align="center">
-    <a href="https://stuff.charm.sh/crush/charm-crush.png"><img width="450" alt="Charm Crush Logo" src="https://github.com/user-attachments/assets/cf8ca3ce-8b02-43f0-9d0f-5a331488da4b" /></a><br />
+    <a href="https://stuff.charm.sh/crush/charm-crush.png"><img width="450" alt="SecOps Agent" src="https://github.com/user-attachments/assets/cf8ca3ce-8b02-43f0-9d0f-5a331488da4b" /></a><br />
     <a href="https://github.com/chenchunrun/SecOps/releases"><img src="https://img.shields.io/github/release/chenchunrun/SecOps" alt="Latest Release"></a>
     <a href="https://github.com/chenchunrun/SecOps/actions"><img src="https://github.com/chenchunrun/SecOps/actions/workflows/build.yml/badge.svg" alt="Build Status"></a>
 </p>
 
 > Independent fork and SecOps extension maintained and released by
 > **chenchunrun**.
-> Based on the original Crush project by Charmbracelet. Not affiliated with or
-> endorsed by Charmbracelet.
+> Built from the original Crush base, but extended into a security-operations
+> runtime with policy, audit, and secure execution controls. Not affiliated
+> with or endorsed by Charmbracelet.
 
 Core contributor:
 
 - `chenchunrun` `<chenchunrun@gmail.com>`
 
-<p align="center">Your new coding bestie, now available in your favourite terminal.<br />Your tools, your code, and your workflows, wired into your LLM of choice.</p>
-<p align="center">终端里的编程新搭档，<br />无缝接入你的工具、代码与工作流，全面兼容主流 LLM 模型。</p>
+<p align="center">A terminal-native SecOps and engineering assistant with governed execution, auditability, and risk-aware automation.</p>
+<p align="center">面向安全运营和工程协作的终端智能体，强调受控执行、风险感知和可审计自动化。</p>
 
-<p align="center"><img width="800" alt="Crush Demo" src="https://github.com/user-attachments/assets/58280caf-851b-470a-b6f7-d5c4ea8a1968" /></p>
+<p align="center"><img width="800" alt="SecOps Agent Demo" src="https://github.com/user-attachments/assets/58280caf-851b-470a-b6f7-d5c4ea8a1968" /></p>
 
-## Features
+## What SecOps Adds
 
-- **Multi-Model:** choose from a wide range of LLMs or add your own via OpenAI- or Anthropic-compatible APIs
-- **Flexible:** switch LLMs mid-session while preserving context
-- **Session-Based:** maintain multiple work sessions and contexts per project
-- **LSP-Enhanced:** Crush uses LSPs for additional context, just like you do
-- **Extensible:** add capabilities via MCPs (`http`, `stdio`, and `sse`)
-- **Works Everywhere:** first-class support in every terminal on macOS, Linux, Windows (PowerShell and WSL), Android, FreeBSD, OpenBSD, and NetBSD
-- **Industrial Grade:** built on the Charm ecosystem, powering 25k+ applications, from leading open source projects to business-critical infrastructure
+- **18 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, deployment and infrastructure queries, and more.
+- **Risk-aware execution:** capability checks and permission decisions evaluate risk signals before sensitive tools or commands run.
+- **Audit and SIEM pipeline:** every governed action can be recorded, reviewed, and exported to ELK, Splunk, Azure Sentinel, or generic JSON sinks with redaction.
+- **Governed execution backends:** local, Docker, and SSH execution paths now carry policy validation, audit middleware, and remote-target checks.
+- **Mode-specialized agents:** AUTO, OPS, SEC, and CODE flows expose explicit routing for operations and security work in the TUI.
+- **SecOps-first runtime architecture:** capability registry, tool catalogs, fixed toolset datasets, and config/runtime wiring were generalized to reduce drift across the system.
+
+## Base Capabilities
+
+- **Multi-model:** works with OpenAI-compatible, Anthropic-compatible, and other provider integrations already present in the upstream base.
+- **Session-based workflows:** keeps per-project conversational and tool context.
+- **LSP and MCP integration:** supports code intelligence and external capability extension.
+- **Cross-platform terminal UX:** runs on macOS, Linux, and Windows environments supported by the underlying project.
+
+## Architecture Highlights
+
+- **Capability registry generalization:** the SecOps capability layer was refactored into a reusable registry/spec model instead of one-off descriptor plumbing.
+- **Toolset unification:** fixed built-in tools now use dataset-backed builders and catalog helpers instead of scattered ad hoc registration.
+- **Execution middleware refactor:** policy and audit concerns were lifted into shared middleware around local and remote execution.
+- **Security hardening:** SIEM exporters require real HTTPS endpoints, SSH targets enforce host/port allowlists, and dangerous path access is checked earlier in the execution path.
+- **Release-closeout evidence:** validation, audit, release, and project-status records are now organized under [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md).
+
+## Documentation
+
+- Product and usage guide:
+  [`docs/guides/secops_README.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/secops_README.md)
+- Release and validation records:
+  [`docs/release/VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md)
+- Security and audit records:
+  [`docs/security/SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md)
+- Full documentation index:
+  [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md)
 
 ## SecOps Validation
 
@@ -51,166 +77,50 @@ CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 
 Latest recorded validation baseline:
 
-- [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md)
-- [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/SECURITY_AUDIT_2026-04-04.md)
-- [`MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+- [`docs/release/VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md)
+- [`docs/security/SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md)
+- [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
 - [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
+- [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md)
 
 ## Installation
 
-Use a package manager:
+Published artifacts for this fork are distributed from the
+[GitHub releases page](https://github.com/chenchunrun/SecOps/releases).
+
+Recommended executable names:
+
+- `SecOps`
+- `secops-agent`
+
+Build from source:
 
 ```bash
-# Homebrew
-brew install charmbracelet/tap/crush
-
-# NPM
-npm install -g @charmland/crush
-
-# Arch Linux (btw)
-yay -S crush-bin
-
-# Nix
-nix run github:numtide/nix-ai-tools#crush
-
-# FreeBSD
-pkg install crush
+CGO_ENABLED=0 go build -o SecOps .
+./SecOps --version
 ```
 
-Windows users:
+Install with Go:
 
 ```bash
-# Winget
-winget install charmbracelet.crush
-
-# Scoop
-scoop bucket add charm https://github.com/charmbracelet/scoop-bucket.git
-scoop install crush
-```
-
-<details>
-<summary><strong>Nix (NUR)</strong></summary>
-
-Crush is available via the official Charm [NUR](https://github.com/nix-community/NUR) in `nur.repos.charmbracelet.crush`, which is the most up-to-date way to get Crush in Nix.
-
-You can also try out Crush via the NUR with `nix-shell`:
-
-```bash
-# Add the NUR channel.
-nix-channel --add https://github.com/nix-community/NUR/archive/main.tar.gz nur
-nix-channel --update
-
-# Get Crush in a Nix shell.
-nix-shell -p '(import <nur> { pkgs = import <nixpkgs> {}; }).repos.charmbracelet.crush'
-```
-
-### NixOS & Home Manager Module Usage via NUR
-
-Crush provides NixOS and Home Manager modules via NUR.
-You can use these modules directly in your flake by importing them from NUR. Since it auto detects whether its a home manager or nixos context you can use the import the exact same way :)
-
-```nix
-{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nur.url = "github:nix-community/NUR";
-  };
-
-  outputs = { self, nixpkgs, nur, ... }: {
-    nixosConfigurations.your-hostname = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        nur.modules.nixos.default
-        nur.repos.charmbracelet.modules.crush
-        {
-          programs.crush = {
-            enable = true;
-            settings = {
-              providers = {
-                openai = {
-                  id = "openai";
-                  name = "OpenAI";
-                  base_url = "https://api.openai.com/v1";
-                  type = "openai";
-                  api_key = "sk-fake123456789abcdef...";
-                  models = [
-                    {
-                      id = "gpt-4";
-                      name = "GPT-4";
-                    }
-                  ];
-                };
-              };
-              lsp = {
-                go = { command = "gopls"; enabled = true; };
-                nix = { command = "nil"; enabled = true; };
-              };
-              options = {
-                context_paths = [ "/etc/nixos/configuration.nix" ];
-                tui = { compact_mode = true; };
-                debug = false;
-              };
-            };
-          };
-        }
-      ];
-    };
-  };
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Debian/Ubuntu</strong></summary>
-
-```bash
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
-sudo apt update && sudo apt install crush
-```
-
-</details>
-
-<details>
-<summary><strong>Fedora/RHEL</strong></summary>
-
-```bash
-echo '[charm]
-name=Charm
-baseurl=https://repo.charm.sh/yum/
-enabled=1
-gpgcheck=1
-gpgkey=https://repo.charm.sh/yum/gpg.key' | sudo tee /etc/yum.repos.d/charm.repo
-sudo yum install crush
-```
-
-</details>
-
-Or, download it:
-
-- [Packages][releases] are available in Debian and RPM formats
-- [Binaries][releases] are available for Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD
-
-[releases]: https://github.com/chenchunrun/SecOps/releases
-
-Or just install it with Go:
-
-```
 go install github.com/chenchunrun/SecOps@latest
 ```
 
+One-click packaging and Windows notes:
+
+- [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/INSTALL_ONECLICK_zh-CN.md)
+- [`docs/release/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
+
 > [!WARNING]
-> Productivity may increase when using Crush and you may find yourself nerd
+> Productivity may increase when using SecOps and you may find yourself nerd
 > sniped when first using the application. If the symptoms persist, join the
 > [Discord][discord] and nerd snipe the rest of us.
 
 ## Getting Started
 
 The quickest way to get started is to grab an API key for your preferred
-provider such as Anthropic, OpenAI, Groq, OpenRouter, or Vercel AI Gateway and just start
-Crush. You'll be prompted to enter your API key.
+provider such as Anthropic, OpenAI, Groq, OpenRouter, or Vercel AI Gateway and
+start `SecOps`. You'll be prompted to enter your API key.
 
 That said, you can also set environment variables for preferred providers.
 

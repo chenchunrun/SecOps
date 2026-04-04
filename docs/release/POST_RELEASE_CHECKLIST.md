@@ -10,7 +10,7 @@
 - [x] `CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go test ./... -count=1` passed.
 - [x] `CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...` passed.
 - Reference:
-  - [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/VALIDATION_REPORT_2026-04-04.md)
+  - [`VALIDATION_REPORT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/VALIDATION_REPORT_2026-04-04.md)
 
 ## Basic Availability
 
@@ -28,7 +28,7 @@
 
 Working record:
 
-- [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
+- [`MANUAL_TUI_ACCEPTANCE_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/MANUAL_TUI_ACCEPTANCE_2026-04-04.md)
 
 - [ ] Start in `AUTO` mode and verify header label shows `AUTO`.
 - [ ] Trigger an Ops-style prompt in `AUTO`; verify pre-reply routing message announces Ops routing.
@@ -63,13 +63,13 @@ Working record:
 - [ ] Sensitive fields are redacted in exported payloads.
 - [ ] Retry behavior works on temporary SIEM delivery failure.
 - Reference:
-  - [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/SECURITY_AUDIT_2026-04-04.md)
+  - [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md)
 
 ## Packaging and Distribution
 
 Working record:
 
-- [`WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
+- [`WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/release/WINDOWS_PACKAGING_VERIFICATION_2026-04-04.md)
 
 - [ ] Confirm latest packaging outputs after UI/routing and naming changes.
 - [ ] On Windows packaging outputs, verify `secops-agent.exe` is primary and `crush.exe` remains a compatibility alias.
@@ -79,7 +79,7 @@ Working record:
 
 - [ ] Decide whether `CURRENT_MAINLINE_STATUS_2026-03-28.md` remains local-only or is replaced by a formal release status artifact.
 - [ ] Decide whether `PROJECT_COMPLETION_CHECKLIST_2026-03-28.md` remains local-only or is folded into release records.
-- [ ] Decide whether [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/SECURITY_AUDIT_2026-04-04.md) remains local-only or is folded into release records.
+- [ ] Decide whether [`SECURITY_AUDIT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/security/SECURITY_AUDIT_2026-04-04.md) remains local-only or is folded into release records.
 - [ ] If ATT&CK reasoning workflow is part of the release story, run `task demo:secops-reasoning` and archive the outcome.
 - [ ] Ensure the release note references the latest validation baseline instead of older RC-only validation.
 
