@@ -1,0 +1,92 @@
+# PDF 安全分析配置文件 v3.2
+# 修改后需重新运行扫描
+
+# URL 白名单 - 这些域名不计入威胁评分
+url_whitelist:
+  # 标准组织
+  - adobe.com
+  - w3.org
+  - purl.org
+  - iec.ch
+  - iso.org
+  - ieee.org
+  # 科技公司
+  - microsoft.com
+  - apple.com
+  - google.com
+  - mozilla.org
+  - github.com
+  - gitlab.com
+  - amazon.com
+  - aws.amazon.com
+  # 内容平台
+  - wikipedia.org
+  - linkedin.com
+  - twitter.com
+  - youtube.com
+  - facebook.com
+  # 字体和设计
+  - fonts.google.com
+  - typekit.com
+  - fontawesome.com
+  - dynaforms.com
+  # 云存储 (合法服务)
+  - dropbox.com
+  - drive.google.com
+  - onedrive.live.com
+  - icloud.com
+  # 文档服务
+  - docs.google.com
+  - office.com
+  - sharepoint.com
+
+# 可疑文件扩展名
+suspicious_extensions:
+  - .exe
+  - .dll
+  - .bat
+  - .cmd
+  - .ps1
+  - .vbs
+  - .scr
+  - .msi
+  - .jar
+  - .hta
+  - .wsf
+  - .jse
+  - .vbe
+
+# 可疑作者关键词
+suspicious_authors:
+  - randomized bot
+  - bot
+  - auto
+  - automated
+  - script
+
+# 风险评分阈值
+risk_thresholds:
+  medium: 20
+  high: 50
+  critical: 100
+
+# 风险权重
+risk_weights:
+  critical_keyword: 30
+  high_keyword: 15
+  medium_keyword: 5
+  low_keyword: 1
+  malicious_url: 50
+  javascript: 25
+  long_string: 20
+  suspicious_author: 30
+  high_entropy: 15
+  cve_exploit: 40
+  font_exploit: 25
+  structural_anomaly: 20
+  dangerous_api: 20
+
+# 熵值阈值
+entropy_thresholds:
+  high: 7.5        # 高熵阈值 (接近随机/加密)
+  suspicious: 6.5  # 可疑熵阈值

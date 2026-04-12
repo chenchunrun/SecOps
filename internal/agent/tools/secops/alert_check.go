@@ -15,17 +15,17 @@ import (
 
 // AlertCheckParams for checking alerts
 type AlertCheckParams struct {
-	System          string `json:"system"` // prometheus, grafana, datadog, pagerduty
-	Filter          string `json:"filter"`
-	Status          string `json:"status"` // firing, resolved, acknowledged
-	TimeRange       string `json:"time_range"`
-	Endpoint        string `json:"endpoint,omitempty"`
-	APIToken        string `json:"api_token,omitempty"`
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	System          string `json:"system" description:"Alert system: prometheus, grafana, datadog, pagerduty"`
+	Filter          string `json:"filter" description:"Text filter to match alert names, messages, or labels"`
+	Status          string `json:"status" description:"Alert status filter: firing, resolved, acknowledged"`
+	TimeRange       string `json:"time_range" description:"Time range as Go duration, e.g. 1h, 30m, 24h"`
+	Endpoint        string `json:"endpoint,omitempty" description:"API endpoint URL for the alert system"`
+	APIToken        string `json:"api_token,omitempty" description:"API token for authenticating with the alert system"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // AlertCheckTool 告警检查工具

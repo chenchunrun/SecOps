@@ -13,13 +13,13 @@ import (
 
 // BackupCheckParams for checking backup status
 type BackupCheckParams struct {
-	SystemType      string `json:"system_type"` // mysql, postgresql, k8s, files
-	Target          string `json:"target"`      // host or cluster name
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	SystemType      string `json:"system_type" description:"Backup system type: mysql, postgresql, k8s, files"`
+	Target          string `json:"target" description:"Backup target host, cluster name, or path"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // BackupCheckResult 备份检查结果

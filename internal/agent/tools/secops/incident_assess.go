@@ -8,13 +8,13 @@ import (
 // IncidentAssessParams combines common SecOps evidence sources into a single
 // investigation workflow input.
 type IncidentAssessParams struct {
-	IncidentID         string                  `json:"incident_id,omitempty"`
-	Platform           string                  `json:"platform,omitempty"`
-	AlertResult        *AlertCheckResult       `json:"alert_result,omitempty"`
-	LogAnalyzeResult   *LogAnalyzeResult       `json:"log_analyze_result,omitempty"`
-	TimelineResult     *IncidentTimelineResult `json:"timeline_result,omitempty"`
-	AccessReviewResult *AccessReviewResult     `json:"access_review_result,omitempty"`
-	Events             []AttackReasonEvidence  `json:"events,omitempty"`
+	IncidentID         string                  `json:"incident_id,omitempty" description:"Incident identifier for the assessment"`
+	Platform           string                  `json:"platform,omitempty" description:"Platform context, e.g. kubernetes, aws, gcp"`
+	AlertResult        *AlertCheckResult       `json:"alert_result,omitempty" description:"Output from the alert_check tool"`
+	LogAnalyzeResult   *LogAnalyzeResult       `json:"log_analyze_result,omitempty" description:"Output from the log_analyze tool"`
+	TimelineResult     *IncidentTimelineResult `json:"timeline_result,omitempty" description:"Output from the incident_timeline tool"`
+	AccessReviewResult *AccessReviewResult     `json:"access_review_result,omitempty" description:"Output from the access_review tool"`
+	Events             []AttackReasonEvidence  `json:"events,omitempty" description:"Normalized evidence events for analysis"`
 }
 
 // IncidentAssessResult is a higher-level security investigation output.

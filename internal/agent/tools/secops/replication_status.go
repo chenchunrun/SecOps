@@ -13,13 +13,13 @@ import (
 
 // ReplicationStatusParams for checking DB replication
 type ReplicationStatusParams struct {
-	System          string `json:"system"` // mysql, postgresql
-	Host            string `json:"host"`
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	System          string `json:"system" description:"Database system: mysql, postgresql"`
+	Host            string `json:"host" description:"Primary database host to check replication"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // ReplicationStatusResult 复制状态结果

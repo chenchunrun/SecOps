@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 )
 
@@ -117,6 +118,17 @@ func (r *Registry) ExecutionProfileFor(key string) (ExecutionProfile, bool) {
 		return "", false
 	}
 	return metadata.ExecutionProfile, true
+}
+
+// ParamsTypeFor returns the reflect.Type of the params struct registered for
+// the given tool key. Returns (nil, false) when the key is not found or no
+// type was recorded.
+func (r *Registry) ParamsTypeFor(key string) (reflect.Type, bool) {
+	desc, ok := r.Get(key)
+	if !ok || desc.ParamsType == nil {
+		return nil, false
+	}
+	return desc.ParamsType, true
 }
 
 func MustNew(descs ...Descriptor) *Registry {

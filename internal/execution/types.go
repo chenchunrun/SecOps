@@ -4,14 +4,19 @@ import (
 	"context"
 	"errors"
 
-	"github.com/chenchunrun/SecOps/internal/policy"
 	"github.com/chenchunrun/SecOps/internal/shell"
 )
+
+type Decision struct {
+	Allowed     bool
+	Reason      string
+	AuditFields map[string]any
+}
 
 type LocalRequest struct {
 	SessionID           string
 	ToolName            string
-	PolicyDecision      *policy.Decision
+	Decision            *Decision
 	Command             string
 	Description         string
 	WorkingDir          string
@@ -34,7 +39,7 @@ type LocalExecutor interface {
 type RemoteRequest struct {
 	SessionID        string
 	ToolName         string
-	PolicyDecision   *policy.Decision
+	Decision         *Decision
 	Command          string
 	Description      string
 	TargetHost       string

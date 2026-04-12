@@ -15,15 +15,15 @@ import (
 
 // ResourceMonitorParams for system resource monitoring
 type ResourceMonitorParams struct {
-	Target          string   `json:"target"`   // "localhost" or hostname
-	Metrics         []string `json:"metrics"`  // "cpu", "memory", "disk", "network", "process"
-	Duration        string   `json:"duration"` // "1m", "5m", "15m"
-	Interval        string   `json:"interval"` // "1s", "5s", "10s"
-	RemoteHost      string   `json:"remote_host,omitempty"`
-	RemoteUser      string   `json:"remote_user,omitempty"`
-	RemotePort      int      `json:"remote_port,omitempty"`
-	RemoteKeyPath   string   `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string   `json:"remote_proxy_jump,omitempty"`
+	Target          string   `json:"target" description:"Hostname to monitor, e.g. localhost"`
+	Metrics         []string `json:"metrics" description:"Metrics to collect: cpu, memory, disk, network, process"`
+	Duration        string   `json:"duration" description:"Monitoring duration: 1m, 5m, 15m, or 1h"`
+	Interval        string   `json:"interval" description:"Sampling interval: 1s, 5s, 10s, or 30s"`
+	RemoteHost      string   `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string   `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int      `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string   `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string   `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // ResourceMetric represents a single metric measurement

@@ -25,6 +25,67 @@ func TestInMemoryAuditStore_SaveEvent(t *testing.T) {
 	}
 }
 
+func TestInMemoryAuditStore_SaveEvent_TruncatesAction(t *testing.T) {
+	store := NewInMemoryAuditStore()
+
+	event := &AuditEvent{
+		EventType:  EventTypeCommandExecuted,
+		Timestamp: time.Now().UTC(),
+		Action:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 65 chars
+		Result:    ResultSuccess,
+	}
+
+	if err := store.SaveEvent(event); err != nil {
+		t.Fatalf("SaveEvent() error = %v", err)
+	}
+
+	got, err := store.GetEvent(event.ID)
+	if err != nil {
+		t.Fatalf("GetEvent() error = %v", err)
+	}
+	if len(got.Action) != 64 {
+		t.Fatalf("expected action length 64, got %d (%q)", len(got.Action), got.Action)
+	}
+}
+
+func TestInMemoryAuditStore_SaveEvent_EvictsOldestWhenOverCapacity(t *testing.T) {
+	store := NewInMemoryAuditStore()
+
+	now := time.Now().UTC()
+	var oldestIDs []string
+
+	// Insert slightly over the capacity. We set monotonic timestamps so FIFO is deterministic.
+	for i := 0; i < 10_005; i++ {
+		ev := &AuditEvent{
+			EventType:  EventTypeCommandExecuted,
+			Timestamp:  now.Add(time.Duration(i) * time.Millisecond),
+			Result:     ResultSuccess,
+			Action:     "test",
+		}
+		if err := store.SaveEvent(ev); err != nil {
+			t.Fatalf("SaveEvent() error at %d = %v", i, err)
+		}
+		if i < 5 {
+			oldestIDs = append(oldestIDs, ev.ID)
+		}
+	}
+
+	count, err := store.CountEvents(&AuditFilter{})
+	if err != nil {
+		t.Fatalf("CountEvents() error = %v", err)
+	}
+	if count != 10_000 {
+		t.Fatalf("expected count 10000, got %d", count)
+	}
+
+	// Oldest 5 should be evicted (FIFO).
+	for _, id := range oldestIDs {
+		if _, err := store.GetEvent(id); err == nil {
+			t.Fatalf("expected evicted event %s to be missing", id)
+		}
+	}
+}
+
 func TestInMemoryAuditStore_SaveEvent_Nil(t *testing.T) {
 	store := NewInMemoryAuditStore()
 

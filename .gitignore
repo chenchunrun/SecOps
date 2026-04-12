@@ -18,11 +18,19 @@
 go.work
 go.work.sum
 
+# Local Go caches (optional test/build overrides)
+.gocache/
+.gomodcache/
+
 # IDE specific files
 .idea/
 .vscode/
 *.swp
 *.swo
+
+# Python bytecode (bundled skills may run scripts locally)
+**/__pycache__/
+*.py[cod]
 
 # OS specific files
 .DS_Store

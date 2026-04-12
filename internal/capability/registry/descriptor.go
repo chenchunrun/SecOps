@@ -2,6 +2,7 @@ package registry
 
 import (
 	"encoding/json"
+	"reflect"
 )
 
 // ExecutionProfile describes where a capability-backed tool may execute.
@@ -26,9 +27,10 @@ func (m Metadata) Clone() Metadata {
 }
 
 type Descriptor struct {
-	Key      string
-	Metadata Metadata
-	Decode   func(raw json.RawMessage) (any, error)
+	Key        string
+	Metadata   Metadata
+	Decode     func(raw json.RawMessage) (any, error)
+	ParamsType reflect.Type // params struct type; used to generate JSON schema for the LLM
 }
 
 func decodeJSONInto[T any](raw json.RawMessage) (any, error) {

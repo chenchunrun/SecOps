@@ -1,0 +1,141 @@
+# DNS缓存探测威胁检测系统 - 配置文件
+
+# DNS服务器配置
+dns:
+  # 企业内网DNS（需根据实际环境修改）
+  enterprise:
+    - "10.0.0.53"
+    - "192.168.1.1"
+
+  # 国内公共DNS（用于获取权威TTL）
+  authoritative:
+    primary: "223.5.5.5"      # 阿里云DNS
+    secondary: "119.29.29.29" # 腾讯DNSPod
+
+  # 国外DNS（备用）
+  fallback:
+    - "8.8.8.8"   # Google DNS
+    - "1.1.1.1"   # Cloudflare DNS
+
+# 探测配置
+probe:
+  # 每个域名探测次数
+  repeats: 10
+
+  # 探测超时（秒）
+  timeout: 3
+
+  # 并发线程数
+  threads: 8
+
+  # TTL差异阈值（秒）- 小于此值认为是缓存命中
+  ttl_threshold: 10
+
+  # 是否使用RD=0探测
+  use_rd0: true
+
+  # 是否使用TTL对比探测
+  use_ttl_compare: true
+
+# 威胁情报配置
+threat_intel:
+  # IOC来源
+  sources:
+    - type: "file"
+      path: "iocs/malware_domains.txt"
+      enabled: false
+
+    - type: "file"
+      path: "iocs/real_c2_domains.txt"
+      enabled: true
+
+    - type: "mcp"
+      server: "cybersec-cloud"
+      enabled: false
+
+    - type: "custom"
+      url: "https://example.com/threat-feed.json"
+      enabled: false
+
+  # 自动更新间隔（小时）
+  update_interval: 24
+
+# 检测配置
+detection:
+  # 检测模式：quick（快速）/ full（完整）/ continuous（持续）
+  mode: "quick"
+
+  # 持续检测间隔（分钟）
+  interval: 60
+
+  # 缓存命中判定规则
+  rules:
+    # TTL衰减速率判定
+    ttl_decay_rate: 0.8  # 缓存TTL/权威TTL < 0.8 → 缓存命中
+
+    # 多次探测一致性阈值
+    consistency_threshold: 0.7  # 70%探测结果一致 → 可信
+
+# 日志和报告
+logging:
+  # 日志级别：DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+
+  # 日志文件路径
+  file: "logs/dns_detector.log"
+
+  # 日志保留天数
+  retention_days: 30
+
+  # 详细模式（记录每次DNS查询）
+  verbose: false
+
+reporting:
+  # 报告输出格式：json, csv, html
+  formats:
+    - "json"
+    - "csv"
+
+  # 报告输出目录
+  output_dir: "reports"
+
+  # 包含原始查询数据
+  include_raw_data: true
+
+  # 自动生成时间戳文件名
+  timestamp_filename: true
+
+# 告警配置
+alerting:
+  # 是否启用告警
+  enabled: true
+
+  # 告警阈值（检测到N个以上威胁域名）
+  threshold: 1
+
+  # 告警方式
+  methods:
+    - type: "console"
+      enabled: true
+
+    - type: "file"
+      path: "alerts/alerts.log"
+      enabled: true
+
+    - type: "webhook"
+      url: "https://example.com/webhook"
+      enabled: false
+
+# 高级选项
+advanced:
+  # 自动检测DNS服务器是否支持RD=0
+  auto_detect_rd0_support: true
+
+  # 缓存污染检测
+  detect_cache_poisoning: true
+
+  # DNS劫持检测
+  detect_dns_hijacking: true
+
+  # 使用DNSSEC验证
+  use_dnssec: false

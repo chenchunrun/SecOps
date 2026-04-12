@@ -12,13 +12,13 @@ import (
 func PolicyRemoteMiddleware() RemoteMiddleware {
 	return func(next RemoteHandler) RemoteHandler {
 		return func(ctx context.Context, req RemoteRequest) (RemoteResult, error) {
-			if req.PolicyDecision == nil || req.PolicyDecision.Allowed {
+			if req.Decision == nil || req.Decision.Allowed {
 				return next(ctx, req)
 			}
 
 			recordRemotePolicyDeny(req)
 
-			reason := strings.TrimSpace(req.PolicyDecision.Reason)
+			reason := strings.TrimSpace(req.Decision.Reason)
 			if reason == "" {
 				reason = "remote execution denied by policy"
 			}
@@ -32,8 +32,8 @@ func PolicyRemoteMiddleware() RemoteMiddleware {
 
 func recordRemotePolicyDeny(req RemoteRequest) {
 	fields := map[string]any{}
-	if req.PolicyDecision != nil && req.PolicyDecision.AuditFields != nil {
-		fields = req.PolicyDecision.AuditFields
+	if req.Decision != nil && req.Decision.AuditFields != nil {
+		fields = req.Decision.AuditFields
 	}
 
 	event := audit.NewAuditEventBuilder(audit.EventTypePermissionDenied).
@@ -47,8 +47,8 @@ func recordRemotePolicyDeny(req RemoteRequest) {
 		WithDetail("policy_rule", strings.TrimSpace(fmt.Sprint(fields["policy_rule"]))).
 		WithDetail("policy_result", strings.TrimSpace(fmt.Sprint(fields["policy_result"]))).
 		Build()
-	if req.PolicyDecision != nil {
-		event.ErrorMsg = req.PolicyDecision.Reason
+	if req.Decision != nil {
+		event.ErrorMsg = req.Decision.Reason
 	}
 	_ = audit.RecordGlobal(event)
 }

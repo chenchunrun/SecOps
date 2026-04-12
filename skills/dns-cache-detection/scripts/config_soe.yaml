@@ -1,0 +1,131 @@
+# DNS缓存探测威胁检测系统 - 央企DNS配置
+
+# DNS服务器配置
+dns:
+  # 央企DNS服务器（从NS记录查询获得）
+  enterprise:
+    # 国家电网
+    - "210.77.176.2"      # dl-dns1.sgcc.cn
+    - "210.77.177.2"      # dl-dns2.sgcc.cn
+    - "202.100.20.124"    # dl-dns6.sgcc.cn
+
+    # 中国石油
+    - "219.143.68.254"    # dns.petrochina.com.cn
+    - "161.207.5.12"      # ns2.petrochina.com.cn
+
+    # 工商银行
+    - "219.142.91.125"    # tns1.icbc.com.cn
+    - "202.106.83.125"    # cns2.icbc.com.cn
+    - "61.129.61.245"     # shtns.icbc.com.cn
+
+    # 建设银行
+    - "124.126.72.2"      # ns3.ccb.com
+    - "111.205.126.110"   # ns1.ccb.com
+
+    # 中国移动
+    - "211.136.20.201"    # ns1.cmmobile.cn
+    - "211.136.17.105"    # ns2.cnmobile.net
+
+    # 中石化
+    - "114.246.38.132"    # ns1.sinopec.com
+    - "219.142.191.158"   # ns3.sinopec.com
+
+    # 中国建筑
+    - "61.162.101.1"      # www.cscec.com
+    - "61.162.101.2"
+    - "61.162.101.53"
+    - "61.162.101.253"
+    - "61.162.101.254"
+
+  # 公共DNS（用于获取权威TTL）
+  authoritative:
+    primary: "223.5.5.5"      # 阿里云DNS
+    secondary: "119.29.29.29" # 腾讯DNSPod
+
+  # 备用DNS
+  fallback:
+    - "8.8.8.8"
+    - "1.1.1.1"
+
+# 探测配置
+probe:
+  # 每个域名探测次数
+  repeats: 10
+
+  # 探测超时（秒）
+  timeout: 5
+
+  # 并发线程数
+  threads: 8
+
+  # TTL差异阈值（秒）
+  ttl_threshold: 10
+
+  # 是否使用RD=0探测
+  use_rd0: false
+
+  # 是否使用TTL对比探测
+  use_ttl_compare: true
+
+# 威胁情报配置
+threat_intel:
+  # IOC来源
+  sources:
+    - type: "file"
+      path: "iocs/real_c2_domains.txt"
+      enabled: true
+
+  # 自动更新间隔（小时）
+  update_interval: 24
+
+# 检测配置
+detection:
+  # 检测模式
+  mode: "quick"
+
+  # 缓存命中判定规则
+  rules:
+    ttl_decay_rate: 0.8
+    consistency_threshold: 0.7
+
+# 日志和报告
+logging:
+  level: "INFO"
+  file: "logs/dns_detector_soe.log"
+  retention_days: 30
+  verbose: false
+
+reporting:
+  formats:
+    - "json"
+    - "csv"
+    - "html"
+  output_dir: "reports"
+  include_raw_data: true
+  timestamp_filename: true
+
+# 告警配置
+alerting:
+  enabled: true
+  threshold: 1
+  methods:
+    - type: "console"
+      enabled: true
+    - type: "file"
+      path: "alerts/soe_alerts.log"
+      enabled: true
+    - type: "dingtalk"
+      enabled: false
+      webhook: ""  # 填入钉钉机器人Webhook URL
+      # 获取方式: 钉钉群 -> 设置 -> 智能群助手 -> 添加机器人 -> 自定义
+      # 示例: "https://oapi.dingtalk.com/robot/send?access_token=xxx"
+
+# 高级选项
+advanced:
+  auto_detect_rd0_support: true
+  detect_cache_poisoning: true
+  detect_dns_hijacking: true
+  use_dnssec: false
+
+  # V2新增: 自动验证威胁（启用后，缓存命中会自动二次验证）
+  auto_verify_threats: true

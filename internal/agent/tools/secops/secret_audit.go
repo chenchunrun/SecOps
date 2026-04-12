@@ -3,6 +3,7 @@ package secops
 import (
 	"bufio"
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed secret_audit.md
+var secretAuditDescription string
 
 // MaxFileSize is the maximum file size to scan (1 MB).
 const MaxFileSize = 1 << 20
@@ -60,14 +64,14 @@ var skipSuffixes = map[string]bool{
 
 // SecretAuditParams for scanning for leaked credentials
 type SecretAuditParams struct {
-	TargetPath      string `json:"target_path"` // directory or repo to scan
-	ScanType        string `json:"scan_type"`   // "pattern", "entropy", "ai"
-	Severity        string `json:"severity"`    // filter: CRITICAL, HIGH, MEDIUM
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	TargetPath      string `json:"target_path" description:"Directory or repository path to scan for secrets"`
+	ScanType        string `json:"scan_type,omitempty" description:"Scan method: pattern, entropy, ai (default: pattern)"`
+	Severity        string `json:"severity,omitempty" description:"Minimum severity filter: CRITICAL, HIGH, MEDIUM, LOW"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // SecretFinding 密钥发现
@@ -113,7 +117,7 @@ func (sat *SecretAuditTool) Name() string {
 
 // Description 实现 Tool.Description
 func (sat *SecretAuditTool) Description() string {
-	return "Scan for leaked credentials, API keys, passwords, and private keys using regex patterns"
+	return secretAuditDescription
 }
 
 // RequiredCapabilities 实现 Tool.RequiredCapabilities

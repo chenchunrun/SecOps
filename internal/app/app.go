@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +25,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/agent/notify"
 	"github.com/chenchunrun/SecOps/internal/agent/tools/mcp"
 	"github.com/chenchunrun/SecOps/internal/audit"
+	"github.com/chenchunrun/SecOps/internal/bootstrap"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/db"
 	"github.com/chenchunrun/SecOps/internal/event"
@@ -35,7 +35,6 @@ import (
 	"github.com/chenchunrun/SecOps/internal/log"
 	"github.com/chenchunrun/SecOps/internal/lsp"
 	"github.com/chenchunrun/SecOps/internal/message"
-	"github.com/chenchunrun/SecOps/internal/orchestrator"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/chenchunrun/SecOps/internal/session"
@@ -85,32 +84,16 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	messages := message.NewService(q)
 	files := history.NewService(q, conn)
 	cfg := store.Config()
-	skipPermissionsRequests := cfg.Permissions != nil && cfg.Permissions.SkipRequests
-	var allowedTools []string
-	var bypassIntentMarkers []string
-	var extraBypassIntentMarkers []string
-	if cfg.Permissions != nil && cfg.Permissions.AllowedTools != nil {
-		allowedTools = cfg.Permissions.AllowedTools
-	}
-	if cfg.Permissions != nil {
-		bypassIntentMarkers = cfg.Permissions.BypassIntentMarkers
-		extraBypassIntentMarkers = cfg.Permissions.ExtraBypassIntentMarkers
-	}
+	auditStore, auditCleanup := bootstrap.NewAuditStore(cfg)
 
 	app := &App{
-		Sessions: sessions,
-		Messages: messages,
-		History:  files,
-		Permissions: permission.NewPermissionServiceWithBypassMarkers(
-			store.WorkingDir(),
-			skipPermissionsRequests,
-			allowedTools,
-			bypassIntentMarkers,
-			extraBypassIntentMarkers,
-		),
+		Sessions:    sessions,
+		Messages:    messages,
+		History:     files,
+		Permissions: bootstrap.NewPermissionService(store),
 		FileTracker: filetracker.NewService(q),
 		LSPManager:  lsp.NewManager(store),
-		AuditStore:  audit.NewInMemoryAuditStore(),
+		AuditStore:  auditStore,
 
 		globalCtx: ctx,
 
@@ -121,24 +104,8 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 		tuiWG:              &sync.WaitGroup{},
 		agentNotifications: pubsub.NewBroker[notify.Notification](),
 	}
-
-	auditPath := filepath.Join(cfg.Options.DataDirectory, "audit", "events.jsonl")
-	if fileStore, err := audit.NewFileAuditStore(auditPath); err == nil {
-		app.AuditStore = fileStore
-	} else {
-		slog.Warn("Falling back to in-memory audit store", "error", err, "path", auditPath)
-	}
-
-	if exporters := buildAuditExporters(cfg); len(exporters) > 0 {
-		exportingStore, err := audit.NewExportingAuditStore(app.AuditStore, 3*time.Second, exporters...)
-		if err != nil {
-			slog.Warn("Failed to initialize audit exporters", "error", err)
-		} else {
-			app.AuditStore = exportingStore
-			app.cleanupFuncs = append(app.cleanupFuncs, func(context.Context) error {
-				return exportingStore.Close()
-			})
-		}
+	if auditCleanup != nil {
+		app.cleanupFuncs = append(app.cleanupFuncs, auditCleanup)
 	}
 
 	// Register runtime-global audit sink so tool-level audit events (e.g. remote
@@ -183,22 +150,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 }
 
 func buildAuditExporters(cfg *config.Config) []audit.SIEMExporter {
-	if cfg == nil || cfg.Audit == nil || cfg.Audit.Export == nil {
-		return nil
-	}
-
-	exporters := make([]audit.SIEMExporter, 0, 1)
-	if syslogCfg := cfg.Audit.Export.Syslog; syslogCfg != nil && syslogCfg.Enabled && strings.TrimSpace(syslogCfg.Address) != "" {
-		exporters = append(exporters, &audit.SyslogExporter{
-			Network:  strings.TrimSpace(syslogCfg.Network),
-			Address:  strings.TrimSpace(syslogCfg.Address),
-			AppName:  strings.TrimSpace(syslogCfg.AppName),
-			Hostname: strings.TrimSpace(syslogCfg.Hostname),
-			Facility: syslogCfg.Facility,
-			Severity: syslogCfg.Severity,
-		})
-	}
-	return exporters
+	return bootstrap.BuildAuditExporters(cfg)
 }
 
 // Config returns the pure-data configuration.
@@ -589,22 +541,21 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 	if app.AgentCoordinator != nil {
 		app.AgentCoordinator.CancelAll()
 	}
-	baseCoordinator, err := agent.NewCoordinator(
-		ctx,
-		app.config,
-		app.Sessions,
-		app.Messages,
-		app.Permissions,
-		app.History,
-		app.FileTracker,
-		app.LSPManager,
-		app.agentNotifications,
-	)
+	coordinator, err := bootstrap.NewAgentCoordinator(ctx, bootstrap.AgentCoordinatorDeps{
+		Config:             app.config,
+		Sessions:           app.Sessions,
+		Messages:           app.Messages,
+		Permissions:        app.Permissions,
+		History:            app.History,
+		FileTracker:        app.FileTracker,
+		LSPManager:         app.LSPManager,
+		AgentNotifications: app.agentNotifications,
+	})
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)
 		return err
 	}
-	app.AgentCoordinator = orchestrator.NewTurnOrchestrator(baseCoordinator)
+	app.AgentCoordinator = coordinator
 	return nil
 }
 

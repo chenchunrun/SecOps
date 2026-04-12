@@ -3,14 +3,16 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 )
 
 // Spec is the data-first representation of a registry entry before it is
 // materialized into a Descriptor.
 type Spec struct {
-	Key      string
-	Metadata Metadata
-	Decode   func(raw json.RawMessage) (any, error)
+	Key        string
+	Metadata   Metadata
+	Decode     func(raw json.RawMessage) (any, error)
+	ParamsType reflect.Type // params struct type; propagated to Descriptor for schema generation
 }
 
 // NewToolSpec builds a Spec directly from a runtime tool implementation.
@@ -25,16 +27,18 @@ func NewToolSpec[T any, Key ~string, Tool interface {
 			ExecutionProfile:     profile,
 			PolicyTags:           append([]string(nil), policyTags...),
 		},
-		Decode: decodeJSONInto[T],
+		Decode:     decodeJSONInto[T],
+		ParamsType: reflect.TypeOf((*T)(nil)).Elem(),
 	}
 }
 
 // Descriptor converts the data-first Spec into the runtime Descriptor shape.
 func (s Spec) Descriptor() Descriptor {
 	return Descriptor{
-		Key:      s.Key,
-		Metadata: s.Metadata.Clone(),
-		Decode:   s.Decode,
+		Key:        s.Key,
+		Metadata:   s.Metadata.Clone(),
+		Decode:     s.Decode,
+		ParamsType: s.ParamsType,
 	}
 }
 

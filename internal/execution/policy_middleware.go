@@ -8,8 +8,8 @@ import (
 func PolicyLocalMiddleware() LocalMiddleware {
 	return func(next LocalHandler) LocalHandler {
 		return func(ctx context.Context, req LocalRequest) (LocalResult, error) {
-			if req.PolicyDecision != nil && !req.PolicyDecision.Allowed {
-				reason := req.PolicyDecision.Reason
+			if req.Decision != nil && !req.Decision.Allowed {
+				reason := req.Decision.Reason
 				if reason == "" {
 					reason = "local execution denied by policy"
 				}

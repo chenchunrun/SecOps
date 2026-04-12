@@ -87,6 +87,14 @@ type remotePolicyDecision struct {
 	Result string
 }
 
+func executionDecisionFromPolicy(decision policy.Decision) *execution.Decision {
+	return &execution.Decision{
+		Allowed:     decision.Allowed,
+		Reason:      decision.Reason,
+		AuditFields: decision.AuditFields,
+	}
+}
+
 type bashPolicyContext struct {
 	Params        BashParams
 	RemoteProfile *config.RemoteProfile
@@ -382,7 +390,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 			remoteResult, remoteErr := remoteExecutor.Execute(ctx, execution.RemoteRequest{
 				SessionID:        sessionID,
 				ToolName:         BashToolName,
-				PolicyDecision:   &decision,
+				Decision:         executionDecisionFromPolicy(decision),
 				Command:          params.Command,
 				Description:      params.Description,
 				TargetHost:       params.RemoteHost,
@@ -417,7 +425,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		localResult, err := localExecutor.Execute(ctx, execution.LocalRequest{
 			SessionID:           sessionID,
 			ToolName:            BashToolName,
-			PolicyDecision:      &decision,
+			Decision:            executionDecisionFromPolicy(decision),
 			Command:             params.Command,
 			Description:         params.Description,
 			WorkingDir:          execWorkingDir,

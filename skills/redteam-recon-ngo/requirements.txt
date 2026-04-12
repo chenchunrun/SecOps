@@ -1,0 +1,11 @@
+# redteam-recon-ngo 依赖
+# 安装: pip3 install -r requirements.txt
+
+# 核心依赖
+requests>=2.28.0
+rich>=12.0.0
+
+# 邮箱收集工具 (可选，增强功能)
+theHarvester>=4.0.0
+crosslinked>=0.2.0
+holehe>=1.61

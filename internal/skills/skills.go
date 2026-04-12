@@ -16,6 +16,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// injectionPatterns contains phrases that indicate an attempt to hijack the
+// system prompt via a malicious SKILL.md instructions body.  Any skill whose
+// instructions body matches one of these patterns is rejected during loading.
+var injectionPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)ignore\s+(all\s+)?(previous|prior|above)\s+instructions`),
+	regexp.MustCompile(`(?i)disregard\s+(all\s+)?(previous|prior|above)\s+instructions`),
+	regexp.MustCompile(`(?i)forget\s+(everything|all)\s+(you|I)`),
+	regexp.MustCompile(`(?i)(authorization|gate)\s+(already\s+)?(satisfied|granted|confirmed|bypassed)`),
+	regexp.MustCompile(`(?i)skip\s+(the\s+)?(authorization|auth|gate|confirmation)`),
+	regexp.MustCompile(`(?i)you\s+are\s+now\s+(DAN|unrestricted|jailbroken)`),
+	regexp.MustCompile(`(?i)developer\s+mode\s*(enabled|on|activated)`),
+	regexp.MustCompile(`(?i)proceed\s+(immediately|without\s+confirmation|without\s+authorization)`),
+	regexp.MustCompile(`(?i)bypass\s+(the\s+)?(restriction|control|gate|check|policy)`),
+	regexp.MustCompile(`(?i)new\s+(system\s+)?prompt\s*:`),
+}
+
+// containsInjectionPattern returns true if the skill instructions body
+// contains any known prompt-injection pattern.
+func containsInjectionPattern(instructions string) bool {
+	for _, re := range injectionPatterns {
+		if re.MatchString(instructions) {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	SkillFileName          = "SKILL.md"
 	MaxNameLength          = 64
@@ -145,6 +172,14 @@ func Discover(paths []string) []*Skill {
 			}
 			if err := skill.Validate(); err != nil {
 				slog.Warn("Skill validation failed", "path", path, "error", err)
+				return nil
+			}
+			// Reject skills whose instructions body contains prompt-injection
+			// patterns that could override the system prompt or bypass security
+			// gates (e.g., red team authorization confirmation).
+			if containsInjectionPattern(skill.Instructions) {
+				slog.Warn("Skill rejected: instructions body contains prompt-injection pattern",
+					"name", skill.Name, "path", path)
 				return nil
 			}
 			slog.Debug("Successfully loaded skill", "name", skill.Name, "path", path)

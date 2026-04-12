@@ -3,6 +3,7 @@ package secops
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed log_analyze.md
+var logAnalyzeDescription string
 
 // LogSource 日志来源
 type LogSource string
@@ -41,33 +45,33 @@ const (
 // LogAnalyzeParams 日志分析参数
 type LogAnalyzeParams struct {
 	// 日志来源
-	Source LogSource `json:"source"`
+	Source LogSource `json:"source" description:"Log source: syslog, system, application, audit"`
 
 	// 搜索条件
-	Pattern  string   `json:"pattern,omitempty"`   // 正则表达式
-	Keyword  string   `json:"keyword,omitempty"`   // 关键词搜索
-	Level    LogLevel `json:"level,omitempty"`     // 日志级别
-	MinLevel LogLevel `json:"min_level,omitempty"` // 最小日志级别
+	Pattern  string   `json:"pattern,omitempty" description:"Regex pattern to match log entries"`
+	Keyword  string   `json:"keyword,omitempty" description:"Keyword to search for in log messages"`
+	Level    LogLevel `json:"level,omitempty" description:"Exact log level to filter by"`
+	MinLevel LogLevel `json:"min_level,omitempty" description:"Minimum log level severity to include"`
 
 	// 时间范围
-	StartTime time.Time `json:"start_time,omitempty"`
-	EndTime   time.Time `json:"end_time,omitempty"`
-	Duration  string    `json:"duration,omitempty"` // e.g., "1h", "24h"
+	StartTime time.Time `json:"start_time,omitempty" description:"Start of time range filter"`
+	EndTime   time.Time `json:"end_time,omitempty" description:"End of time range filter"`
+	Duration  string    `json:"duration,omitempty" description:"Lookback duration, e.g. 1h, 24h"`
 
 	// 聚合选项
-	AggregateBy string `json:"aggregate_by,omitempty"` // e.g., "host", "process", "user"
-	GroupSize   int    `json:"group_size,omitempty"`   // 聚合大小
+	AggregateBy string `json:"aggregate_by,omitempty" description:"Group results by: host, process, level, user"`
+	GroupSize   int    `json:"group_size,omitempty" description:"Maximum number of groups to return"`
 
 	// 其他选项
-	Limit           int    `json:"limit,omitempty"`           // 返回最大条数
-	Offset          int    `json:"offset,omitempty"`          // 偏移
-	IncludeContext  int    `json:"include_context,omitempty"` // 包含上下文行数
-	CaseSensitive   bool   `json:"case_sensitive,omitempty"`
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	Limit           int    `json:"limit,omitempty" description:"Maximum number of log entries to return"`
+	Offset          int    `json:"offset,omitempty" description:"Number of entries to skip for pagination"`
+	IncludeContext  int    `json:"include_context,omitempty" description:"Number of surrounding context lines to include"`
+	CaseSensitive   bool   `json:"case_sensitive,omitempty" description:"Enable case-sensitive keyword matching"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // LogEntry 日志条目
@@ -155,7 +159,7 @@ func (lat *LogAnalyzeTool) Name() string {
 
 // Description 实现 Tool.Description
 func (lat *LogAnalyzeTool) Description() string {
-	return "Analyze system and application logs with pattern matching, filtering, and aggregation"
+	return logAnalyzeDescription
 }
 
 // RequiredCapabilities 实现 Tool.RequiredCapabilities

@@ -1,0 +1,317 @@
+# 钓鱼检测配置文件
+# Phishing Detection Configuration
+
+# 常见被仿冒的品牌及其官方域名
+[brands]
+google = ["google.com", "gmail.com", "youtube.com", "googleapis.com"]
+microsoft = ["microsoft.com", "outlook.com", "office.com", "live.com", "office365.com"]
+apple = ["apple.com", "icloud.com"]
+amazon = ["amazon.com", "aws.com", "amazon.cn"]
+facebook = ["facebook.com", "fb.com", "meta.com"]
+paypal = ["paypal.com"]
+netflix = ["netflix.com"]
+linkedin = ["linkedin.com"]
+twitter = ["twitter.com", "x.com"]
+instagram = ["instagram.com"]
+whatsapp = ["whatsapp.com"]
+dropbox = ["dropbox.com"]
+adobe = ["adobe.com"]
+ebay = ["ebay.com"]
+chase = ["chase.com"]
+wellsfargo = ["wellsfargo.com"]
+bankofamerica = ["bankofamerica.com", "bofa.com"]
+alipay = ["alipay.com"]
+wechat = ["wechat.com", "weixin.qq.com"]
+taobao = ["taobao.com", "tmall.com"]
+jd = ["jd.com"]
+
+# 常见打字错误替换
+[typosquatting]
+substitutions = [
+    ["0", "o"],
+    ["1", "l"],
+    ["1", "i"],
+    ["!", "i"],
+    ["@", "a"],
+    ["$", "s"],
+    ["3", "e"],
+    ["4", "a"],
+    ["5", "s"],
+    ["rn", "m"],
+    ["vv", "w"]
+]
+
+# URL短链接服务
+[shorteners]
+domains = [
+    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly",
+    "is.gd", "buff.ly", "adf.ly", "j.mp", "tr.im",
+    "cli.gs", "short.to", "budurl.com", "ping.fm",
+    "tiny.cc", "su.pr", "snipurl.com", "short.ie",
+    "qr.io", "qr.de", "qrco.de", "flowcode.com",
+    "dwz.cn", "url.cn", "suo.im", "t.cn"
+]
+
+# 高风险顶级域名
+[suspicious_tlds]
+free_tlds = ["tk", "ml", "ga", "cf", "gq"]
+cheap_tlds = ["xyz", "top", "work", "click", "link", "info", "online", "site", "space", "website"]
+
+# 钓鱼模拟平台（红队工具）
+[phishing_platforms]
+domains = [
+    "knowbe4.com", "cofense.com", "proofpoint.com",
+    "gophish.com", "king-phisher.com", "evilginx.com"
+]
+
+# 社会工程关键词
+[social_engineering]
+# 英文紧迫性词汇
+urgency_en = [
+    "urgent", "immediate", "immediately", "asap",
+    "within 24 hours", "within 48 hours", "expires",
+    "last warning", "final notice", "act now"
+]
+
+# 中文紧迫性词汇
+urgency_zh = [
+    "紧急", "立即", "马上", "尽快", "限时",
+    "24小时内", "48小时内", "最后通知", "最终警告",
+    "账户已暂停", "账户异常", "需要验证"
+]
+
+# 权威冒充
+authority_en = ["ceo", "cfo", "president", "director", "hr", "it department", "legal", "compliance"]
+authority_zh = ["总裁", "总经理", "财务总监", "人事部", "IT部门", "法务", "合规"]
+
+# 恐惧触发
+fear_en = ["compromised", "suspended", "unauthorized", "breach", "hacked", "locked"]
+fear_zh = ["被盗", "暂停", "未授权", "泄露", "入侵", "锁定", "冻结"]
+
+# 奖励触发
+reward_en = ["winner", "prize", "lottery", "inheritance", "refund", "bonus"]
+reward_zh = ["中奖", "奖品", "彩票", "遗产", "退款", "奖金", "红包"]
+
+# BEC商业邮件诈骗关键词
+[bec_indicators]
+wire_transfer = ["wire transfer", "bank transfer", "汇款", "转账", "电汇"]
+confidential = ["confidential", "do not discuss", "keep this private", "保密", "不要告诉"]
+gift_cards = ["gift card", "itunes", "google play", "礼品卡"]
+urgency = ["today", "right now", "before end of day", "今天", "现在", "下班前"]
+
+# 高风险附件类型
+[dangerous_attachments]
+executables = [".exe", ".scr", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".hta", ".msi", ".com", ".pif"]
+scripts = [".wsf", ".wsh", ".jse", ".vbe"]
+office_macros = [".docm", ".xlsm", ".pptm", ".dotm", ".xltm"]
+archives = [".zip", ".rar", ".7z", ".iso", ".img", ".cab"]
+shortcuts = [".lnk", ".url"]
+html_smuggling = [".html", ".htm", ".svg"]
+
+# Unicode 混淆字符映射
+[confusables]
+# Cyrillic -> Latin
+cyrillic = [
+    ["а", "a"], ["е", "e"], ["о", "o"], ["р", "p"], ["с", "c"],
+    ["у", "y"], ["х", "x"], ["ѕ", "s"], ["і", "i"], ["ј", "j"],
+    ["һ", "h"], ["ԁ", "d"], ["А", "A"], ["В", "B"], ["С", "C"],
+    ["Е", "E"], ["Н", "H"], ["К", "K"], ["М", "M"], ["О", "O"],
+    ["Р", "P"], ["Т", "T"], ["Х", "X"]
+]
+
+# Greek -> Latin
+greek = [
+    ["α", "a"], ["ο", "o"], ["ν", "v"], ["τ", "t"],
+    ["Α", "A"], ["Β", "B"], ["Ε", "E"], ["Η", "H"],
+    ["Ι", "I"], ["Κ", "K"], ["Μ", "M"], ["Ν", "N"],
+    ["Ο", "O"], ["Ρ", "P"], ["Τ", "T"], ["Χ", "X"]
+]
+
+# 恶意软件投递特征
+[malware_delivery]
+# 密码提供模式 - 用于在邮件正文中检测解压密码
+password_patterns_zh = [
+    "密码是", "密码：", "密码:", "解压密码",
+    "压缩密码", "附件密码", "文件密码", "密码为"
+]
+password_patterns_en = [
+    "password is", "password:", "pwd:", "passwd:",
+    "zip password", "archive password", "the password"
+]
+
+# 简短正文特征 - 恶意投递邮件通常正文极短
+short_body_indicators = [
+    "请查收", "见附件", "如附件", "请下载",
+    "please see attached", "see attachment", "pfa", "attached herewith"
+]
+
+# 要求执行的关键词
+execution_requests_zh = [
+    "请运行", "双击打开", "解压后运行", "安装附件",
+    "请执行", "请打开附件"
+]
+execution_requests_en = [
+    "please run", "double click", "extract and run",
+    "install", "execute", "open the attachment"
+]
+
+# 压缩包风险指标
+[archive_risks]
+# 密码保护压缩包内常见的恶意文件名模式
+suspicious_filenames = [
+    "invoice", "document", "report", "statement",
+    "order", "payment", "receipt", "scan",
+    "发票", "文档", "报告", "订单", "付款"
+]
+
+# 数字文件名（常见于自动生成的恶意软件）
+numeric_filename_pattern = "^\\d+\\.(exe|scr|bat|cmd|js|vbs)$"
+
+# 双扩展名模式
+double_extension_pattern = "\\.(pdf|doc|xls|jpg|png)\\.(exe|scr|bat|js|vbs|hta)$"
+
+# 规避技术检测
+[evasion_techniques]
+# 零字体混淆模式
+zero_font_patterns = [
+    "font-size\\s*:\\s*0",
+    "font\\s*:\\s*0",
+    "font-size\\s*:\\s*0\\.0+\\s*px",
+    "font\\s*:\\s*0\\.0+\\s*px",
+    "font-size\\s*:\\s*1px"
+]
+
+# 隐藏元素模式
+hidden_element_patterns = [
+    "display\\s*:\\s*none",
+    "visibility\\s*:\\s*hidden",
+    "opacity\\s*:\\s*0[^.]",
+    "height\\s*:\\s*0[^.]",
+    "width\\s*:\\s*0[^.]",
+    "text-indent\\s*:\\s*-\\d{4,}"
+]
+
+# 追踪ID模式（16-32位十六进制）
+tracking_id_pattern = "\\b[a-f0-9]{16,32}\\b"
+
+# 零宽字符（Unicode代码点）
+zero_width_chars = [
+    "\\u200b",  # ZERO WIDTH SPACE
+    "\\u200c",  # ZERO WIDTH NON-JOINER
+    "\\u200d",  # ZERO WIDTH JOINER
+    "\\u200e",  # LEFT-TO-RIGHT MARK
+    "\\u200f",  # RIGHT-TO-LEFT MARK
+    "\\u2060",  # WORD JOINER
+    "\\ufeff",  # ZERO WIDTH NO-BREAK SPACE
+    "\\u00ad"   # SOFT HYPHEN
+]
+
+# 合法服务滥用检测
+# 攻击者常利用合法邮件服务发送钓鱼邮件以绕过安全检测
+[legitimate_services]
+
+[legitimate_services.sendgrid]
+name = "SendGrid"
+domains = ["sendgrid.net", "sendgrid.com"]
+headers = ["X-SG-EID", "X-SG-ID"]
+risk_indicators = [
+    "From 域名与 SendGrid 客户域名不匹配",
+    "发件人为新注册或可疑域名",
+    "正文极短但有附件或图片"
+]
+
+[legitimate_services.mailchimp]
+name = "Mailchimp"
+domains = ["mailchimp.com", "mandrillapp.com", "rsgsv.net", "list-manage.com"]
+headers = ["X-MC-User", "X-Mailchimp-Activity"]
+risk_indicators = [
+    "营销邮件包含敏感信息请求",
+    "退订链接指向非 Mailchimp 域名"
+]
+
+[legitimate_services.shopify]
+name = "Shopify"
+domains = ["shopify.com", "shopifymail.com", "myshopify.com"]
+headers = ["X-Shopify-Stage", "X-Shopify-Shop-Domain"]
+risk_indicators = [
+    "订单通知但店铺域名可疑",
+    "要求更新支付信息"
+]
+
+[legitimate_services.hubspot]
+name = "HubSpot"
+domains = ["hubspot.com", "hubspotlinks.com", "hs-analytics.net"]
+headers = ["X-HubSpot-Correlation-Id"]
+risk_indicators = [
+    "营销邮件要求登录或提供凭据"
+]
+
+[legitimate_services.amazon_ses]
+name = "Amazon SES"
+domains = ["amazonses.com", "amazon.com"]
+headers = ["X-SES-Outgoing"]
+risk_indicators = [
+    "From 域名与 AWS 账户不匹配",
+    "声称是 Amazon 官方但发件人可疑"
+]
+
+[legitimate_services.google_workspace]
+name = "Google Workspace"
+domains = ["google.com", "googlemail.com"]
+headers = ["X-Google-DKIM-Signature", "X-Gm-Message-State"]
+risk_indicators = [
+    "Google 文档共享但链接可疑",
+    "要求登录的紧急通知"
+]
+
+[legitimate_services.microsoft_365]
+name = "Microsoft 365"
+domains = ["outlook.com", "office365.com", "microsoft.com"]
+headers = ["X-MS-Exchange-Organization-SCL", "X-Microsoft-Antispam"]
+risk_indicators = [
+    "SharePoint/OneDrive 共享但链接可疑",
+    "账户安全警告要求立即操作"
+]
+
+[legitimate_services.constantcontact]
+name = "Constant Contact"
+domains = ["constantcontact.com", "ctct.net"]
+headers = ["X-Roving-ID"]
+risk_indicators = [
+    "营销邮件包含登录请求"
+]
+
+[legitimate_services.feishu]
+name = "飞书/Lark"
+domains = ["feishu.cn", "larksuite.com", "feishumail.com"]
+headers = ["X-Lms-Pvf"]
+risk_indicators = [
+    "飞书通知但 From 地址不一致",
+    "文档共享链接指向非飞书域名"
+]
+
+[legitimate_services.dingtalk]
+name = "钉钉"
+domains = ["dingtalk.com", "dingmail.com"]
+headers = ["X-DingTalk-Mail"]
+risk_indicators = [
+    "钉钉通知要求外部登录"
+]
+
+[legitimate_services.tencent_exmail]
+name = "腾讯企业邮箱"
+domains = ["exmail.qq.com", "qq.com"]
+headers = ["X-QQ-XMAILINFO", "X-QQ-mid"]
+risk_indicators = [
+    "企业邮件但域名可疑"
+]
+
+# 服务滥用检测规则
+[service_abuse_rules]
+# 当检测到合法服务邮件头时，检查以下风险因素
+check_from_domain_match = true          # From 域名是否与服务用户一致
+check_reply_to_mismatch = true          # Reply-To 是否指向其他域名
+check_short_body_with_attachment = true  # 正文极短但有附件
+check_urgency_language = true           # 是否包含紧迫性语言
+check_credential_request = true         # 是否请求凭据信息
+min_body_length_for_legitimate = 100    # 合法营销邮件最小正文长度

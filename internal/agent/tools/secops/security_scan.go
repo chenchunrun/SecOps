@@ -2,6 +2,7 @@ package secops
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed security_scan.md
+var securityScanDescription string
 
 // ScannerType 扫描器类型
 type ScannerType string
@@ -42,18 +46,18 @@ const (
 
 // SecurityScanParams 安全扫描参数
 type SecurityScanParams struct {
-	Scanner    ScannerType `json:"scanner"`
-	Target     ScanTarget  `json:"target"`
-	TargetPath string      `json:"target_path"`
-	ScanType   string      `json:"scan_type,omitempty"` // vuln, config, secret, all
-	Severity   string      `json:"severity,omitempty"`  // 最小严重级别
-	Full       bool        `json:"full,omitempty"`
-	FixVulns   bool        `json:"fix_vulns,omitempty"`
-	RemoteHost string      `json:"remote_host,omitempty"`
-	RemoteUser string      `json:"remote_user,omitempty"`
-	RemotePort int         `json:"remote_port,omitempty"`
-	RemoteKey  string      `json:"remote_key_path,omitempty"`
-	ProxyJump  string      `json:"remote_proxy_jump,omitempty"`
+	Scanner    ScannerType `json:"scanner" description:"Scanner to use: trivy, grype, nuclei, clamav"`
+	Target     ScanTarget  `json:"target" description:"Target type: image, filesystem, git, url"`
+	TargetPath string      `json:"target_path" description:"Path or URL of the scan target"`
+	ScanType   string      `json:"scan_type,omitempty" description:"Scan type: vuln, config, secret, or all"`
+	Severity   string      `json:"severity,omitempty" description:"Minimum severity level to report"`
+	Full       bool        `json:"full,omitempty" description:"Run a comprehensive full scan"`
+	FixVulns   bool        `json:"fix_vulns,omitempty" description:"Attempt to fix discovered vulnerabilities"`
+	RemoteHost string      `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser string      `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort int         `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKey  string      `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	ProxyJump  string      `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // Vulnerability 漏洞信息
@@ -127,7 +131,7 @@ func (sst *SecurityScanTool) Name() string {
 
 // Description 实现 Tool.Description
 func (sst *SecurityScanTool) Description() string {
-	return "Scan for vulnerabilities using multiple scanners (Trivy, Grype, Nuclei)"
+	return securityScanDescription
 }
 
 // RequiredCapabilities 实现 Tool.RequiredCapabilities

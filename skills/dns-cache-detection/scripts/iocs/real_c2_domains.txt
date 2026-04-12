@@ -1,0 +1,56 @@
+# 真实C2域名IOC列表
+# 数据来源: Unit 42, C2IntelFeeds
+# 更新时间: 2024-01-06
+#
+# ============================================================
+# Lumma Stealer C2 域名 (2024-10)
+# 来源: https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel
+# ============================================================
+posrman.com
+apkportion.com
+mandarin-ca.com
+aiaggregator.com
+nenkinseido.com
+bjj-gameplan.com
+chinnyvoushw.shop
+lonellykrqwmn.shop
+mathcucom.sbs
+allocatinow.sbs
+resinedyw.sbs
+enlargkiw.sbs
+
+# ============================================================
+# DarkGate C2 域名 (2024-03)
+# 来源: https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel
+# ============================================================
+escuelademarina.com
+badbutperfect.com
+
+# ============================================================
+# 多家族C2域名 (C2IntelFeeds)
+# 来源: https://github.com/drb-ra/C2IntelFeeds
+# ============================================================
+accesserdsc.com
+antams.com
+api.cryptoprot.info
+asusupdateserver.asuscomm.com
+at1.227api.com
+at2.227api.com
+at3.227api.com
+auth.inmediavault.com
+bililbilil.xyz
+c1.msft-config-service.com
+check.judicical.ml
+check1.judicical.ml
+cryptoprot.info
+cs.110-110.com
+csstatus.0nlinecc.com
+
+# ============================================================
+# 云函数C2基础设施 (可疑)
+# ============================================================
+1258922563-2333n6dmlx.ap-guangzhou.tencentscf.com
+4yyzsm3c107cp.cfc-execute.bj.baidubce.com
+5ndg65b68274v.cfc-execute.bj.baidubce.com
+7p1e0901tm70n.cfc-execute.bj.baidubce.com
+bxmv1taxbxr8p.cfc-execute.bj.baidubce.com

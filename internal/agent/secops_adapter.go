@@ -19,6 +19,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/security"
 
 	"charm.land/fantasy"
+	fantasyschema "charm.land/fantasy/schema"
 )
 
 // Adapter implements fantasy.AgentTool by delegating to the wrapped SecOpsTool.
@@ -60,12 +61,21 @@ func (e *executionProfileError) Error() string {
 	return e.msg
 }
 
-// Info returns tool metadata.
+// Info returns tool metadata including a JSON schema derived from the params
+// struct so the LLM receives correct parameter names and types.
 func (a *Adapter) Info() fantasy.ToolInfo {
-	return fantasy.ToolInfo{
+	info := fantasy.ToolInfo{
 		Name:        string(a.tool.Type()),
 		Description: a.tool.Description(),
 	}
+	if a.registry != nil {
+		if t, ok := a.registry.ParamsTypeFor(string(a.tool.Type())); ok {
+			s := fantasyschema.Generate(t)
+			info.Parameters = fantasyschema.ToParameters(s)
+			info.Required = s.Required
+		}
+	}
+	return info
 }
 
 // Run executes the tool with the given parameters.
@@ -106,6 +116,9 @@ var (
 	remoteHostPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]*$`)
 	remoteUserPattern      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 	remoteProfileIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	// remoteKeyPathPattern enforces absolute or home-relative paths to SSH keys,
+	// preventing path traversal and option injection (HIGH-02).
+	remoteKeyPathPattern = regexp.MustCompile(`^(/[A-Za-z0-9_./ -]+|~/[A-Za-z0-9_./ -]+)$`)
 )
 
 func validateRemoteSSHParams(params map[string]interface{}) error {
@@ -181,6 +194,10 @@ func validateRemoteSSHParams(params map[string]interface{}) error {
 		if err := checkNoControl("remote_key_path", remoteKeyPath); err != nil {
 			return &remoteValidationError{code: "key_path_control_chars", msg: err.Error()}
 		}
+		// Enforce absolute/home-relative path to prevent path traversal (HIGH-02).
+		if !remoteKeyPathPattern.MatchString(remoteKeyPath) {
+			return &remoteValidationError{code: "key_path_invalid_format", msg: "remote_key_path must be an absolute path or ~/... home-relative path"}
+		}
 	}
 
 	if remoteProxyJump != "" {
@@ -189,6 +206,10 @@ func validateRemoteSSHParams(params map[string]interface{}) error {
 		}
 		if err := checkNoControl("remote_proxy_jump", remoteProxyJump); err != nil {
 			return &remoteValidationError{code: "proxy_jump_control_chars", msg: err.Error()}
+		}
+		// Apply the same format validation as remote_host to prevent option injection (HIGH-02).
+		if !remoteHostPattern.MatchString(remoteProxyJump) {
+			return &remoteValidationError{code: "proxy_jump_invalid_format", msg: "remote_proxy_jump has invalid format"}
 		}
 	}
 
@@ -297,6 +318,32 @@ func normalizeSecOpsParams(toolType secops.ToolType, in map[string]interface{}) 
 		}
 		if _, ok := out["query_type"]; !ok {
 			out["query_type"] = "resources"
+		}
+
+	case secops.ToolTypeSecretAudit:
+		// Accept "path" as an alias for "target_path".
+		if _, ok := out["target_path"]; !ok {
+			if v, exists := out["path"]; exists {
+				out["target_path"] = v
+			}
+		}
+
+	case secops.ToolTypeSecurityScan:
+		// Accept "path" as an alias for "target_path".
+		if _, ok := out["target_path"]; !ok {
+			if v, exists := out["path"]; exists {
+				out["target_path"] = v
+			}
+		}
+		// Default scanner to trivy when not specified.
+		if _, ok := out["scanner"]; !ok {
+			out["scanner"] = string(secops.ScannerTrivy)
+		}
+		// Default target type to filesystem when a path is provided.
+		if _, ok := out["target"]; !ok {
+			if _, hasPath := out["target_path"]; hasPath {
+				out["target"] = string(secops.TargetFilesystem)
+			}
 		}
 	}
 
@@ -853,10 +900,15 @@ func secOpsRoleFromContext(ctx context.Context) string {
 		return "analyst"
 	case config.AgentOpsAgent:
 		return string(RoleOpsAgent)
-	case config.AgentTask, config.AgentCoder:
-		return "admin"
+	case config.AgentTask:
+		// Task agent needs operator-level to run read-only diagnostics and reports.
+		return "operator"
+	case config.AgentCoder:
+		// Coder agent works on source code and does not require SecOps privileges.
+		return "viewer"
 	default:
-		return "admin"
+		// Fail-safe: unknown agents get the least-privilege role.
+		return "viewer"
 	}
 }
 

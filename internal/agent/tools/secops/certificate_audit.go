@@ -21,25 +21,25 @@ import (
 // CertificateAuditParams 证书审计参数
 type CertificateAuditParams struct {
 	// 证书来源
-	Paths        []string `json:"paths,omitempty"`         // 证书文件路径
-	SearchDirs   []string `json:"search_dirs,omitempty"`   // 搜索目录
-	ServicePorts []string `json:"service_ports,omitempty"` // 服务端口
+	Paths        []string `json:"paths,omitempty" description:"Certificate file paths to audit"`
+	SearchDirs   []string `json:"search_dirs,omitempty" description:"Directories to search for certificate files"`
+	ServicePorts []string `json:"service_ports,omitempty" description:"Service host:port pairs to probe for TLS certs"`
 
 	// 检查选项
-	CheckExpiry      bool `json:"check_expiry,omitempty"`       // 检查过期
-	CheckKeyStrength bool `json:"check_key_strength,omitempty"` // 检查密钥强度
-	CheckChain       bool `json:"check_chain,omitempty"`        // 检查证书链
-	CheckRevocation  bool `json:"check_revocation,omitempty"`   // 检查撤销
-	VerifyTransport  bool `json:"verify_transport,omitempty"`   // 验证 TLS 对端身份
+	CheckExpiry      bool `json:"check_expiry,omitempty" description:"Check certificate expiration dates"`
+	CheckKeyStrength bool `json:"check_key_strength,omitempty" description:"Check cryptographic key strength"`
+	CheckChain       bool `json:"check_chain,omitempty" description:"Validate the certificate chain"`
+	CheckRevocation  bool `json:"check_revocation,omitempty" description:"Check certificate revocation status"`
+	VerifyTransport  bool `json:"verify_transport,omitempty" description:"Verify TLS endpoint identity during probe"`
 
 	// 警告阈值
-	ExpiryWarningDays int    `json:"expiry_warning_days,omitempty"` // 默认 30 天
-	MinKeyLength      int    `json:"min_key_length,omitempty"`      // 最小密钥长度，默认 2048
-	RemoteHost        string `json:"remote_host,omitempty"`
-	RemoteUser        string `json:"remote_user,omitempty"`
-	RemotePort        int    `json:"remote_port,omitempty"`
-	RemoteKeyPath     string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump   string `json:"remote_proxy_jump,omitempty"`
+	ExpiryWarningDays int    `json:"expiry_warning_days,omitempty" description:"Days before expiry to trigger warning (default 30)"`
+	MinKeyLength      int    `json:"min_key_length,omitempty" description:"Minimum acceptable key length in bits (default 2048)"`
+	RemoteHost        string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser        string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort        int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath     string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump   string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // CertificateInfo 证书信息

@@ -1,5 +1,17 @@
 {
   "$schema": "https://charm.land/crush.json",
+  "options": {
+    "skills_paths": [
+      "./skills"
+    ]
+  },
+  "permissions": {
+    "secops_capability_grants": {
+      "analyst": [
+        "network:scan"
+      ]
+    }
+  },
   "lsp": {
     "gopls": {
       "options": {

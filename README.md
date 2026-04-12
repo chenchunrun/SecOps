@@ -24,11 +24,76 @@ Core contributor:
 ## What SecOps Adds
 
 - **18 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, deployment and infrastructure queries, and more.
+- **35 security skills:** defensive skills (IR, threat intelligence, log analysis, malware analysis, compliance reporting) plus 7 red team skills with a mandatory authorization gate.
 - **Risk-aware execution:** capability checks and permission decisions evaluate risk signals before sensitive tools or commands run.
 - **Audit and SIEM pipeline:** every governed action can be recorded, reviewed, and exported to ELK, Splunk, Azure Sentinel, or generic JSON sinks with redaction.
 - **Governed execution backends:** local, Docker, and SSH execution paths now carry policy validation, audit middleware, and remote-target checks.
 - **Mode-specialized agents:** AUTO, OPS, SEC, and CODE flows expose explicit routing for operations and security work in the TUI.
 - **SecOps-first runtime architecture:** capability registry, tool catalogs, fixed toolset datasets, and config/runtime wiring were generalized to reduce drift across the system.
+
+## Security Skills
+
+SecOps ships with 35 skills under `skills/`. Switch to the `sec` agent (`/sec`) to use them.
+
+### Defensive Skills (28 — available by default)
+
+| Category | Skills |
+|----------|--------|
+| Incident Response | `linux-ir`, `macos-ir`, `windows-ir`, `auth-log-analysis` |
+| Threat Intelligence | `ip-analysis`, `domain-analysis`, `url-analysis`, `phishing-analysis`, `email-osint`, `traffic-analysis`, `dns-cache-detection` |
+| Asset & Attack Surface | `asset-discovery`, `asset-monitor`, `cyberspace-search`, `brand-impersonation` |
+| Malware Detection | `binary-reverse-engineering`, `office-malware-analyzer`, `pdf-analysis`, `prompt-injection-detect`, `ttp-extractor` |
+| Code & Supply Chain | `code-audit`, `sca-analyzer` |
+| Utilities | `data-desensitize`, `researching-vulnerabilities`, `rga-knowledge-search`, `mail-attachment-downloader` |
+| Reporting | `office-report`, `pdf-report` |
+
+### Red Team Skills (7 — require explicit authorization)
+
+> ⚠️ Red team skills are part of the SecurityExpertAgent's professional toolkit.
+> They are **gated behind a mandatory runtime authorization protocol** — the agent
+> will not proceed without explicit user confirmation for each invocation.
+
+| Skill | Purpose |
+|-------|---------|
+| `redteam-recon-enterprise` | Enterprise attack surface mapping |
+| `redteam-recon-person` | Individual OSINT and social engineering profiling |
+| `redteam-recon-nation` | APT and nation-state threat actor intelligence |
+| `redteam-recon-ngo` | NGO/civil society attack surface reconnaissance |
+| `redteam-intrusion-hunter` | Automated vulnerability scanning and PoC validation |
+| `redteam-intrusion-0day` | Zero-day research and exploitability assessment |
+| `redteam-intrusion-social` | Social engineering and phishing campaign planning |
+
+#### How the Authorization Gate Works
+
+When you invoke any red team skill, the SecurityExpertAgent will:
+
+1. **Declare intent** — state which skill it is activating and what it will do.
+2. **Request confirmation** — ask you to type `已授权` or `AUTHORIZED` along with the target scope and rules of engagement.
+3. **Record and proceed** — only after confirmation does it execute. The invocation is logged as a `security_alert` audit event.
+
+The agent will **refuse** if:
+- You have not typed the authorization phrase.
+- The target appears outside the stated scope.
+- Any step is irreversible without a rollback plan.
+
+#### Enabling Red Team Capabilities (optional hardening)
+
+By default, red team skills rely on the behavioral gate in the agent prompt.
+For stricter enforcement at the capability layer, add to your `crush.json`:
+
+```json
+{
+  "permissions": {
+    "secops_capability_grants": {
+      "analyst": ["redteam:execute", "redteam:recon", "redteam:intrude"]
+    }
+  }
+}
+```
+
+Without this config, the capability `redteam:execute` is never granted to any
+role automatically, and the system will report capability-denied for tools that
+check it explicitly.
 
 ## Base Capabilities
 

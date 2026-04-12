@@ -34,21 +34,41 @@ import (
 // 12. Database DSN           (mysql://, postgres://, mongodb://, redis://)
 // 13. JWT token              (eyJ... - JSON Web Token header)
 var redactionRegexes = []*regexp.Regexp{
+	// Bearer token (Authorization header)
 	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9_-]+`),
+	// Basic auth (Authorization header) — HIGH-05
+	regexp.MustCompile(`(?i)basic\s+[A-Za-z0-9+/=]{8,}`),
+	// Stripe keys
 	regexp.MustCompile(`(?i)sk_live_[A-Za-z0-9_-]+`),
 	regexp.MustCompile(`(?i)sk_test_[A-Za-z0-9_-]+`),
+	// AWS access key IDs
 	regexp.MustCompile(`(?i)AKIA[A-Za-z0-9]+`),
 	regexp.MustCompile(`(?i)ASIA[A-Za-z0-9]+`),
+	// AWS secret key
 	regexp.MustCompile(`(?i)aws_secret_access_key[=:]\s*\S+`),
+	// URL password query param
 	regexp.MustCompile(`(?i)[?&]password=[^&\s]+`),
-	regexp.MustCompile(`-----BEGIN.*PRIVATE KEY-----`),
+	// Azure SAS token — HIGH-05
+	regexp.MustCompile(`(?i)[?&]sig=[A-Za-z0-9%+/=]{20,}`),
+	// Generic password/secret/token field — HIGH-05
+	regexp.MustCompile(`(?i)(password|passwd|secret|token)\s*[=:]\s*['"]?[A-Za-z0-9_@#$%^&*!\-]{8,}`),
+	// PEM private key header + body (multiline) — HIGH-05
+	regexp.MustCompile(`(?s)-----BEGIN[^-]*PRIVATE KEY-----[^-]*-----END[^-]*PRIVATE KEY-----`),
+	// PEM private key header only (fallback for single-line contexts)
+	regexp.MustCompile(`-----BEGIN[^-]*PRIVATE KEY-----`),
+	// GitHub tokens
 	regexp.MustCompile(`(?i)ghp_[a-zA-Z0-9]{36}`),
 	regexp.MustCompile(`(?i)github_pat_[a-zA-Z0-9_]{22,}`),
+	// GCP credentials
 	regexp.MustCompile(`(?i)gcp_(credentials|service_account|api_key|access_token|refresh_token|secret_key|auth|key)[a-zA-Z0-9_-]*`),
 	regexp.MustCompile(`(?i)_GOOGLE[a-zA-Z0-9_-]+|GOOGLE_[A-Z0-9_]+`),
+	// Slack token
 	regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`),
+	// Generic API key
 	regexp.MustCompile(`(?i)(api_key|apikey|api-key)\s*[=:]\s*['"]?[A-Za-z0-9_\-]{20,}`),
+	// Database DSNs with embedded credentials
 	regexp.MustCompile(`(?i)(mysql|postgres|mongodb|redis|postgresql)://[^@\s]+:[^@\s]+@`),
+	// JWT token
 	regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`),
 }
 
@@ -82,8 +102,23 @@ func redactValue(v interface{}) interface{} {
 	}
 }
 
+// redactString applies all credential redaction patterns to a plain string.
+func redactString(s string) string {
+	if s == "" {
+		return s
+	}
+	result := s
+	for _, re := range redactionRegexes {
+		result = re.ReplaceAllString(result, redacted)
+	}
+	return result
+}
+
 // redactEvent creates a deep copy of the given event with all credential fields
 // redacted before export. The original event is not modified.
+// ErrorMsg, ResourcePath, and Reason are also passed through the redaction
+// engine because error messages and paths often contain DSNs, tokens, and
+// file paths that embed credentials (HIGH-03).
 func redactEvent(event *AuditEvent) *AuditEvent {
 	if event == nil {
 		return nil
@@ -99,13 +134,13 @@ func redactEvent(event *AuditEvent) *AuditEvent {
 		Action:       event.Action,
 		ResourceType: event.ResourceType,
 		ResourceName: event.ResourceName,
-		ResourcePath: event.ResourcePath,
+		ResourcePath: redactString(event.ResourcePath),
 		Transport:    event.Transport,
 		TargetHost:   event.TargetHost,
 		TargetEnv:    event.TargetEnv,
 		TargetID:     event.TargetID,
 		Result:       event.Result,
-		ErrorMsg:     event.ErrorMsg,
+		ErrorMsg:     redactString(event.ErrorMsg),
 		RiskScore:    event.RiskScore,
 		RiskLevel:    event.RiskLevel,
 		Severity:     event.Severity,
@@ -113,7 +148,7 @@ func redactEvent(event *AuditEvent) *AuditEvent {
 		ApprovalID:   event.ApprovalID,
 		ApprovedBy:   event.ApprovedBy,
 		ApprovedAt:   event.ApprovedAt,
-		Reason:       event.Reason,
+		Reason:       redactString(event.Reason),
 		Signature:    event.Signature,
 	}
 	for k, v := range event.Details {
@@ -351,35 +386,49 @@ func (e *ELKExporter) Export(ctx context.Context, events []*AuditEvent) error {
 
 func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 	const maxRetries = 3
-	var lastErr error
+
+	// Snapshot the body before the retry loop so we can reset it on each
+	// attempt — http.Request.Body is consumed on the first Do() call (HIGH-04).
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return fmt.Errorf("failed to buffer request body: %w", err)
+		}
+	}
 
 	client := &http.Client{}
 	if e.TLSConfig != nil {
+		if e.TLSConfig.InsecureSkipVerify {
+			return fmt.Errorf("ELKExporter: InsecureSkipVerify is prohibited for audit transport")
+		}
 		client.Transport = &http.Transport{TLSClientConfig: e.TLSConfig}
 	}
 
+	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 			time.Sleep(backoff)
 		}
 
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
 
-		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close() // close eagerly, not via defer
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil
 		}
 
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		lastErr = fmt.Errorf("ELK bulk request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-
-		// Only retry on 5xx errors or connection errors
+		lastErr = fmt.Errorf("ELK bulk request failed with status %d: %s", resp.StatusCode, string(respBody))
 		if resp.StatusCode < 500 {
 			return lastErr
 		}
@@ -459,35 +508,47 @@ func (e *SplunkExporter) Export(ctx context.Context, events []*AuditEvent) error
 
 func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 	const maxRetries = 3
-	var lastErr error
+
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return fmt.Errorf("failed to buffer request body: %w", err)
+		}
+	}
 
 	client := &http.Client{}
 	if e.TLSConfig != nil {
+		if e.TLSConfig.InsecureSkipVerify {
+			return fmt.Errorf("SplunkExporter: InsecureSkipVerify is prohibited for audit transport")
+		}
 		client.Transport = &http.Transport{TLSClientConfig: e.TLSConfig}
 	}
 
+	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 			time.Sleep(backoff)
 		}
 
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
 
-		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil
 		}
 
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		lastErr = fmt.Errorf("splunk HEC request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-
-		// Only retry on 5xx errors or connection errors
+		lastErr = fmt.Errorf("splunk HEC request failed with status %d: %s", resp.StatusCode, string(respBody))
 		if resp.StatusCode < 500 {
 			return lastErr
 		}

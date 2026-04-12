@@ -69,6 +69,37 @@ func TestAdapterInfoUsesToolTypeName(t *testing.T) {
 	}
 }
 
+func TestAdapterInfoIncludesParamsSchemaForSecretAuditAndSecurityScan(t *testing.T) {
+	t.Parallel()
+
+	reg := secops.NewSecOpsToolRegistry()
+	require.NoError(t, RegisterDefaultSecOpsToolSet(reg))
+	adapters := RegisterSecOpsTools(reg, nil, nil)
+
+	var secretInfo, scanInfo fantasy.ToolInfo
+	for _, tool := range adapters {
+		info := tool.Info()
+		switch info.Name {
+		case string(secops.ToolTypeSecretAudit):
+			secretInfo = info
+		case string(secops.ToolTypeSecurityScan):
+			scanInfo = info
+		}
+	}
+
+	require.NotEmpty(t, secretInfo.Parameters, "secret_audit should expose JSON schema parameters to the LLM")
+	require.Contains(t, secretInfo.Parameters, "target_path")
+	require.Contains(t, secretInfo.Required, "target_path")
+
+	require.NotEmpty(t, scanInfo.Parameters, "security_scan should expose JSON schema parameters to the LLM")
+	require.Contains(t, scanInfo.Parameters, "target_path")
+	require.Contains(t, scanInfo.Parameters, "scanner")
+	require.Contains(t, scanInfo.Parameters, "target")
+	require.Contains(t, scanInfo.Required, "target_path")
+	require.Contains(t, scanInfo.Required, "scanner")
+	require.Contains(t, scanInfo.Required, "target")
+}
+
 func TestRegisterDefaultSecOpsToolSet_AllTools(t *testing.T) {
 	t.Parallel()
 
@@ -147,8 +178,9 @@ func TestValidateCapabilitiesWithRoleHierarchy(t *testing.T) {
 }
 
 func TestSecOpsRoleFromContext(t *testing.T) {
-	if got := secOpsRoleFromContext(context.Background()); got != "admin" {
-		t.Fatalf("expected default secops role admin, got %q", got)
+	// Unknown / empty agent ID must default to least-privilege (viewer), not admin.
+	if got := secOpsRoleFromContext(context.Background()); got != "viewer" {
+		t.Fatalf("expected default secops role viewer (least-privilege), got %q", got)
 	}
 
 	opsCtx := context.WithValue(context.Background(), tools.AgentIDContextKey, config.AgentOpsAgent)
@@ -310,6 +342,55 @@ func TestNormalizeSecOpsParams(t *testing.T) {
 		}
 		if fmt.Sprint(got["query_type"]) != "resources" {
 			t.Fatalf("expected query_type=resources, got %v", got["query_type"])
+		}
+	})
+
+	t.Run("secret audit maps path to target_path", func(t *testing.T) {
+		t.Parallel()
+		in := map[string]interface{}{"path": "/Users/newmba"}
+		got := normalizeSecOpsParams(secops.ToolTypeSecretAudit, in)
+		if fmt.Sprint(got["target_path"]) != "/Users/newmba" {
+			t.Fatalf("expected target_path=/Users/newmba, got %v", got["target_path"])
+		}
+	})
+
+	t.Run("secret audit preserves explicit target_path", func(t *testing.T) {
+		t.Parallel()
+		in := map[string]interface{}{"path": "/old", "target_path": "/explicit"}
+		got := normalizeSecOpsParams(secops.ToolTypeSecretAudit, in)
+		if fmt.Sprint(got["target_path"]) != "/explicit" {
+			t.Fatalf("expected target_path=/explicit (explicit wins), got %v", got["target_path"])
+		}
+	})
+
+	t.Run("security scan maps path to target_path and fills defaults", func(t *testing.T) {
+		t.Parallel()
+		in := map[string]interface{}{"path": "/Users/newmba"}
+		got := normalizeSecOpsParams(secops.ToolTypeSecurityScan, in)
+		if fmt.Sprint(got["target_path"]) != "/Users/newmba" {
+			t.Fatalf("expected target_path=/Users/newmba, got %v", got["target_path"])
+		}
+		if fmt.Sprint(got["scanner"]) != string(secops.ScannerTrivy) {
+			t.Fatalf("expected scanner=trivy, got %v", got["scanner"])
+		}
+		if fmt.Sprint(got["target"]) != string(secops.TargetFilesystem) {
+			t.Fatalf("expected target=filesystem, got %v", got["target"])
+		}
+	})
+
+	t.Run("security scan preserves explicit scanner and target", func(t *testing.T) {
+		t.Parallel()
+		in := map[string]interface{}{
+			"target_path": "/myapp",
+			"scanner":     string(secops.ScannerGrype),
+			"target":      string(secops.TargetImage),
+		}
+		got := normalizeSecOpsParams(secops.ToolTypeSecurityScan, in)
+		if fmt.Sprint(got["scanner"]) != string(secops.ScannerGrype) {
+			t.Fatalf("expected scanner=grype (explicit), got %v", got["scanner"])
+		}
+		if fmt.Sprint(got["target"]) != string(secops.TargetImage) {
+			t.Fatalf("expected target=image (explicit), got %v", got["target"])
 		}
 	})
 }
@@ -555,7 +636,10 @@ func TestExecuteAndRespond_LowRiskSuccess(t *testing.T) {
 		assessor:    security.NewRiskAssessor(),
 	}
 
-	resp, err := a.executeAndRespond(context.Background(), fantasy.ToolCall{ID: "call-ok", Input: "{}"}, map[string]any{})
+	// Provide an explicit admin agent ID so the capability check passes.
+	// This test verifies low-risk tool execution succeeds, not role-defaulting behaviour.
+	ctx := context.WithValue(context.Background(), tools.AgentIDContextKey, "admin")
+	resp, err := a.executeAndRespond(ctx, fantasy.ToolCall{ID: "call-ok", Input: "{}"}, map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -646,11 +730,16 @@ func TestAdapterRunRejectsUnsafeRemoteSSHParams(t *testing.T) {
 
 func TestAdapterRunAllowsSafeRemoteSSHParams(t *testing.T) {
 	a := &Adapter{
-		tool:     &testSecOpsTool{},
-		registry: capregistry.NewSecOpsRegistry(),
+		tool:        &testSecOpsTool{},
+		secopsPerms: permission.NewDefaultService(),
+		assessor:    security.NewRiskAssessor(),
+		registry:    capregistry.NewSecOpsRegistry(),
 	}
 
-	resp, err := a.Run(context.Background(), fantasy.ToolCall{
+	// Provide admin role so capability check passes; the test verifies that
+	// structurally safe SSH params are accepted, not role-defaulting behaviour.
+	ctx := context.WithValue(context.Background(), tools.AgentIDContextKey, "admin")
+	resp, err := a.Run(ctx, fantasy.ToolCall{
 		ID: "call-safe-remote",
 		Input: `{
 			"remote_host":"10.0.0.9",

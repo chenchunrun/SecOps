@@ -45,18 +45,18 @@ tasks:
     vars:
       LDFLAGS: '{{if .VERSION}}-ldflags="-X github.com/chenchunrun/SecOps/internal/version.Version={{.VERSION}}"{{end}}'
     cmds:
-      - "go build -v {{if .RACE}}-race{{end}} {{.LDFLAGS}} ."
+      - "go build -v {{if .RACE}}-race{{end}} {{.LDFLAGS}} -o SecOps{{exeExt}} ."
     sources:
       - ./**/*.go
       - go.mod
     generates:
-      - crush{{exeExt}}
+      - SecOps{{exeExt}}
 
   run:
     desc: Run build
     cmds:
       - task: build
-      - "./crush{{exeExt}} {{.CLI_ARGS}} {{if .RACE}}2>race.log{{end}}"
+      - "./SecOps{{exeExt}} {{.CLI_ARGS}} {{if .RACE}}2>race.log{{end}}"
 
   run:catwalk:
     desc: Run build with local Catwalk
@@ -64,7 +64,7 @@ tasks:
       CATWALK_URL: http://localhost:8080
     cmds:
       - task: build
-      - ./crush{{exeExt}} {{.CLI_ARGS}}
+      - ./SecOps{{exeExt}} {{.CLI_ARGS}}
 
   run:onboarding:
     desc: Run build with custom config to test onboarding
@@ -74,7 +74,7 @@ tasks:
     cmds:
       - task: build
       - rm -rf tmp/onboarding
-      - ./crush{exeExt} {{.CLI_ARGS}}
+      - ./SecOps{{exeExt}} {{.CLI_ARGS}}
 
   test:
     desc: Run tests

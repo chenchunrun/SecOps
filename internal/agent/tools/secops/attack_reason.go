@@ -25,13 +25,13 @@ type AttackReasonEvidence struct {
 
 // AttackReasonParams are the inputs for ATT&CK reasoning.
 type AttackReasonParams struct {
-	IncidentID         string                  `json:"incident_id,omitempty"`
-	Platform           string                  `json:"platform,omitempty"`
-	Events             []AttackReasonEvidence  `json:"events,omitempty"`
-	AlertResult        *AlertCheckResult       `json:"alert_result,omitempty"`
-	LogAnalyzeResult   *LogAnalyzeResult       `json:"log_analyze_result,omitempty"`
-	TimelineResult     *IncidentTimelineResult `json:"timeline_result,omitempty"`
-	AccessReviewResult *AccessReviewResult     `json:"access_review_result,omitempty"`
+	IncidentID         string                  `json:"incident_id,omitempty" description:"Incident identifier to correlate evidence"`
+	Platform           string                  `json:"platform,omitempty" description:"Platform context, e.g. kubernetes, aws, gcp"`
+	Events             []AttackReasonEvidence  `json:"events,omitempty" description:"Normalized evidence events for ATT&CK mapping"`
+	AlertResult        *AlertCheckResult       `json:"alert_result,omitempty" description:"Output from the alert_check tool"`
+	LogAnalyzeResult   *LogAnalyzeResult       `json:"log_analyze_result,omitempty" description:"Output from the log_analyze tool"`
+	TimelineResult     *IncidentTimelineResult `json:"timeline_result,omitempty" description:"Output from the incident_timeline tool"`
+	AccessReviewResult *AccessReviewResult     `json:"access_review_result,omitempty" description:"Output from the access_review tool"`
 }
 
 // AttackReasonResult wraps the ATT&CK assessment for SecOps tool callers.

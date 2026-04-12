@@ -26,17 +26,17 @@ const (
 
 // ConfigAuditParams 配置审计参数
 type ConfigAuditParams struct {
-	Targets          []ConfigAuditTarget `json:"targets"`                // 审计目标
-	CheckSecurity    bool                `json:"check_security"`         // 检查安全配置
-	CheckCompliance  bool                `json:"check_compliance"`       // 检查合规配置
-	CheckPerformance bool                `json:"check_performance"`      // 检查性能配置
-	Deep             bool                `json:"deep,omitempty"`         // 深度检查
-	CustomRules      []string            `json:"custom_rules,omitempty"` // 自定义规则
-	RemoteHost       string              `json:"remote_host,omitempty"`
-	RemoteUser       string              `json:"remote_user,omitempty"`
-	RemotePort       int                 `json:"remote_port,omitempty"`
-	RemoteKeyPath    string              `json:"remote_key_path,omitempty"`
-	RemoteProxyJump  string              `json:"remote_proxy_jump,omitempty"`
+	Targets          []ConfigAuditTarget `json:"targets" description:"Audit targets: ssh, sudo, firewall, file_permissions, kernel, sysctl"`
+	CheckSecurity    bool                `json:"check_security" description:"Check security-related configurations"`
+	CheckCompliance  bool                `json:"check_compliance" description:"Check compliance-related configurations"`
+	CheckPerformance bool                `json:"check_performance" description:"Check performance-related configurations"`
+	Deep             bool                `json:"deep,omitempty" description:"Enable deep inspection of configuration files"`
+	CustomRules      []string            `json:"custom_rules,omitempty" description:"Custom audit rule IDs to include"`
+	RemoteHost       string              `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser       string              `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort       int                 `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath    string              `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump  string              `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // ConfigAuditRule 配置审计规则

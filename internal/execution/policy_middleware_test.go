@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/chenchunrun/SecOps/internal/policy"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +15,7 @@ func TestPolicyLocalMiddlewareBlocksDeniedRequests(t *testing.T) {
 	})
 
 	_, err := handler(context.Background(), LocalRequest{
-		PolicyDecision: &policy.Decision{
+		Decision: &Decision{
 			Allowed: false,
 			Reason:  "denied by policy",
 		},
@@ -34,7 +33,7 @@ func TestPolicyLocalMiddlewareAllowsApprovedRequests(t *testing.T) {
 	})
 
 	result, err := handler(context.Background(), LocalRequest{
-		PolicyDecision: &policy.Decision{Allowed: true},
+		Decision: &Decision{Allowed: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "ok", result.Output)

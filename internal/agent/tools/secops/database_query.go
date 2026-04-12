@@ -12,17 +12,17 @@ import (
 
 // DatabaseQueryParams for read-only database queries
 type DatabaseQueryParams struct {
-	System          string `json:"system"` // mysql, postgresql, mongodb, redis
-	Host            string `json:"host"`
-	Port            int    `json:"port"`
-	Database        string `json:"database"`
-	Query           string `json:"query"` // SELECT only
-	TimeoutSec      int    `json:"timeout_sec"`
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	System          string `json:"system" description:"Database system: mysql, postgresql, mongodb, redis"`
+	Host            string `json:"host" description:"Database host address"`
+	Port            int    `json:"port" description:"Database port number"`
+	Database        string `json:"database" description:"Database name to query"`
+	Query           string `json:"query" description:"Read-only SQL query (SELECT only)"`
+	TimeoutSec      int    `json:"timeout_sec" description:"Query timeout in seconds"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // DatabaseQueryResult 数据库查询结果

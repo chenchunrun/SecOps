@@ -46,16 +46,16 @@ func (dst *DeploymentStatusTool) RequiredCapabilities() []string {
 
 // DeploymentStatusParams 部署状态检查参数
 type DeploymentStatusParams struct {
-	Platform        string `json:"platform"`   // kubernetes, aws, gcp, azure
-	Namespace       string `json:"namespace"`  // for kubernetes
-	Deployment      string `json:"deployment"` // deployment name
-	Env             string `json:"env"`        // environment: production, staging, dev
-	Target          string `json:"target"`     // cluster or target identifier
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	Platform        string `json:"platform" description:"Platform to check: kubernetes, aws, gcp, azure"`
+	Namespace       string `json:"namespace" description:"Kubernetes namespace for the deployment"`
+	Deployment      string `json:"deployment" description:"Name of the deployment to check"`
+	Env             string `json:"env" description:"Environment: production, staging, or dev"`
+	Target          string `json:"target" description:"Cluster or target identifier"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // ReplicaStatus 副本状态

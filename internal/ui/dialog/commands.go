@@ -12,6 +12,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/chenchunrun/SecOps/internal/commands"
 	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/skills"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/list"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
@@ -24,7 +25,7 @@ const CommandsID = "commands"
 type CommandType uint
 
 // String returns the string representation of the CommandType.
-func (c CommandType) String() string { return []string{"System", "User", "MCP"}[c] }
+func (c CommandType) String() string { return []string{"System", "User", "MCP", "Skills"}[c] }
 
 const (
 	sidebarCompactModeBreakpoint = 120
@@ -34,6 +35,7 @@ const (
 	SystemCommands CommandType = iota
 	UserCommands
 	MCPPrompts
+	SkillCommands
 )
 
 // Commands represents a dialog that shows available commands.
@@ -72,6 +74,7 @@ type Commands struct {
 
 	customCommands []commands.CustomCommand
 	mcpPrompts     []commands.MCPPrompt
+	skillsList     []*skills.Skill
 
 	dockerMCPAvailable     *bool
 	dockerMCPCheckInFlight bool
@@ -80,7 +83,7 @@ type Commands struct {
 var _ Dialog = (*Commands)(nil)
 
 // NewCommands creates a new commands dialog.
-func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, hasQueue bool, runMode RunMode, agentMode AgentMode, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
+func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, hasQueue bool, runMode RunMode, agentMode AgentMode, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt, skillsList []*skills.Skill) (*Commands, error) {
 	c := &Commands{
 		com:            com,
 		selected:       SystemCommands,
@@ -92,6 +95,7 @@ func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, has
 		agentMode:      agentMode,
 		customCommands: customCommands,
 		mcpPrompts:     mcpPrompts,
+		skillsList:     skillsList,
 	}
 
 	help := help.New()
@@ -200,12 +204,12 @@ func (c *Commands) HandleMsg(msg tea.Msg) Action {
 				}
 			}
 		case key.Matches(msg, c.keyMap.Tab):
-			if len(c.customCommands) > 0 || len(c.mcpPrompts) > 0 {
+			if len(c.customCommands) > 0 || len(c.mcpPrompts) > 0 || len(c.skillsList) > 0 {
 				c.selected = c.nextCommandType()
 				c.setCommandItems(c.selected)
 			}
 		case key.Matches(msg, c.keyMap.ShiftTab):
-			if len(c.customCommands) > 0 || len(c.mcpPrompts) > 0 {
+			if len(c.customCommands) > 0 || len(c.mcpPrompts) > 0 || len(c.skillsList) > 0 {
 				c.selected = c.previousCommandType()
 				c.setCommandItems(c.selected)
 			}
@@ -249,11 +253,7 @@ func (c *Commands) Cursor() *tea.Cursor {
 }
 
 // commandsRadioView generates the command type selector radio buttons.
-func commandsRadioView(sty *styles.Styles, selected CommandType, hasUserCmds bool, hasMCPPrompts bool) string {
-	if !hasUserCmds && !hasMCPPrompts {
-		return ""
-	}
-
+func commandsRadioView(sty *styles.Styles, selected CommandType, hasUserCmds bool, hasMCPPrompts bool, hasSkills bool) string {
 	selectedFn := func(t CommandType) string {
 		if t == selected {
 			return sty.RadioOn.Padding(0, 1).Render() + sty.HalfMuted.Render(t.String())
@@ -261,15 +261,16 @@ func commandsRadioView(sty *styles.Styles, selected CommandType, hasUserCmds boo
 		return sty.RadioOff.Padding(0, 1).Render() + sty.HalfMuted.Render(t.String())
 	}
 
-	parts := []string{
-		selectedFn(SystemCommands),
-	}
+	parts := []string{selectedFn(SystemCommands)}
 
 	if hasUserCmds {
 		parts = append(parts, selectedFn(UserCommands))
 	}
 	if hasMCPPrompts {
 		parts = append(parts, selectedFn(MCPPrompts))
+	}
+	if hasSkills {
+		parts = append(parts, selectedFn(SkillCommands))
 	}
 
 	return strings.Join(parts, " ")
@@ -300,7 +301,7 @@ func (c *Commands) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	rc := NewRenderContext(t, width)
 	rc.Title = "Commands"
-	rc.TitleInfo = commandsRadioView(t, c.selected, len(c.customCommands) > 0, len(c.mcpPrompts) > 0)
+	rc.TitleInfo = commandsRadioView(t, c.selected, len(c.customCommands) > 0, len(c.mcpPrompts) > 0, len(c.skillsList) > 0)
 	inputView := t.Dialog.InputPrompt.Render(c.input.View())
 	rc.AddPart(inputView)
 	listView := t.Dialog.List.Height(c.list.Height()).Render(c.list.Render())
@@ -346,30 +347,39 @@ func (c *Commands) nextCommandType() CommandType {
 		if len(c.mcpPrompts) > 0 {
 			return MCPPrompts
 		}
-		fallthrough
+		if len(c.skillsList) > 0 {
+			return SkillCommands
+		}
 	case UserCommands:
 		if len(c.mcpPrompts) > 0 {
 			return MCPPrompts
 		}
-		fallthrough
+		if len(c.skillsList) > 0 {
+			return SkillCommands
+		}
 	case MCPPrompts:
-		return SystemCommands
-	default:
-		return SystemCommands
+		if len(c.skillsList) > 0 {
+			return SkillCommands
+		}
+	case SkillCommands:
+		// wrap around
 	}
+	return SystemCommands
 }
 
 // previousCommandType returns the previous command type in the cycle.
 func (c *Commands) previousCommandType() CommandType {
 	switch c.selected {
 	case SystemCommands:
+		if len(c.skillsList) > 0 {
+			return SkillCommands
+		}
 		if len(c.mcpPrompts) > 0 {
 			return MCPPrompts
 		}
 		if len(c.customCommands) > 0 {
 			return UserCommands
 		}
-		return SystemCommands
 	case UserCommands:
 		return SystemCommands
 	case MCPPrompts:
@@ -377,9 +387,16 @@ func (c *Commands) previousCommandType() CommandType {
 			return UserCommands
 		}
 		return SystemCommands
-	default:
+	case SkillCommands:
+		if len(c.mcpPrompts) > 0 {
+			return MCPPrompts
+		}
+		if len(c.customCommands) > 0 {
+			return UserCommands
+		}
 		return SystemCommands
 	}
+	return SystemCommands
 }
 
 // setCommandItems sets the command items based on the specified command type.
@@ -410,6 +427,14 @@ func (c *Commands) setCommandItems(commandType CommandType) {
 				Arguments:   cmd.Arguments,
 			}
 			commandItems = append(commandItems, NewCommandItem(c.com.Styles, "mcp_"+cmd.ID, cmd.PromptID, "", action))
+		}
+	case SkillCommands:
+		for _, s := range c.skillsList {
+			action := ActionActivateSkill{
+				Name:        s.Name,
+				Description: s.Description,
+			}
+			commandItems = append(commandItems, NewCommandItem(c.com.Styles, "skill_"+s.Name, s.Name, "", action))
 		}
 	}
 
@@ -570,6 +595,14 @@ func (c *Commands) SetCustomCommands(customCommands []commands.CustomCommand) {
 func (c *Commands) SetMCPPrompts(mcpPrompts []commands.MCPPrompt) {
 	c.mcpPrompts = mcpPrompts
 	if c.selected == MCPPrompts {
+		c.setCommandItems(c.selected)
+	}
+}
+
+// SetSkills sets the skills list and refreshes the view if Skills tab is active.
+func (c *Commands) SetSkills(skillsList []*skills.Skill) {
+	c.skillsList = skillsList
+	if c.selected == SkillCommands {
 		c.setCommandItems(c.selected)
 	}
 }

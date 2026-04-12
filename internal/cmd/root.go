@@ -56,33 +56,33 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "crush",
+	Use:   "SecOps",
 	Short: "A terminal-first AI assistant for software development",
 	Long:  "A glamorous, terminal-first AI assistant for software development and adjacent tasks",
 	Example: `
 # Run in interactive mode
-crush
+SecOps
 
 # Run non-interactively
-crush run "Guess my 5 favorite Pokémon"
+SecOps run "Guess my 5 favorite Pokémon"
 
 # Run a non-interactively with pipes and redirection
-cat README.md | crush run "make this more glamorous" > GLAMOROUS_README.md
+cat README.md | SecOps run "make this more glamorous" > GLAMOROUS_README.md
 
 # Run with debug logging in a specific directory
-crush --debug --cwd /path/to/project
+SecOps --debug --cwd /path/to/project
 
 # Run in yolo mode (auto-accept all permissions; use with care)
-crush --yolo
+SecOps --yolo
 
 # Run with custom data directory
-crush --data-dir /path/to/custom/.crush
+SecOps --data-dir /path/to/custom/.crush
 
 # Continue a previous session
-crush --session {session-id}
+SecOps --session {session-id}
 
 # Continue the most recent session
-crush --continue
+SecOps --continue
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID, _ := cmd.Flags().GetString("session")

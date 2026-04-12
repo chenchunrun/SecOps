@@ -6,6 +6,12 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"unicode/utf8"
+)
+
+const (
+	inMemoryAuditStoreMaxEvents  = 10_000
+	inMemoryAuditStoreMaxAction  = 64
 )
 
 // InMemoryAuditStore 内存审计存储实现
@@ -13,6 +19,26 @@ type InMemoryAuditStore struct {
 	mu     sync.RWMutex
 	events map[string]*AuditEvent
 	index  []string // 事件ID索引，按时间排序
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 || s == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+
+	b := make([]byte, 0, len(s))
+	i := 0
+	for _, r := range s {
+		if i >= max {
+			break
+		}
+		b = utf8.AppendRune(b, r)
+		i++
+	}
+	return string(b)
 }
 
 // NewInMemoryAuditStore 创建内存审计存储
@@ -36,6 +62,13 @@ func (s *InMemoryAuditStore) SaveEvent(event *AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Enforce doc-level safety constraints:
+	// - Keep action/command descriptions short to reduce sensitive spill risk.
+	// - Keep the in-memory store bounded to avoid unbounded growth.
+	if event.Action != "" {
+		event.Action = truncateRunes(event.Action, inMemoryAuditStoreMaxAction)
+	}
+
 	s.events[event.ID] = event
 	s.index = append(s.index, event.ID)
 
@@ -43,6 +76,16 @@ func (s *InMemoryAuditStore) SaveEvent(event *AuditEvent) error {
 	sort.SliceStable(s.index, func(i, j int) bool {
 		return s.events[s.index[i]].Timestamp.Before(s.events[s.index[j]].Timestamp)
 	})
+
+	// Enforce FIFO eviction when the store exceeds its capacity.
+	if inMemoryAuditStoreMaxEvents > 0 && len(s.index) > inMemoryAuditStoreMaxEvents {
+		excess := len(s.index) - inMemoryAuditStoreMaxEvents
+		for i := 0; i < excess; i++ {
+			evictID := s.index[i]
+			delete(s.events, evictID)
+		}
+		s.index = append([]string(nil), s.index[excess:]...)
+	}
 
 	return nil
 }

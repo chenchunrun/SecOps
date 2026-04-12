@@ -2,6 +2,7 @@ package secops
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed compliance_check.md
+var complianceCheckDescription string
 
 // ComplianceFramework 合规框架
 type ComplianceFramework string
@@ -80,26 +84,26 @@ const (
 // ComplianceCheckParams 合规检查参数
 type ComplianceCheckParams struct {
 	// 框架选择
-	Framework ComplianceFramework `json:"framework"`
+	Framework ComplianceFramework `json:"framework" description:"Compliance framework: cis, pci_dss, soc2, hipaa, gdpr, iso27001, docker_bench"`
 
 	// 检查范围
-	Categories []string `json:"categories,omitempty"` // e.g., ["system", "network", "access"]
-	RuleIDs    []string `json:"rule_ids,omitempty"`   // 指定规则ID
+	Categories []string `json:"categories,omitempty" description:"Check categories, e.g. system, network, access"`
+	RuleIDs    []string `json:"rule_ids,omitempty" description:"Specific rule IDs to check"`
 
 	// 检查选项
-	Full      bool `json:"full,omitempty"`       // 全面检查 vs 快速检查
-	FixIssues bool `json:"fix_issues,omitempty"` // 自动修复
-	Timeout   int  `json:"timeout,omitempty"`    // 检查超时（秒）
+	Full      bool `json:"full,omitempty" description:"Run full check instead of quick scan"`
+	FixIssues bool `json:"fix_issues,omitempty" description:"Attempt to auto-remediate failed rules"`
+	Timeout   int  `json:"timeout,omitempty" description:"Check timeout in seconds"`
 
 	// 输出选项
-	IncludeRemediation bool `json:"include_remediation,omitempty"`
+	IncludeRemediation bool `json:"include_remediation,omitempty" description:"Include remediation steps in results"`
 
 	// 远程检查选项
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // ComplianceRule 合规规则

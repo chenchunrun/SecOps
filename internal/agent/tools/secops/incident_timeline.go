@@ -15,14 +15,14 @@ import (
 
 // IncidentTimelineParams for generating incident timeline
 type IncidentTimelineParams struct {
-	IncidentID      string          `json:"incident_id"`
-	Events          []TimelineEvent `json:"events,omitempty"`
-	RemoteHost      string          `json:"remote_host,omitempty"`
-	RemoteUser      string          `json:"remote_user,omitempty"`
-	RemotePort      int             `json:"remote_port,omitempty"`
-	RemoteKeyPath   string          `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string          `json:"remote_proxy_jump,omitempty"`
-	EventsFilePath  string          `json:"events_file_path,omitempty"`
+	IncidentID      string          `json:"incident_id" description:"Unique identifier of the incident"`
+	Events          []TimelineEvent `json:"events,omitempty" description:"Pre-collected timeline events to include"`
+	RemoteHost      string          `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string          `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int             `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string          `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string          `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
+	EventsFilePath  string          `json:"events_file_path,omitempty" description:"Path to a JSON or JSONL file of incident events"`
 }
 
 // IncidentTimelineTool 事件时间线工具

@@ -281,21 +281,51 @@ func init() {
 	_ = SecurityCapabilities.AddCapability(&Capability{Name: "file:delete", Description: "Delete malicious files", ResourceType: "file", Action: "delete", Pattern: "*", RequiredRole: "responder"})
 	_ = SecurityCapabilities.AddCapability(&Capability{Name: "compliance:check", Description: "Run compliance checks", ResourceType: "database", Action: "execute", Pattern: "*", RequiredRole: "responder"})
 	_ = SecurityCapabilities.AddCapability(&Capability{Name: "security:incident", Description: "Manage security incidents", ResourceType: "database", Action: "execute", Pattern: "*", RequiredRole: "responder"})
+
+	// Red team capabilities — intentionally NOT assigned to any default role.
+	// Must be explicitly granted via crush.json permissions.secops_capability_grants.
+	// Every red team action also requires runtime user confirmation ("已授权 / AUTHORIZED").
+	_ = SecurityCapabilities.AddCapability(&Capability{
+		Name:         CapabilityRedTeamExecute,
+		Description:  "Execute red team operations (requires explicit per-session authorization)",
+		ResourceType: "command",
+		Action:       "execute",
+		Pattern:      "*",
+		RequiredRole: "", // RequiredRole empty = must be granted explicitly, never inferred
+	})
+	_ = SecurityCapabilities.AddCapability(&Capability{
+		Name:         CapabilityRedTeamRecon,
+		Description:  "Perform red team reconnaissance (requires explicit per-session authorization)",
+		ResourceType: "network",
+		Action:       "execute",
+		Pattern:      "*",
+		RequiredRole: "",
+	})
+	_ = SecurityCapabilities.AddCapability(&Capability{
+		Name:         CapabilityRedTeamIntrude,
+		Description:  "Perform red team intrusion operations (requires explicit per-session authorization)",
+		ResourceType: "command",
+		Action:       "execute",
+		Pattern:      "*",
+		RequiredRole: "",
+	})
 }
 
 // CheckCapability checks if a user role has the specified capability.
 // It checks both OpsCapabilities and SecurityCapabilities.
+// Capabilities with an empty RequiredRole are never granted implicitly — they
+// must be assigned through an explicit secops_capability_grants configuration.
 func CheckCapability(userRole, capability string) bool {
 	if OpsCapabilities.HasCapability(capability) {
 		for _, cap := range OpsCapabilities.GetAllCapabilities() {
-			if cap.Name == capability && (cap.RequiredRole == "" || cap.RequiredRole == userRole) {
+			if cap.Name == capability && cap.RequiredRole != "" && cap.RequiredRole == userRole {
 				return true
 			}
 		}
 	}
 	if SecurityCapabilities.HasCapability(capability) {
 		for _, cap := range SecurityCapabilities.GetAllCapabilities() {
-			if cap.Name == capability && (cap.RequiredRole == "" || cap.RequiredRole == userRole) {
+			if cap.Name == capability && cap.RequiredRole != "" && cap.RequiredRole == userRole {
 				return true
 			}
 		}
@@ -304,18 +334,20 @@ func CheckCapability(userRole, capability string) bool {
 }
 
 // GetCapabilitiesForRole returns all capabilities available to a given role.
+// Capabilities with an empty RequiredRole are excluded — they must be granted
+// explicitly via secops_capability_grants and are never inferred from role.
 func GetCapabilitiesForRole(role string) []*Capability {
 	var caps []*Capability
 	seen := make(map[string]bool)
 
 	for _, cap := range OpsCapabilities.GetAllCapabilities() {
-		if (cap.RequiredRole == "" || cap.RequiredRole == role) && !seen[cap.Name] {
+		if cap.RequiredRole != "" && cap.RequiredRole == role && !seen[cap.Name] {
 			caps = append(caps, cap)
 			seen[cap.Name] = true
 		}
 	}
 	for _, cap := range SecurityCapabilities.GetAllCapabilities() {
-		if (cap.RequiredRole == "" || cap.RequiredRole == role) && !seen[cap.Name] {
+		if cap.RequiredRole != "" && cap.RequiredRole == role && !seen[cap.Name] {
 			caps = append(caps, cap)
 			seen[cap.Name] = true
 		}
@@ -363,4 +395,11 @@ const (
 	// 数据库操作
 	CapabilityDatabaseQuery  = "database:query"
 	CapabilityDatabaseModify = "database:modify"
+
+	// 红队操作 — 需显式授权，默认不赋予任何角色，须通过 secops_capability_grants 配置项开启
+	// Red team operations require explicit user confirmation for every invocation.
+	// Grant via crush.json: permissions.secops_capability_grants.analyst = ["redteam:execute"]
+	CapabilityRedTeamExecute = "redteam:execute"
+	CapabilityRedTeamRecon   = "redteam:recon"
+	CapabilityRedTeamIntrude = "redteam:intrude"
 )

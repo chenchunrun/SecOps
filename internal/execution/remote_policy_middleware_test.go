@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/chenchunrun/SecOps/internal/audit"
-	"github.com/chenchunrun/SecOps/internal/policy"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +24,7 @@ func TestPolicyRemoteMiddlewareBlocksDeniedRequests(t *testing.T) {
 		TargetHost:  "10.0.0.9",
 		TargetUser:  "ops",
 		RemoteEnv:   "prod",
-		PolicyDecision: &policy.Decision{
+		Decision: &Decision{
 			Allowed: false,
 			Reason:  "remote command denied by profile deny rule: \"rm -rf\"",
 			AuditFields: map[string]any{
@@ -53,7 +52,7 @@ func TestPolicyRemoteMiddlewareAllowsApprovedRequests(t *testing.T) {
 	})
 
 	res, err := handler(context.Background(), RemoteRequest{
-		PolicyDecision: &policy.Decision{Allowed: true},
+		Decision: &Decision{Allowed: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "ok", res.Output)

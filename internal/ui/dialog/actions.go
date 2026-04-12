@@ -86,6 +86,12 @@ type (
 	ActionEnableDockerMCP struct{}
 	// ActionDisableDockerMCP is a message to disable Docker MCP.
 	ActionDisableDockerMCP struct{}
+	// ActionActivateSkill is a message to activate a skill by sending its trigger
+	// phrase as a chat message.
+	ActionActivateSkill struct {
+		Name        string
+		Description string
+	}
 )
 
 type RunMode string

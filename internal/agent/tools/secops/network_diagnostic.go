@@ -2,6 +2,7 @@ package secops
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"net"
 	"os"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed network_diagnostic.md
+var networkDiagnosticDescription string
 
 // NetworkDiagnosticType 网络诊断类型
 type NetworkDiagnosticType string
@@ -25,19 +29,19 @@ const (
 
 // NetworkDiagnosticParams 网络诊断参数
 type NetworkDiagnosticParams struct {
-	Type            NetworkDiagnosticType `json:"type"`
-	Target          string                `json:"target"`          // IP 或域名
-	Ports           []int                 `json:"ports,omitempty"` // 端口列表（用于端口扫描）
-	Timeout         int                   `json:"timeout,omitempty"`
-	PacketCount     int                   `json:"packet_count,omitempty"`  // ping 包数
-	PacketSize      int                   `json:"packet_size,omitempty"`   // 包大小
-	CheckLatency    bool                  `json:"check_latency,omitempty"` // 检查延迟
-	CheckPacketLoss bool                  `json:"check_packet_loss,omitempty"`
-	RemoteHost      string                `json:"remote_host,omitempty"`       // 远程诊断主机
-	RemoteUser      string                `json:"remote_user,omitempty"`       // SSH 用户
-	RemotePort      int                   `json:"remote_port,omitempty"`       // SSH 端口
-	RemoteKeyPath   string                `json:"remote_key_path,omitempty"`   // SSH 私钥路径
-	RemoteProxyJump string                `json:"remote_proxy_jump,omitempty"` // SSH 跳板机
+	Type            NetworkDiagnosticType `json:"type" description:"Diagnostic type: traceroute, mtr, port_scan, dns, ping"`
+	Target          string                `json:"target" description:"Target IP address or domain name"`
+	Ports           []int                 `json:"ports,omitempty" description:"Port list for port_scan diagnostic"`
+	Timeout         int                   `json:"timeout,omitempty" description:"Diagnostic timeout in seconds (max 300)"`
+	PacketCount     int                   `json:"packet_count,omitempty" description:"Number of packets to send for ping"`
+	PacketSize      int                   `json:"packet_size,omitempty" description:"Packet size in bytes"`
+	CheckLatency    bool                  `json:"check_latency,omitempty" description:"Include latency analysis in results"`
+	CheckPacketLoss bool                  `json:"check_packet_loss,omitempty" description:"Include packet loss analysis in results"`
+	RemoteHost      string                `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string                `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int                   `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string                `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string                `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // HopInfo 路由跳转信息
@@ -125,7 +129,7 @@ func (ndt *NetworkDiagnosticTool) Name() string {
 
 // Description 实现 Tool.Description
 func (ndt *NetworkDiagnosticTool) Description() string {
-	return "Perform network diagnostics (traceroute, MTR, port scan, DNS lookup, ping)"
+	return networkDiagnosticDescription
 }
 
 // RequiredCapabilities 实现 Tool.RequiredCapabilities

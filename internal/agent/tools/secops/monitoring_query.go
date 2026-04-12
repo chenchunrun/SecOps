@@ -2,6 +2,7 @@ package secops
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed monitoring_query.md
+var monitoringQueryDescription string
 
 // MetricsSystem 指标系统
 type MetricsSystem string
@@ -27,29 +31,29 @@ const (
 // MonitoringQueryParams 监控查询参数
 type MonitoringQueryParams struct {
 	// 系统配置
-	System     MetricsSystem `json:"system"`
-	Endpoint   string        `json:"endpoint"`
-	Credential string        `json:"credential,omitempty"`
-	Database   string        `json:"database,omitempty"`
+	System     MetricsSystem `json:"system" description:"Monitoring system: prometheus, grafana, datadog, newrelic, influxdb"`
+	Endpoint   string        `json:"endpoint" description:"Base URL of the monitoring system API"`
+	Credential string        `json:"credential,omitempty" description:"API key or bearer token for authentication"`
+	Database   string        `json:"database,omitempty" description:"Database name, required for InfluxDB"`
 
 	// 查询条件
-	Query  string            `json:"query"`            // PromQL, DataDog query 等
-	Metric string            `json:"metric,omitempty"` // 指标名称
-	Field  string            `json:"field,omitempty"`  // InfluxDB field
-	Labels map[string]string `json:"labels,omitempty"` // 标签过滤
+	Query  string            `json:"query" description:"Query expression (PromQL, Datadog query, etc.)"`
+	Metric string            `json:"metric,omitempty" description:"Metric name to query"`
+	Field  string            `json:"field,omitempty" description:"InfluxDB field name, defaults to value"`
+	Labels map[string]string `json:"labels,omitempty" description:"Label key-value pairs to filter metrics"`
 
 	// 时间范围
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
+	StartTime time.Time `json:"start_time" description:"Start of query time range"`
+	EndTime   time.Time `json:"end_time" description:"End of query time range"`
 
 	// 聚合选项
-	Step            time.Duration `json:"step,omitempty"`
-	Aggregation     string        `json:"aggregation,omitempty"` // avg, sum, max, min, p99 等
-	RemoteHost      string        `json:"remote_host,omitempty"`
-	RemoteUser      string        `json:"remote_user,omitempty"`
-	RemotePort      int           `json:"remote_port,omitempty"`
-	RemoteKeyPath   string        `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string        `json:"remote_proxy_jump,omitempty"`
+	Step            time.Duration `json:"step,omitempty" description:"Query resolution step interval"`
+	Aggregation     string        `json:"aggregation,omitempty" description:"Aggregation function: avg, sum, max, min, p99"`
+	RemoteHost      string        `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string        `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int           `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string        `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string        `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // MetricPoint 指标数据点
@@ -127,7 +131,7 @@ func (mqt *MonitoringQueryTool) Name() string {
 
 // Description 实现 Tool.Description
 func (mqt *MonitoringQueryTool) Description() string {
-	return "Query metrics from monitoring systems (Prometheus, Grafana, Datadog, NewRelic, InfluxDB)"
+	return monitoringQueryDescription
 }
 
 // RequiredCapabilities 实现 Tool.RequiredCapabilities

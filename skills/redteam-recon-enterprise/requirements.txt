@@ -1,0 +1,9 @@
+# redteam-recon-enterprise 依赖
+# 安装: pip3 install -r requirements.txt
+
+# 核心依赖
+requests>=2.28.0
+rich>=12.0.0
+
+# 可选: DNS 工具
+dnspython>=2.3.0

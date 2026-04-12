@@ -43,6 +43,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/chenchunrun/SecOps/internal/session"
+	"github.com/chenchunrun/SecOps/internal/skills"
 	"github.com/chenchunrun/SecOps/internal/ui/anim"
 	"github.com/chenchunrun/SecOps/internal/ui/attachments"
 	"github.com/chenchunrun/SecOps/internal/ui/chat"
@@ -212,9 +213,10 @@ type UI struct {
 	// Notification state
 	notifyBackend       notification.Backend
 	notifyWindowFocused bool
-	// custom commands & mcp commands
+	// custom commands, mcp commands & skills
 	customCommands []commands.CustomCommand
 	mcpPrompts     []commands.MCPPrompt
+	skillsList     []*skills.Skill
 	runMode        dialog.RunMode
 	agentMode      dialog.AgentMode
 
@@ -367,6 +369,8 @@ func (m *UI) Init() tea.Cmd {
 	}
 	// load the user commands async
 	cmds = append(cmds, m.loadCustomCommands())
+	// load skills async
+	cmds = append(cmds, m.loadSkills())
 	// load prompt history async
 	cmds = append(cmds, m.loadPromptHistory())
 	// load initial session if specified
@@ -443,6 +447,29 @@ func (m *UI) loadCustomCommands() tea.Cmd {
 			slog.Error("Failed to load custom commands", "error", err)
 		}
 		return userCommandsLoadedMsg{Commands: customCommands}
+	}
+}
+
+type skillsLoadedMsg struct {
+	Skills []*skills.Skill
+}
+
+// loadSkills discovers and loads all configured skills asynchronously.
+func (m *UI) loadSkills() tea.Cmd {
+	return func() tea.Msg {
+		cfg := m.com.Config()
+		var paths []string
+		if cfg != nil && cfg.Options != nil {
+			for _, p := range cfg.Options.SkillsPaths {
+				if p != "" {
+					paths = append(paths, p)
+				}
+			}
+		}
+		if len(paths) == 0 {
+			return skillsLoadedMsg{}
+		}
+		return skillsLoadedMsg{Skills: skills.Discover(paths)}
 	}
 }
 
@@ -540,6 +567,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		commands, ok := dia.(*dialog.Commands)
 		if ok {
 			commands.SetCustomCommands(m.customCommands)
+		}
+
+	case skillsLoadedMsg:
+		m.skillsList = msg.Skills
+		dia := m.dialog.Dialog(dialog.CommandsID)
+		if dia == nil {
+			break
+		}
+		if cmdsDialog, ok := dia.(*dialog.Commands); ok {
+			cmdsDialog.SetSkills(m.skillsList)
 		}
 
 	case mcpStateChangedMsg:
@@ -1435,6 +1472,12 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionDisableDockerMCP:
 		m.dialog.CloseDialog(dialog.CommandsID)
 		cmds = append(cmds, m.disableDockerMCP)
+	case dialog.ActionActivateSkill:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		// Send the skill trigger phrase as a chat message so the agent reads
+		// the skill and follows its instructions.
+		trigger := "请激活 " + msg.Name + " 技能"
+		cmds = append(cmds, m.sendMessage(trigger))
 	case dialog.ActionInitializeProject:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before summarizing session..."))
@@ -3427,7 +3470,7 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 	hasTodos := hasSession && hasIncompleteTodos(m.session.Todos)
 	hasQueue := m.promptQueue > 0
 
-	commands, err := dialog.NewCommands(m.com, sessionID, hasSession, hasTodos, hasQueue, m.runMode, m.agentMode, m.customCommands, m.mcpPrompts)
+	commands, err := dialog.NewCommands(m.com, sessionID, hasSession, hasTodos, hasQueue, m.runMode, m.agentMode, m.customCommands, m.mcpPrompts, m.skillsList)
 	if err != nil {
 		return util.ReportError(err)
 	}

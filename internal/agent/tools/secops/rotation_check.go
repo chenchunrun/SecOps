@@ -13,14 +13,14 @@ import (
 
 // RotationCheckParams for checking key rotation status
 type RotationCheckParams struct {
-	SystemType      string `json:"system_type"` // "aws", "gcp", "azure", "kubernetes"
-	KeyType         string `json:"key_type"`    // "api_key", "cert", "password"
-	TargetID        string `json:"target_id"`
-	RemoteHost      string `json:"remote_host,omitempty"`
-	RemoteUser      string `json:"remote_user,omitempty"`
-	RemotePort      int    `json:"remote_port,omitempty"`
-	RemoteKeyPath   string `json:"remote_key_path,omitempty"`
-	RemoteProxyJump string `json:"remote_proxy_jump,omitempty"`
+	SystemType      string `json:"system_type" description:"Cloud or platform: aws, gcp, azure, kubernetes"`
+	KeyType         string `json:"key_type" description:"Key type to check: api_key, cert, password"`
+	TargetID        string `json:"target_id" description:"Identifier of the key or credential to check"`
+	RemoteHost      string `json:"remote_host,omitempty" description:"Remote host for SSH execution"`
+	RemoteUser      string `json:"remote_user,omitempty" description:"SSH username for remote execution"`
+	RemotePort      int    `json:"remote_port,omitempty" description:"SSH port for remote execution"`
+	RemoteKeyPath   string `json:"remote_key_path,omitempty" description:"Path to SSH private key for remote execution"`
+	RemoteProxyJump string `json:"remote_proxy_jump,omitempty" description:"SSH proxy jump host for remote execution"`
 }
 
 // RotationCheckResult 轮换检查结果

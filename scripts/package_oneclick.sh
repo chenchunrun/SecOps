@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
-PRODUCT_NAME="${PRODUCT_NAME:-secops-agent}"
+PRODUCT_NAME="${PRODUCT_NAME:-SecOps}"
 GOOS_VAL="${GOOS:-$(go env GOOS)}"
 GOARCH_VAL="${GOARCH:-$(go env GOARCH)}"
 OS_LABEL="$GOOS_VAL"
@@ -22,17 +22,17 @@ mkdir -p "$WORK_DIR"
 echo "[1/4] Building binary..."
 CGO_ENABLED=0 GOOS="$GOOS_VAL" GOARCH="$GOARCH_VAL" \
   go build -ldflags "-X github.com/chenchunrun/SecOps/internal/version.Version=${VERSION}" \
-  -o "$WORK_DIR/crush" .
+  -o "$WORK_DIR/SecOps" .
 
 cat > "$WORK_DIR/install.sh" <<'INSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN_SRC="${SCRIPT_DIR}/crush"
+BIN_SRC="${SCRIPT_DIR}/SecOps"
 
 if [[ ! -x "$BIN_SRC" ]]; then
-  echo "Error: crush binary not found in package directory: $BIN_SRC" >&2
+  echo "Error: SecOps binary not found in package directory: $BIN_SRC" >&2
   exit 1
 fi
 
@@ -46,15 +46,15 @@ if [[ -z "$TARGET_DIR" ]]; then
 fi
 
 mkdir -p "$TARGET_DIR"
-install -m 0755 "$BIN_SRC" "$TARGET_DIR/crush"
+install -m 0755 "$BIN_SRC" "$TARGET_DIR/SecOps"
 
-echo "Installed: $TARGET_DIR/crush"
-if ! command -v crush >/dev/null 2>&1 || [[ "$(command -v crush)" != "$TARGET_DIR/crush" ]]; then
+echo "Installed: $TARGET_DIR/SecOps"
+if ! command -v SecOps >/dev/null 2>&1 || [[ "$(command -v SecOps)" != "$TARGET_DIR/SecOps" ]]; then
   echo "If command not found, add to PATH:"
   echo "  export PATH=\"$TARGET_DIR:\$PATH\""
 fi
 
-echo "Run: crush"
+echo "Run: SecOps"
 INSTALL
 
 cat > "$WORK_DIR/uninstall.sh" <<'UNINSTALL'
@@ -63,18 +63,18 @@ set -euo pipefail
 
 TARGET_DIR="${CRUSH_INSTALL_DIR:-}"
 if [[ -z "$TARGET_DIR" ]]; then
-  if [[ -e "/usr/local/bin/crush" ]]; then
+  if [[ -e "/usr/local/bin/SecOps" ]]; then
     TARGET_DIR="/usr/local/bin"
   else
     TARGET_DIR="$HOME/.local/bin"
   fi
 fi
 
-if [[ -e "$TARGET_DIR/crush" ]]; then
-  rm -f "$TARGET_DIR/crush"
-  echo "Removed: $TARGET_DIR/crush"
+if [[ -e "$TARGET_DIR/SecOps" ]]; then
+  rm -f "$TARGET_DIR/SecOps"
+  echo "Removed: $TARGET_DIR/SecOps"
 else
-  echo "Not found: $TARGET_DIR/crush"
+  echo "Not found: $TARGET_DIR/SecOps"
 fi
 UNINSTALL
 
@@ -107,7 +107,7 @@ chmod +x "$WORK_DIR/install.sh" "$WORK_DIR/uninstall.sh"
 echo "[2/4] Writing checksums..."
 (
   cd "$WORK_DIR"
-  shasum -a 256 crush > crush.sha256
+  shasum -a 256 SecOps > SecOps.sha256
 )
 
 echo "[3/4] Creating archive..."
