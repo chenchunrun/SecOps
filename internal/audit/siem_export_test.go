@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,8 +17,10 @@ import (
 	"time"
 )
 
-func newTLSTestConfig() *tls.Config {
-	return &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}
+func newTLSTestConfig(server *httptest.Server) *tls.Config {
+	roots := x509.NewCertPool()
+	roots.AddCert(server.Certificate())
+	return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
 }
 
 // --- ELKExporter tests ---
@@ -42,7 +45,7 @@ func TestELKExporter_Export_Success(t *testing.T) {
 		Username:   "elastic",
 		Password:   "secret",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{
@@ -93,7 +96,7 @@ func TestELKExporter_Export_ServerError(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "test-index",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypePermissionRequest)}
@@ -120,7 +123,7 @@ func TestELKExporter_Export_RetryOnFailure(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "test-index",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)}
@@ -144,7 +147,7 @@ func TestELKExporter_Export_RetryExhausted(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "test-index",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
@@ -174,7 +177,7 @@ func TestSplunkExporter_Export_Success(t *testing.T) {
 		Token:      "test-token",
 		Index:      "test-index",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{
@@ -211,7 +214,7 @@ func TestSplunkExporter_Export_ServerError(t *testing.T) {
 		Endpoint:   server.URL,
 		Token:      "bad-token",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeLoginFailure)}
@@ -239,7 +242,7 @@ func TestSplunkExporter_Export_RetryOnFailure(t *testing.T) {
 		Token:      "test-token",
 		Index:      "test-index",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeConfigChange)}
@@ -263,7 +266,7 @@ func TestSplunkExporter_Export_RetryExhausted(t *testing.T) {
 		Endpoint:   server.URL,
 		Token:      "test-token",
 		TLSEnabled: true,
-		TLSConfig:  newTLSTestConfig(),
+		TLSConfig:  newTLSTestConfig(server),
 	}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
@@ -500,8 +503,8 @@ func TestExportToAll_Success(t *testing.T) {
 	}))
 	defer server2.Close()
 
-	elk := &ELKExporter{Endpoint: server1.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
-	splunk := &SplunkExporter{Endpoint: server2.URL, Token: "tok", Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
+	elk := &ELKExporter{Endpoint: server1.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig(server1)}
+	splunk := &SplunkExporter{Endpoint: server2.URL, Token: "tok", Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig(server2)}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeCommandExecuted)}
 
@@ -517,7 +520,7 @@ func TestExportToAll_StopsOnFirstError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	elk := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
+	elk := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig(server)}
 
 	events := []*AuditEvent{DefaultAuditEvent(EventTypePermissionRequest)}
 
@@ -544,7 +547,7 @@ func TestELKExporter_Export_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
+	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig(server)}
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -563,7 +566,7 @@ func TestSplunkExporter_Export_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
+	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true, TLSConfig: newTLSTestConfig(server)}
 	events := []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -585,7 +588,7 @@ func TestELKExporter_Export_EmptyEvents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
+	exporter := &ELKExporter{Endpoint: server.URL, Index: "test", TLSEnabled: true, TLSConfig: newTLSTestConfig(server)}
 	err := exporter.Export(context.Background(), []*AuditEvent{})
 	if err != nil {
 		t.Fatalf("expected no error with empty events, got %v", err)
@@ -606,7 +609,7 @@ func TestSplunkExporter_Export_EmptyEvents(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true, TLSConfig: newTLSTestConfig()}
+	exporter := &SplunkExporter{Endpoint: server.URL, Token: "tok", TLSEnabled: true, TLSConfig: newTLSTestConfig(server)}
 	err := exporter.Export(context.Background(), []*AuditEvent{})
 	if err != nil {
 		t.Fatalf("expected no error with empty events, got %v", err)

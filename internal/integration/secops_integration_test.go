@@ -2,6 +2,7 @@ package integration
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,12 @@ import (
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/security"
 )
+
+func newTLSTestConfig(server *httptest.Server) *tls.Config {
+	roots := x509.NewCertPool()
+	roots.AddCert(server.Certificate())
+	return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+}
 
 // TestSecuritySystemIntegration_IncidentResponse 测试完整的安全事件响应流程
 func TestSecuritySystemIntegration_IncidentResponse(t *testing.T) {
@@ -674,9 +681,7 @@ func TestPermissionRiskToolAuditSIEM_EndToEnd(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "secops-audit",
 		TLSEnabled: true,
-		TLSConfig: &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec // test-only TLS server.
-		},
+		TLSConfig:  newTLSTestConfig(server),
 	}
 	if err := exporter.Export(t.Context(), events); err != nil {
 		t.Fatalf("siem export failed: %v", err)
@@ -778,9 +783,7 @@ func TestConfigKeyPersistenceAndAuditSIEMReconcile_EndToEnd(t *testing.T) {
 		Endpoint:   server.URL,
 		Index:      "secops-audit",
 		TLSEnabled: true,
-		TLSConfig: &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec // test-only TLS server.
-		},
+		TLSConfig:  newTLSTestConfig(server),
 	}
 	if err := exporter.Export(t.Context(), events); err != nil {
 		t.Fatalf("siem export failed: %v", err)

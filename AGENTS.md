@@ -104,6 +104,15 @@ intentionally reclassified for publication.
 
 ## Build/Test/Lint Commands
 
+- **Module and build caches**: If downloads from `proxy.golang.org` time out or
+  sandbox permission interferes with the default Go cache, point caches at
+  repo-local directories (both are gitignored):
+
+```bash
+GOMODCACHE="$(pwd)/.gomodcache" GOCACHE="$(pwd)/.gocache" go test ./...
+GOMODCACHE="$(pwd)/.gomodcache" GOCACHE="$(pwd)/.gocache" go build .
+```
+
 - **Build**: `go build .` or `go run .`
 - **Test**: `task test` or `go test ./...` (run single test:
   `go test ./internal/llm/prompt -run TestGetContextFromPaths`)
