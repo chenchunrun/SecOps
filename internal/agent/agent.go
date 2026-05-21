@@ -32,6 +32,7 @@ import (
 	"charm.land/fantasy/providers/vercel"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/chenchunrun/SecOps/internal/agent/handoff"
 	"github.com/chenchunrun/SecOps/internal/agent/hyper"
 	"github.com/chenchunrun/SecOps/internal/agent/notify"
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
@@ -70,6 +71,15 @@ const sessionAgentMaxRetries = 0
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func consumesStructuredHandoff(agentID string) bool {
+	switch strings.TrimSpace(agentID) {
+	case config.AgentCoder, config.AgentTask, config.AgentOpsAgent, config.AgentSecurityExpertAgent:
+		return true
+	default:
+		return false
+	}
 }
 
 type SessionAgentCall struct {
@@ -222,6 +232,19 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	msgs, err := a.getSessionMessages(ctx, currentSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
+	}
+
+	if consumesStructuredHandoff(call.AgentID) {
+		if h, sourceMsgID, herr := pendingHandoffFromMessages(msgs, call.AgentID); herr == nil && h != nil {
+			if block := handoff.FormatForPrompt(h); block != "" {
+				if promptPrefix != "" {
+					promptPrefix = block + promptPrefix
+				} else {
+					promptPrefix = block
+				}
+				recordHandoffInjected(call.SessionID, call.AgentID, sourceMsgID, h)
+			}
+		}
 	}
 
 	var wg sync.WaitGroup

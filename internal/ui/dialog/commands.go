@@ -548,6 +548,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	commands = append(commands,
 		NewCommandItem(c.com.Styles, "agent_mode_auto", "Agent Mode: Auto route by intent"+agentSuffix(AgentModeAuto), "", ActionSetAgentMode{Mode: AgentModeAuto}),
 		NewCommandItem(c.com.Styles, "agent_mode_coder", "Agent Mode: Coder for development and code tasks"+agentSuffix(AgentModeCoder), "", ActionSetAgentMode{Mode: AgentModeCoder}),
+		NewCommandItem(c.com.Styles, "agent_mode_planner", "Agent Mode: Planner for read-only exploration and structured handoffs"+agentSuffix(AgentModePlanner), "", ActionSetAgentMode{Mode: AgentModePlanner}),
 		NewCommandItem(c.com.Styles, "agent_mode_ops", "Agent Mode: Ops for monitoring, release, recovery, and remote maintenance"+agentSuffix(AgentModeOps), "", ActionSetAgentMode{Mode: AgentModeOps}),
 		NewCommandItem(c.com.Styles, "agent_mode_security", "Agent Mode: Security for vulnerability, alert, compliance, and evidence work"+agentSuffix(AgentModeSecurity), "", ActionSetAgentMode{Mode: AgentModeSecurity}),
 	)

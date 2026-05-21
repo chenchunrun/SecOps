@@ -318,6 +318,8 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		switch strings.TrimSpace(cfg.Options.ActiveAgent) {
 		case config.AgentCoder:
 			ui.agentMode = dialog.AgentModeCoder
+		case config.AgentPlanner:
+			ui.agentMode = dialog.AgentModePlanner
 		case config.AgentOpsAgent:
 			ui.agentMode = dialog.AgentModeOps
 		case config.AgentSecurityExpertAgent:
@@ -2969,6 +2971,12 @@ func readyPlaceholdersForMode(mode dialog.AgentMode) []string {
 			"Coder: review code paths, fix bugs, or refactor safely",
 			"Coder: inspect files, explain behavior, or patch regressions",
 		}
+	case dialog.AgentModePlanner:
+		return []string{
+			"Planner: map dependencies and propose steps before execution",
+			"Planner: explore read-only context and outline risks or unknowns",
+			"Planner: draft handoffs with touched paths for coder or SecOps agents",
+		}
 	default:
 		return []string{
 			"Describe the task. Auto will route ops, security, or code work.",
@@ -2994,6 +3002,8 @@ func agentModeInfoMessage(mode dialog.AgentMode) string {
 		return "Agent switched to Security: vulnerabilities, alerts, compliance, and evidence review"
 	case dialog.AgentModeCoder:
 		return "Agent switched to Coder: implementation, debugging, and code review"
+	case dialog.AgentModePlanner:
+		return "Agent switched to Planner: read-only exploration and structured handoffs"
 	default:
 		return "Agent mode set to auto: route by operational, security, or coding intent"
 	}
@@ -3165,6 +3175,8 @@ func parseSlashControlCommand(content string) (slashControlCommand, bool) {
 			return agent(dialog.AgentModeSecurity), true
 		case "/coder":
 			return agent(dialog.AgentModeCoder), true
+		case "/plan", "/planner":
+			return agent(dialog.AgentModePlanner), true
 		}
 		return slashControlCommand{}, false
 	}
@@ -3186,6 +3198,8 @@ func parseSlashControlCommand(content string) (slashControlCommand, bool) {
 				return agent(dialog.AgentModeAuto), true
 			case "coder":
 				return agent(dialog.AgentModeCoder), true
+			case "plan", "planner":
+				return agent(dialog.AgentModePlanner), true
 			case "ops":
 				return agent(dialog.AgentModeOps), true
 			case "sec", "security":
@@ -3210,6 +3224,8 @@ func routeAgentByMode(content string, mode dialog.AgentMode) (targetAgent string
 		return config.AgentOpsAgent, content
 	case dialog.AgentModeSecurity:
 		return config.AgentSecurityExpertAgent, content
+	case dialog.AgentModePlanner:
+		return config.AgentPlanner, content
 	case dialog.AgentModeAuto:
 		return inferAgentForPrompt(content), content
 	default:
@@ -3230,6 +3246,8 @@ func parseAgentDirective(content string) (targetAgent string, normalized string)
 		return config.AgentSecurityExpertAgent, remainder
 	case "/coder":
 		return config.AgentCoder, remainder
+	case "/plan", "/planner":
+		return config.AgentPlanner, remainder
 	default:
 		return "", content
 	}
@@ -3248,7 +3266,7 @@ func (m *UI) applySlashControlCommand(cmd slashControlCommand) tea.Cmd {
 			m.randomizePlaceholders()
 			m.textarea.Placeholder = m.readyPlaceholder
 			cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(agentModeInfoMessage(dialog.AgentModeAuto))))
-		case dialog.AgentModeCoder, dialog.AgentModeOps, dialog.AgentModeSecurity:
+		case dialog.AgentModeCoder, dialog.AgentModePlanner, dialog.AgentModeOps, dialog.AgentModeSecurity:
 			prevMode := m.agentMode
 			target := string(*cmd.agentMode)
 			if err := m.switchActiveAgent(context.Background(), target, true); err != nil {

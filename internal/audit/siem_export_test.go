@@ -779,6 +779,33 @@ func TestRedactEvent_DoesNotMutateOriginal(t *testing.T) {
 	}
 }
 
+func TestRedactEvent_AgentHandoffConsumedPreservesDetails(t *testing.T) {
+	t.Parallel()
+
+	ev := DefaultAuditEvent(EventTypeAgentHandoffConsumed)
+	ev.SessionID = "sess-1"
+	ev.Action = "inject_structured_handoff_prompt_prefix"
+	ev.Details["consumer_agent_id"] = "coder"
+	ev.Details["from_agent"] = "planner"
+	ev.Details["to_agent"] = "coder"
+	ev.Details["source_assistant_message_id"] = "msg-asst-9"
+	ev.Details["handoff_audit_ref"] = "trace-xyz"
+	ev.Details["risk_level"] = "low"
+	ev.Details["handoff_version"] = 1
+
+	cp := redactEvent(ev)
+
+	if cp.EventType != EventTypeAgentHandoffConsumed {
+		t.Fatalf("event_type: got %q want %q", cp.EventType, EventTypeAgentHandoffConsumed)
+	}
+	if cp.Details["consumer_agent_id"] != "coder" || cp.Details["from_agent"] != "planner" {
+		t.Fatalf("expected non-secret detail fields unchanged, got %#v", cp.Details)
+	}
+	if cp.Details["handoff_version"] != 1 {
+		t.Fatalf("expected handoff_version preserved, got %#v", cp.Details["handoff_version"])
+	}
+}
+
 func TestELKExporter_TLSRequired(t *testing.T) {
 	exporter := &ELKExporter{
 		Endpoint:   "http://insecure.example.com/_bulk",

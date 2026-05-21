@@ -197,6 +197,11 @@ func TestSecOpsRoleFromContext(t *testing.T) {
 	if got := secOpsRoleFromContext(viewerCtx); got != "viewer" {
 		t.Fatalf("expected passthrough viewer role, got %q", got)
 	}
+
+	plannerCtx := context.WithValue(context.Background(), tools.AgentIDContextKey, config.AgentPlanner)
+	if got := secOpsRoleFromContext(plannerCtx); got != "viewer" {
+		t.Fatalf("expected planner mapped to viewer role, got %q", got)
+	}
 }
 
 type mockPermissionService struct {

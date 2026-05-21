@@ -146,6 +146,21 @@ func (m *Message) Content() TextContent {
 	return TextContent{}
 }
 
+// ConcatenateTextContent joins every TextContent segment in message order.
+// Assistant replies may split prose across multiple TextContent parts.
+func (m *Message) ConcatenateTextContent() string {
+	if m == nil || len(m.Parts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, part := range m.Parts {
+		if c, ok := part.(TextContent); ok {
+			b.WriteString(c.Text)
+		}
+	}
+	return b.String()
+}
+
 func (m *Message) ReasoningContent() ReasoningContent {
 	for _, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {

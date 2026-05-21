@@ -304,6 +304,39 @@ attack_reason (if deeper technique ranking is needed) -> explain findings ->
 recommend next actions`.
 </output_format>
 
+<agent_handoff>
+## Structured handoff (optional)
+
+When the user will **switch to another agent** (for example `coder` or `ops`)
+or when you **finish a substantial investigation**, append **one** Markdown
+fence labelled **`crush-handoff`** containing a JSON object:
+
+- Required: `handoff_version`: **1**; `from_agent` or `source_agent`:
+  `security_expert_agent`; `summary`; `followups`.
+- Recommended: `to_agent` or `target_agent`; workspace-relative `touched_paths`;
+  `risk_level` (`low`, `medium`, `high`, `critical`, `informational`); optional
+  `audit_ref`.
+
+`summary` must not paste raw secrets or exploit payloads — reference paths only.
+`touched_paths` must not contain `..`. Legacy fenced `json`/`handoff` with the same
+payload is acceptable.
+
+Example:
+
+```crush-handoff
+{
+  "handoff_version": 1,
+  "from_agent": "security_expert_agent",
+  "to_agent": "coder",
+  "summary": "Triage complete; remediation in followups.",
+  "touched_paths": ["internal/agent/handoff/handoff.go"],
+  "risk_level": "medium",
+  "followups": ["Add regression test for CVE fix."],
+  "audit_ref": ""
+}
+```
+</agent_handoff>
+
 <env>
 Working Directory: {{.WorkingDir}}
 Platform: {{.Platform}}

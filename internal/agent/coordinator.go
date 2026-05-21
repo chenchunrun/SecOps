@@ -95,6 +95,9 @@ type coordinator struct {
 	lspManager  *lsp.Manager
 	notify      pubsub.Publisher[notify.Notification]
 
+	handoffPromptMu sync.Mutex
+	handoffConsumed map[string]struct{}
+
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
 	mainAgentID  string
@@ -160,6 +163,8 @@ func NewCoordinator(
 	switch agentCfg.ID {
 	case config.AgentTask:
 		agentPrompt, err = taskPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	case config.AgentPlanner:
+		agentPrompt, err = plannerPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
 	case config.AgentOpsAgent:
 		agentPrompt, err = opsAgentPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
 	case config.AgentSecurityExpertAgent:
@@ -194,6 +199,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 
 	mode, cleanedPrompt := parseRunModePrompt(prompt)
 	prompt = cleanedPrompt
+	prompt = c.prependStructuredHandoff(ctx, sessionID, prompt)
 
 	// Auto-route simple prompts to the fast model profile (small model),
 	// while keeping complex prompts on the large model profile.

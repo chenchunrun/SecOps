@@ -111,6 +111,7 @@ type AgentMode string
 const (
 	AgentModeAuto     AgentMode = "auto"
 	AgentModeCoder    AgentMode = "coder"
+	AgentModePlanner  AgentMode = "planner"
 	AgentModeOps      AgentMode = "ops_agent"
 	AgentModeSecurity AgentMode = "security_expert_agent"
 )

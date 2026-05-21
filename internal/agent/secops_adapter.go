@@ -906,6 +906,9 @@ func secOpsRoleFromContext(ctx context.Context) string {
 	case config.AgentCoder:
 		// Coder agent works on source code and does not require SecOps privileges.
 		return "viewer"
+	case config.AgentPlanner:
+		// Planner explores read-only and must not inherit elevated SecOps roles.
+		return "viewer"
 	default:
 		// Fail-safe: unknown agents get the least-privilege role.
 		return "viewer"

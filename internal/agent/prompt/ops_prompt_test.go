@@ -29,6 +29,19 @@ func testConfigStore(t *testing.T) *config.ConfigStore {
 	return store
 }
 
+func TestPlannerPromptRender(t *testing.T) {
+	tpl := readTemplateFile(t, "planner.md.tpl")
+	require.NotEmpty(t, tpl)
+
+	assert.Contains(t, tpl, "{{.WorkingDir}}")
+	assert.Contains(t, tpl, "{{.Platform}}")
+	assert.Contains(t, tpl, "{{.Date}}")
+	assert.Contains(t, tpl, "Planner agent")
+	assert.Contains(t, tpl, "crush-handoff")
+	assert.Contains(t, tpl, "`planner`")
+	assert.Contains(t, tpl, "`coder`")
+}
+
 func TestOpsAgentPromptRender(t *testing.T) {
 	tpl := readTemplateFile(t, "ops_agent.md.tpl")
 	require.NotEmpty(t, tpl)

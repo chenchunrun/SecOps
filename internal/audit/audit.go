@@ -21,6 +21,9 @@ const (
 	EventTypeDataAccess         AuditEventType = "data_access"
 	EventTypeConfigChange       AuditEventType = "config_change"
 	EventTypeSecurityAlert      AuditEventType = "security_alert"
+	// EventTypeAgentHandoffConsumed records injection of a Crush Handoff v1
+	// block into the consumer agent system prefix.
+	EventTypeAgentHandoffConsumed AuditEventType = "agent_handoff_consumed"
 )
 
 // AuditResult 审计结果

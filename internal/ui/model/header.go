@@ -175,6 +175,8 @@ func headerAgentModeLabel(activeAgent string) string {
 		return "OPS"
 	case config.AgentSecurityExpertAgent:
 		return "SEC"
+	case config.AgentPlanner:
+		return "PLAN"
 	case config.AgentCoder:
 		return "CODE"
 	default:

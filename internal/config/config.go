@@ -62,6 +62,7 @@ const (
 const (
 	AgentCoder               string = "coder"
 	AgentTask                string = "task"
+	AgentPlanner             string = "planner"
 	AgentOpsAgent            string = "ops_agent"
 	AgentSecurityExpertAgent string = "security_expert_agent"
 )
@@ -289,7 +290,7 @@ type Options struct {
 	ContextPaths              []string     `json:"context_paths,omitempty" jsonschema:"description=Paths to files containing context information for the AI,example=.cursorrules,example=CRUSH.md"`
 	SkillsPaths               []string     `json:"skills_paths,omitempty" jsonschema:"description=Paths to directories containing Agent Skills (folders with SKILL.md files),example=~/.config/crush/skills,example=./skills"`
 	TUI                       *TUIOptions  `json:"tui,omitempty" jsonschema:"description=Terminal user interface options"`
-	ActiveAgent               string       `json:"active_agent,omitempty" jsonschema:"description=Default runtime agent to use,enum=coder,enum=task,enum=ops_agent,enum=security_expert_agent,default=coder"`
+	ActiveAgent               string       `json:"active_agent,omitempty" jsonschema:"description=Default runtime agent to use,enum=coder,enum=task,enum=planner,enum=ops_agent,enum=security_expert_agent,default=coder"`
 	Debug                     bool         `json:"debug,omitempty" jsonschema:"description=Enable debug logging,default=false"`
 	DebugLSP                  bool         `json:"debug_lsp,omitempty" jsonschema:"description=Enable debug logging for LSP servers,default=false"`
 	DisableAutoSummarize      bool         `json:"disable_auto_summarize,omitempty" jsonschema:"description=Disable automatic conversation summarization,default=false"`
@@ -634,6 +635,15 @@ func (c *Config) SetupAgents() {
 			AllowedTools: resolveReadOnlyTools(allowedTools),
 			// NO MCPs or LSPs by default
 			AllowedMCP: map[string][]string{},
+		},
+		AgentPlanner: {
+			ID:           AgentPlanner,
+			Name:         "Planner",
+			Description:  "Read-only planning agent: explore context and emit structured handoffs without execution.",
+			Model:        SelectedModelTypeLarge,
+			ContextPaths: c.Options.ContextPaths,
+			AllowedTools: resolveReadOnlyTools(allowedTools),
+			AllowedMCP:   map[string][]string{},
 		},
 		AgentOpsAgent: {
 			ID:           AgentOpsAgent,

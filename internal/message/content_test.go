@@ -4,7 +4,20 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
+
+func TestConcatenateTextContent_joinsSegments(t *testing.T) {
+	t.Parallel()
+	m := &Message{
+		Parts: []ContentPart{
+			TextContent{Text: "alpha"},
+			TextContent{Text: "beta"},
+		},
+	}
+	require.Equal(t, "alphabeta", m.ConcatenateTextContent())
+}
 
 func makeTestAttachments(n int, contentSize int) []Attachment {
 	attachments := make([]Attachment, n)

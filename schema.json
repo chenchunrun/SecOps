@@ -459,6 +459,7 @@
           "enum": [
             "coder",
             "task",
+            "planner",
             "ops_agent",
             "security_expert_agent"
           ],

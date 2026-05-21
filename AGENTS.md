@@ -25,7 +25,9 @@ internal/
     provider.go                    Provider configuration and model resolution
   agent/
     agent.go                       SessionAgent: runs LLM conversations per session
-    coordinator.go                 Coordinator: manages named agents ("coder", "task")
+    coordinator.go                 Coordinator: routes by agent id (coder, task, planner, ops, sec)
+    handoff/                       Crush Handoff v1: parse, validate, extract from Markdown
+    pending_handoff.go             Pending handoff from UI session history → prompt prefix + audit
     prompts.go                     Loads Go-template system prompts
     templates/                     System prompt templates (coder.md.tpl, task.md.tpl, etc.)
     tools/                         All built-in tools (bash, edit, view, grep, glob, etc.)
@@ -95,6 +97,19 @@ intentionally reclassified for publication.
 - **Context files**: Crush reads AGENTS.md, CRUSH.md, CLAUDE.md, GEMINI.md
   (and `.local` variants) from the working directory for project-specific
   instructions.
+- **Planner agent id**: `planner` is its own agent entry (`AgentPlanner`), not a
+  Task profile switch. Defaults to read-only tools (`glob`, `grep`, `ls`,
+  `sourcegraph`, `view`), no bash or SecOps execution; use `options.active_agent`
+  or `/planner` in the TUI.
+- **Crush Handoff v1 (agent-to-agent)**: Producers embed Handoff JSON in a
+  Markdown fenced code block labeled `crush-handoff` (see
+  `internal/agent/handoff`). Logic in `pending_handoff.go`; for consumers
+  `coder`, `task`,
+  `ops_agent`, and `security_expert_agent`, `SessionAgent.Run` lifts the newest
+  valid pending handoff (after the last user message in history) into
+  `promptPrefix` via `handoff.FormatForPrompt`. Each injection is recorded as
+  audit event `agent_handoff_consumed` (`EventTypeAgentHandoffConsumed`),
+  including `details` such as `handoff_version` and `source_assistant_message_id`.
 - **Persistence**: SQLite + sqlc. All queries live in `internal/db/sql/`,
   generated code in `internal/db/`. Migrations in `internal/db/migrations/`.
 - **Pub/sub**: `internal/pubsub` for decoupled communication between agent,
@@ -115,7 +130,9 @@ GOMODCACHE="$(pwd)/.gomodcache" GOCACHE="$(pwd)/.gocache" go build .
 
 - **Build**: `go build .` or `go run .`
 - **Test**: `task test` or `go test ./...` (run single test:
-  `go test ./internal/llm/prompt -run TestGetContextFromPaths`)
+  `go test ./internal/llm/prompt -run TestGetContextFromPaths`).
+  Handoff + audit regression:
+  `go test ./internal/agent -run 'TestPendingHandoff|TestRecordHandoff' -count=1`
 - **Update Golden Files**: `go test ./... -update` (regenerates `.golden`
   files when test output changes)
   - Update specific package:

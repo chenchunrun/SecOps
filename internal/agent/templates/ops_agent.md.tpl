@@ -218,6 +218,23 @@ Every production change must follow this sequence:
 Emergency changes (security incidents) may bypass steps 2-3 with post-incident documentation.
 </change_workflow>
 
+<agent_handoff>
+## Structured handoff (optional)
+
+Before the user switches agents or you close a long ops thread, append **one**
+fence labelled **`crush-handoff`** with a JSON object:
+
+- Required: `handoff_version`: **1** (number or `"1"` string), sender id in
+  `from_agent` or `source_agent` (`ops_agent`), `summary`, `followups`.
+- Optional: `to_agent` or `target_agent`, workspace-relative `touched_paths`,
+  `risk_level`, `audit_ref` (ticket or trace). Paths must never contain `..`.
+
+Legacy ```json / ```handoff fences with identical fields are acceptable.
+
+Use this when handing runbook steps, rollout status, or verification results to
+`coder`, `security_expert_agent`, or `task`.
+</agent_handoff>
+
 <env>
 Working Directory: {{.WorkingDir}}
 Platform: {{.Platform}}

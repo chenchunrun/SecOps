@@ -28,6 +28,14 @@ func TestParseAgentDirective(t *testing.T) {
 	require.Equal(t, config.AgentCoder, target)
 	require.Equal(t, "写一个单元测试", prompt)
 
+	target, prompt = parseAgentDirective("/plan 先梳理改动")
+	require.Equal(t, config.AgentPlanner, target)
+	require.Equal(t, "先梳理改动", prompt)
+
+	target, prompt = parseAgentDirective("/planner draft handoff")
+	require.Equal(t, config.AgentPlanner, target)
+	require.Equal(t, "draft handoff", prompt)
+
 	target, prompt = parseAgentDirective("/securityaudit 仅文本")
 	require.Equal(t, "", target)
 	require.Equal(t, "/securityaudit 仅文本", prompt)
@@ -67,6 +75,10 @@ func TestRouteAgentByMode(t *testing.T) {
 	target, prompt = routeAgentByMode("任意任务", dialog.AgentModeCoder)
 	require.Equal(t, config.AgentCoder, target)
 	require.Equal(t, "任意任务", prompt)
+
+	target, prompt = routeAgentByMode("任意任务", dialog.AgentModePlanner)
+	require.Equal(t, config.AgentPlanner, target)
+	require.Equal(t, "任意任务", prompt)
 }
 
 func TestParseSlashControlCommand(t *testing.T) {
@@ -92,6 +104,16 @@ func TestParseSlashControlCommand(t *testing.T) {
 	require.NotNil(t, cmd.agentMode)
 	require.Equal(t, dialog.AgentModeSecurity, *cmd.agentMode)
 
+	cmd, ok = parseSlashControlCommand("/plan")
+	require.True(t, ok)
+	require.NotNil(t, cmd.agentMode)
+	require.Equal(t, dialog.AgentModePlanner, *cmd.agentMode)
+
+	cmd, ok = parseSlashControlCommand("/agent planner")
+	require.True(t, ok)
+	require.NotNil(t, cmd.agentMode)
+	require.Equal(t, dialog.AgentModePlanner, *cmd.agentMode)
+
 	_, ok = parseSlashControlCommand("/ops 检查磁盘")
 	require.False(t, ok)
 }
@@ -110,6 +132,10 @@ func TestRouteAgentByMode_ExplicitDirectiveTakesPrecedence(t *testing.T) {
 	target, prompt = routeAgentByMode("/coder 写单元测试", dialog.AgentModeOps)
 	require.Equal(t, config.AgentCoder, target)
 	require.Equal(t, "写单元测试", prompt)
+
+	target, prompt = routeAgentByMode("/plan outline steps", dialog.AgentModeCoder)
+	require.Equal(t, config.AgentPlanner, target)
+	require.Equal(t, "outline steps", prompt)
 }
 
 func TestAgentModeInfoMessage(t *testing.T) {
@@ -118,6 +144,7 @@ func TestAgentModeInfoMessage(t *testing.T) {
 	require.Contains(t, agentModeInfoMessage(dialog.AgentModeOps), "monitoring")
 	require.Contains(t, agentModeInfoMessage(dialog.AgentModeSecurity), "vulnerabilities")
 	require.Contains(t, agentModeInfoMessage(dialog.AgentModeCoder), "debugging")
+	require.Contains(t, agentModeInfoMessage(dialog.AgentModePlanner), "Planner")
 	require.Contains(t, agentModeInfoMessage(dialog.AgentModeAuto), "route by operational")
 }
 
@@ -127,8 +154,10 @@ func TestReadyPlaceholdersForMode(t *testing.T) {
 	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeOps))
 	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeSecurity))
 	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeCoder))
+	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModePlanner))
 	require.NotEmpty(t, readyPlaceholdersForMode(dialog.AgentModeAuto))
 	require.Contains(t, strings.Join(readyPlaceholdersForMode(dialog.AgentModeOps), " "), "monitoring")
+	require.Contains(t, strings.Join(readyPlaceholdersForMode(dialog.AgentModePlanner), " "), "Planner")
 	require.Contains(t, strings.Join(readyPlaceholdersForMode(dialog.AgentModeSecurity), " "), "Security")
 }
 

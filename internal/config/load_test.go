@@ -749,6 +749,10 @@ func TestConfig_setupAgentsWithNoDisabledTools(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, readOnlyToolNames(), taskAgent.AllowedTools)
 
+	plannerAgent, ok := cfg.Agents[AgentPlanner]
+	require.True(t, ok)
+	assert.Equal(t, readOnlyToolNames(), plannerAgent.AllowedTools)
+
 	opsAgent, ok := cfg.Agents[AgentOpsAgent]
 	require.True(t, ok)
 	assert.Contains(t, opsAgent.AllowedTools, "ls")
@@ -806,6 +810,10 @@ func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, filterSlice(readOnlyToolNames(), cfg.Options.DisabledTools, false), taskAgent.AllowedTools)
 
+	plannerAgent, ok := cfg.Agents[AgentPlanner]
+	require.True(t, ok)
+	assert.Equal(t, filterSlice(readOnlyToolNames(), cfg.Options.DisabledTools, false), plannerAgent.AllowedTools)
+
 	opsAgent, ok := cfg.Agents[AgentOpsAgent]
 	require.True(t, ok)
 	assert.NotContains(t, opsAgent.AllowedTools, "download")
@@ -834,6 +842,10 @@ func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
 	assert.Len(t, taskAgent.AllowedTools, 0)
+
+	plannerAgent, ok := cfg.Agents[AgentPlanner]
+	require.True(t, ok)
+	assert.Len(t, plannerAgent.AllowedTools, 0)
 }
 
 func TestConfig_configureProvidersWithDisabledProvider(t *testing.T) {
