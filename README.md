@@ -23,7 +23,7 @@ Core contributor:
 
 ## What SecOps Adds
 
-- **18 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, deployment and infrastructure queries, and more.
+- **20 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, ATT&CK reasoning, incident assessment, deployment and infrastructure queries, and more.
 - **35 security skills:** defensive skills (IR, threat intelligence, log analysis, malware analysis, compliance reporting) plus 7 red team skills with a mandatory authorization gate.
 - **Risk-aware execution:** capability checks and permission decisions evaluate risk signals before sensitive tools or commands run.
 - **Audit and SIEM pipeline:** every governed action can be recorded, reviewed, and exported to ELK, Splunk, Azure Sentinel, or generic JSON sinks with redaction.

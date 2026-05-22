@@ -25,9 +25,9 @@ SecOps Agent 要做的是一条闭环：**观测 -> 分析 -> 决策 -> 执行 -
 
 ## 二、核心能力（可落地）
 
-### 1）18 类 SecOps 工具统一接入
+### 1）20 类 SecOps 工具统一接入
 
-覆盖日志分析、监控查询、安全扫描、合规检查、证书与密钥审计、告警与事件时间线等核心能力。  
+覆盖日志分析、监控查询、安全扫描、合规检查、证书与密钥审计、告警与事件时间线，以及 ATT&CK 推理与事件研判等核心能力。  
 AI 可以在统一上下文中调用，不再在多个平台间来回切换。
 
 ![图1：SecOps 功能总览](/Users/newmba/Downloads/SecOpsCode/crush-main/docs/wechat/assets/01-secops-overview.png)

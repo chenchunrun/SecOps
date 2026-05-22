@@ -18,7 +18,7 @@ security operations capabilities.
 
 Key additions in this fork:
 
-- 18 SecOps tool categories under `internal/agent/tools/secops`
+- 20 SecOps tool categories under `internal/agent/tools/secops`
 - Capability gate and risk-aware permission decisions
 - Audit pipeline and SIEM export with sensitive-data redaction
 - Local/Docker/SSH sandbox execution controls
@@ -72,6 +72,8 @@ Primary tool categories include:
 - `alert_check`
 - `incident_timeline`
 - `resource_monitor`
+- `attack_reason`
+- `incident_assess`
 
 ## Security Model
 
