@@ -27,12 +27,16 @@ func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
 	if event == nil {
 		return fmt.Errorf("event cannot be nil")
 	}
+	// Generating and writing back the ID is part of the store contract, but
+	// other normalized values are kept local so callers do not observe a
+	// surprising in-place mutation of their event (e.g. a truncated Action).
 	if event.ID == "" {
 		event.ID = generateEventID()
 	}
 
-	if len(event.Action) > inMemoryAuditStoreMaxAction {
-		event.Action = truncateRunes(event.Action, inMemoryAuditStoreMaxAction)
+	action := event.Action
+	if len(action) > inMemoryAuditStoreMaxAction {
+		action = truncateRunes(action, inMemoryAuditStoreMaxAction)
 	}
 
 	detailsJSON, err := json.Marshal(event.Details)
@@ -48,7 +52,6 @@ func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
 	ts := event.Timestamp
 	if ts.IsZero() {
 		ts = time.Now().UTC()
-		event.Timestamp = ts
 	}
 
 	approvedAtMs := int64(0)
@@ -68,7 +71,7 @@ func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
 	_, err = s.db.Exec(q,
 		event.ID, string(event.EventType), ts.UnixMilli(),
 		event.SessionID, event.UserID, event.Username, event.SourceIP,
-		event.Action, event.ResourceType, event.ResourceName, event.ResourcePath,
+		action, event.ResourceType, event.ResourceName, event.ResourcePath,
 		event.Transport, event.TargetHost, event.TargetEnv, event.TargetID,
 		string(event.Result), event.ErrorMsg, event.RiskScore, event.RiskLevel, event.Severity,
 		string(detailsJSON), string(changeJSON),
@@ -106,7 +109,7 @@ func (s *SQLiteAuditStore) ListEvents(filter *AuditFilter) ([]*AuditEvent, error
 		reason, signature
 	FROM audit_events` + where + ` ORDER BY timestamp ASC`
 
-	if filter.Limit > 0 {
+	if filter != nil && filter.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.Limit, filter.Offset)
 	}
 

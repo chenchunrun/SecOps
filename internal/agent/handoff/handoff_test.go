@@ -45,28 +45,37 @@ func TestParseJSON_legacySourceTarget(t *testing.T) {
 
 func TestParseJSON_rejectsTraversal(t *testing.T) {
 	t.Parallel()
-	raw := `{"handoff_version":1,"from_agent":"ops","summary":"x","touched_paths":["../etc/passwd"],"followups":[]}`
+	raw := `{"handoff_version":1,"from_agent":"ops","to_agent":"coder","summary":"x","touched_paths":["../etc/passwd"],"followups":[]}`
 	_, err := ParseJSON([]byte(raw))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `..`)
 }
 
+func TestParseJSON_requiresToAgent(t *testing.T) {
+	t.Parallel()
+	raw := `{"handoff_version":1,"from_agent":"ops","summary":"x","followups":[],"touched_paths":[]}`
+	_, err := ParseJSON([]byte(raw))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "to_agent")
+}
+
 func TestExtractFromMarkdown_prefersFirstValid(t *testing.T) {
 	t.Parallel()
 	md := "intro\n```go\nprintln()\n```\n```crush-handoff\n" +
-		`{"handoff_version":1,"from_agent":"ops_agent","summary":"done","followups":[],"touched_paths":[]}` +
+		`{"handoff_version":1,"from_agent":"ops_agent","to_agent":"coder","summary":"done","followups":[],"touched_paths":[]}` +
 		"\n```\n"
 	h, err := ExtractFromMarkdown(md)
 	require.NoError(t, err)
 	require.Equal(t, "ops_agent", h.FromAgent)
 }
 
-func TestExtractFromMarkdown_plainFence(t *testing.T) {
+func TestExtractFromMarkdown_rejectsPlainFence(t *testing.T) {
 	t.Parallel()
-	md := "```\n" + `{"handoff_version":1,"from_agent":"task","summary":"s","followups":[]}` + "\n```"
-	h, err := ExtractFromMarkdown(md)
-	require.NoError(t, err)
-	require.Equal(t, "task", h.FromAgent)
+	// Bare fences are not a recognized handoff namespace and must be ignored
+	// to keep the prompt-injection surface scoped.
+	md := "```\n" + `{"handoff_version":1,"from_agent":"task","to_agent":"coder","summary":"s","followups":[]}` + "\n```"
+	_, err := ExtractFromMarkdown(md)
+	require.True(t, errors.Is(err, ErrNoValidHandoff))
 }
 
 func TestExtractFromMarkdown_ErrNoValidHandoff(t *testing.T) {
@@ -75,9 +84,18 @@ func TestExtractFromMarkdown_ErrNoValidHandoff(t *testing.T) {
 	require.True(t, errors.Is(err, ErrNoValidHandoff))
 }
 
-func TestFenceLanguageAllowsJSON(t *testing.T) {
+func TestFenceLanguageRejectsJSON(t *testing.T) {
 	t.Parallel()
-	md := "```json\n" + `{"handoff_version":1,"from_agent":"coder","summary":"x","followups":[]}` + "\n```"
+	// A generic ```json fence is not the dedicated handoff namespace and must
+	// not be treated as an injection source.
+	md := "```json\n" + `{"handoff_version":1,"from_agent":"coder","to_agent":"planner","summary":"x","followups":[]}` + "\n```"
+	_, err := ExtractFromMarkdown(md)
+	require.True(t, errors.Is(err, ErrNoValidHandoff))
+}
+
+func TestFenceLanguageAllowsHandoff(t *testing.T) {
+	t.Parallel()
+	md := "```handoff\n" + `{"handoff_version":1,"from_agent":"coder","to_agent":"planner","summary":"x","followups":[]}` + "\n```"
 	h, err := ExtractFromMarkdown(md)
 	require.NoError(t, err)
 	require.Equal(t, "coder", h.FromAgent)

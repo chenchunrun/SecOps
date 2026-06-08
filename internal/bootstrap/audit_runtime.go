@@ -9,6 +9,7 @@ import (
 
 	"github.com/chenchunrun/SecOps/internal/audit"
 	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/env"
 )
 
 func NewAuditStore(cfg *config.Config) (audit.AuditStore, func(context.Context) error) {
@@ -47,7 +48,7 @@ func BuildAuditExporters(cfg *config.Config) []audit.SIEMExporter {
 		return nil
 	}
 
-	exporters := make([]audit.SIEMExporter, 0, 1)
+	exporters := make([]audit.SIEMExporter, 0, 3)
 	if syslogCfg := cfg.Audit.Export.Syslog; syslogCfg != nil && syslogCfg.Enabled && strings.TrimSpace(syslogCfg.Address) != "" {
 		exporters = append(exporters, &audit.SyslogExporter{
 			Network:  strings.TrimSpace(syslogCfg.Network),
@@ -56,6 +57,43 @@ func BuildAuditExporters(cfg *config.Config) []audit.SIEMExporter {
 			Hostname: strings.TrimSpace(syslogCfg.Hostname),
 			Facility: syslogCfg.Facility,
 			Severity: syslogCfg.Severity,
+		})
+	}
+
+	// Credentials may be supplied via $ENV references so secrets stay out of
+	// the on-disk config; resolve them with the shell variable resolver.
+	resolver := config.NewShellVariableResolver(env.New())
+	resolve := func(v string) string {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return ""
+		}
+		resolved, err := resolver.ResolveValue(v)
+		if err != nil {
+			slog.Warn("Failed to resolve audit export secret", "error", err)
+			return ""
+		}
+		return strings.TrimSpace(resolved)
+	}
+
+	if elkCfg := cfg.Audit.Export.ELK; elkCfg != nil && elkCfg.Enabled && strings.TrimSpace(elkCfg.Endpoint) != "" {
+		// TLSEnabled is forced on; the exporter rejects plaintext transport to
+		// avoid leaking credentials and audit data.
+		exporters = append(exporters, &audit.ELKExporter{
+			Endpoint:   strings.TrimSpace(elkCfg.Endpoint),
+			Index:      strings.TrimSpace(elkCfg.Index),
+			Username:   resolve(elkCfg.Username),
+			Password:   resolve(elkCfg.Password),
+			TLSEnabled: true,
+		})
+	}
+
+	if splunkCfg := cfg.Audit.Export.Splunk; splunkCfg != nil && splunkCfg.Enabled && strings.TrimSpace(splunkCfg.Endpoint) != "" {
+		exporters = append(exporters, &audit.SplunkExporter{
+			Endpoint:   strings.TrimSpace(splunkCfg.Endpoint),
+			Token:      resolve(splunkCfg.Token),
+			Index:      strings.TrimSpace(splunkCfg.Index),
+			TLSEnabled: true,
 		})
 	}
 	return exporters

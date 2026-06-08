@@ -94,9 +94,11 @@ func ParseJSON(raw []byte) (*Handoff, error) {
 	return out, nil
 }
 
-// ExtractFromMarkdown finds fenced blocks (```crush-handoff, ```json,
-// ```handoff, or bare ```) and returns the first body that unmarshals as a valid
-// Handoff v1 payload.
+// ExtractFromMarkdown finds fenced blocks whose info string is explicitly
+// ```crush-handoff or ```handoff and returns the first body that unmarshals as
+// a valid Handoff v1 payload. Bare and generic (e.g. ```json) fences are
+// intentionally ignored to keep the prompt-injection surface scoped to the
+// dedicated handoff namespace.
 func ExtractFromMarkdown(md string) (*Handoff, error) {
 	matches := markdownFenceRE.FindAllStringSubmatch(md, -1)
 	for _, m := range matches {
@@ -122,7 +124,7 @@ func ExtractFromMarkdown(md string) (*Handoff, error) {
 
 func fenceLanguageAllowed(info string) bool {
 	switch info {
-	case "", "json", "handoff", "crush-handoff":
+	case "handoff", "crush-handoff":
 		return true
 	default:
 		return false
@@ -172,6 +174,11 @@ func (h *Handoff) Validate() error {
 	}
 	if h.FromAgent == "" {
 		return errors.New("from_agent or source_agent is required")
+	}
+	if h.ToAgent == "" {
+		// A missing target would otherwise broadcast the handoff into every
+		// consuming agent in the session; require an explicit recipient.
+		return errors.New("to_agent or target_agent is required")
 	}
 	if h.Summary == "" {
 		return errors.New("summary is required")

@@ -74,6 +74,15 @@ var redactionRegexes = []*regexp.Regexp{
 
 const redacted = "***REDACTED***"
 
+// siemHTTPTimeout bounds each SIEM HTTP attempt so a hung receiver cannot block
+// the exporter indefinitely.
+const siemHTTPTimeout = 30 * time.Second
+
+// maxSIEMResponseBytes caps how much of a SIEM error response is read. The body
+// is only used to build error messages, so a small bound is sufficient and
+// prevents a hostile or misbehaving endpoint from streaming an unbounded body.
+const maxSIEMResponseBytes = 64 * 1024
+
 // redactValue recursively scans and redacts credential patterns from a value.
 // Strings are scanned for all known credential patterns; maps and slices are
 // traversed recursively; all other values are returned unchanged.
@@ -399,7 +408,7 @@ func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 		}
 	}
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: siemHTTPTimeout}
 	if e.TLSConfig != nil {
 		if e.TLSConfig.InsecureSkipVerify {
 			return fmt.Errorf("ELKExporter: InsecureSkipVerify is prohibited for audit transport")
@@ -410,8 +419,9 @@ func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
-			time.Sleep(backoff)
+			if err := sleepWithContext(req.Context(), backoffDuration(attempt)); err != nil {
+				return fmt.Errorf("ELK export aborted: %w", err)
+			}
 		}
 
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -421,7 +431,7 @@ func (e *ELKExporter) doRequestWithRetry(req *http.Request) error {
 			continue
 		}
 
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxSIEMResponseBytes))
 		resp.Body.Close() // close eagerly, not via defer
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -519,7 +529,7 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 		}
 	}
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: siemHTTPTimeout}
 	if e.TLSConfig != nil {
 		if e.TLSConfig.InsecureSkipVerify {
 			return fmt.Errorf("SplunkExporter: InsecureSkipVerify is prohibited for audit transport")
@@ -530,8 +540,9 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
-			time.Sleep(backoff)
+			if err := sleepWithContext(req.Context(), backoffDuration(attempt)); err != nil {
+				return fmt.Errorf("splunk export aborted: %w", err)
+			}
 		}
 
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -541,7 +552,7 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 			continue
 		}
 
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxSIEMResponseBytes))
 		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -555,6 +566,29 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 	}
 
 	return fmt.Errorf("splunk export failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// backoffDuration returns the exponential backoff delay for the given attempt
+// (attempt is 1-based for the first retry).
+func backoffDuration(attempt int) time.Duration {
+	return time.Duration(1<<uint(attempt-1)) * time.Second
+}
+
+// sleepWithContext waits for d or until ctx is done, whichever comes first.
+// It returns the context error if the wait was cancelled.
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	if ctx == nil {
+		time.Sleep(d)
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // ExportToAll exports to all configured SIEM systems.

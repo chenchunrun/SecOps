@@ -121,7 +121,7 @@ func (s *InMemoryAuditStore) ListEvents(filter *AuditFilter) ([]*AuditEvent, err
 	}
 
 	// 应用分页
-	if filter.Limit > 0 {
+	if filter != nil && filter.Limit > 0 {
 		start := filter.Offset
 		end := start + filter.Limit
 
@@ -222,6 +222,9 @@ func (s *InMemoryAuditStore) DeleteExpiredEvents(olderThan time.Duration) error 
 
 // matchFilter 检查事件是否匹配过滤器
 func matchFilter(event *AuditEvent, filter *AuditFilter) bool {
+	if filter == nil {
+		return true
+	}
 	// 时间范围
 	if !filter.StartTime.IsZero() && event.Timestamp.Before(filter.StartTime) {
 		return false

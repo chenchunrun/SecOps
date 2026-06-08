@@ -42,6 +42,7 @@ func (c *coordinator) prependStructuredHandoff(ctx context.Context, sessionID st
 
 	key := handoffConsumeKey(sessionID, assistant.ID, active)
 
+	// Cheap pre-check to skip parsing when the handoff was already consumed.
 	c.handoffPromptMu.Lock()
 	_, consumed := c.handoffConsumed[key]
 	c.handoffPromptMu.Unlock()
@@ -69,9 +70,15 @@ func (c *coordinator) prependStructuredHandoff(ctx context.Context, sessionID st
 		return prompt
 	}
 
+	// Atomically claim the handoff under a single lock: re-check and set in the
+	// same critical section so concurrent turns cannot both inject (TOCTOU).
 	c.handoffPromptMu.Lock()
 	if c.handoffConsumed == nil {
 		c.handoffConsumed = make(map[string]struct{})
+	}
+	if _, consumed := c.handoffConsumed[key]; consumed {
+		c.handoffPromptMu.Unlock()
+		return prompt
 	}
 	c.handoffConsumed[key] = struct{}{}
 	c.handoffPromptMu.Unlock()

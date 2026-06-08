@@ -255,8 +255,25 @@ type AuditSyslog struct {
 	Severity int    `json:"severity,omitempty" jsonschema:"description=Syslog severity,default=6"`
 }
 
+type AuditELK struct {
+	Enabled  bool   `json:"enabled,omitempty" jsonschema:"description=Enable Elasticsearch/ELK audit export,default=false"`
+	Endpoint string `json:"endpoint,omitempty" jsonschema:"description=Elasticsearch HTTPS endpoint,example=https://localhost:9200"`
+	Index    string `json:"index,omitempty" jsonschema:"description=Target index,example=secops-audit"`
+	Username string `json:"username,omitempty" jsonschema:"description=Basic-auth username; supports $ENV references"`
+	Password string `json:"password,omitempty" jsonschema:"description=Basic-auth password; supports $ENV references"`
+}
+
+type AuditSplunk struct {
+	Enabled  bool   `json:"enabled,omitempty" jsonschema:"description=Enable Splunk HEC audit export,default=false"`
+	Endpoint string `json:"endpoint,omitempty" jsonschema:"description=Splunk HEC HTTPS endpoint,example=https://localhost:8088/services/collector"`
+	Token    string `json:"token,omitempty" jsonschema:"description=Splunk HEC token; supports $ENV references"`
+	Index    string `json:"index,omitempty" jsonschema:"description=Target index"`
+}
+
 type AuditExport struct {
 	Syslog *AuditSyslog `json:"syslog,omitempty" jsonschema:"description=Syslog export settings"`
+	ELK    *AuditELK    `json:"elk,omitempty" jsonschema:"description=Elasticsearch/ELK export settings"`
+	Splunk *AuditSplunk `json:"splunk,omitempty" jsonschema:"description=Splunk HEC export settings"`
 }
 
 type Audit struct {

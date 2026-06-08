@@ -39,11 +39,78 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "AuditELK": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Elasticsearch/ELK audit export",
+          "default": false
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Elasticsearch HTTPS endpoint",
+          "examples": [
+            "https://localhost:9200"
+          ]
+        },
+        "index": {
+          "type": "string",
+          "description": "Target index",
+          "examples": [
+            "secops-audit"
+          ]
+        },
+        "username": {
+          "type": "string",
+          "description": "Basic-auth username; supports $ENV references"
+        },
+        "password": {
+          "type": "string",
+          "description": "Basic-auth password; supports $ENV references"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "AuditExport": {
       "properties": {
         "syslog": {
           "$ref": "#/$defs/AuditSyslog",
           "description": "Syslog export settings"
+        },
+        "elk": {
+          "$ref": "#/$defs/AuditELK",
+          "description": "Elasticsearch/ELK export settings"
+        },
+        "splunk": {
+          "$ref": "#/$defs/AuditSplunk",
+          "description": "Splunk HEC export settings"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AuditSplunk": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Splunk HEC audit export",
+          "default": false
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Splunk HEC HTTPS endpoint",
+          "examples": [
+            "https://localhost:8088/services/collector"
+          ]
+        },
+        "token": {
+          "type": "string",
+          "description": "Splunk HEC token; supports $ENV references"
+        },
+        "index": {
+          "type": "string",
+          "description": "Target index"
         }
       },
       "additionalProperties": false,
