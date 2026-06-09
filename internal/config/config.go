@@ -220,7 +220,28 @@ type Permissions struct {
 	BypassIntentMarkers      []string            `json:"bypass_intent_markers,omitempty" jsonschema:"description=Override default bypass-intent markers used to force permission confirmation for risky prompts"`
 	ExtraBypassIntentMarkers []string            `json:"extra_bypass_intent_markers,omitempty" jsonschema:"description=Additional bypass-intent markers appended to default markers"`
 	SecOpsCapabilityGrants   map[string][]string `json:"secops_capability_grants,omitempty" jsonschema:"description=Additional SecOps capability grants by role or agent ID,example={\"analyst\":[\"network:scan\"]}"`
+	GovernanceMode           string              `json:"governance_mode,omitempty" jsonschema:"description=Governance enforcement mode; 'strict' enables mandatory sandbox, tamper-evident audit, and disables YOLO/allow-list/auto-approve bypasses,enum=,enum=strict,default="`
 	SkipRequests             bool                `json:"-"` // Automatically accept all permissions (YOLO mode)
+}
+
+// GovernanceStrict reports whether strict governance enforcement is enabled.
+// In strict mode interactive bypasses (YOLO, allow-lists, session
+// auto-approve) are disabled and treated as break-glass, command execution is
+// forced through the configured sandbox, and audit records are signed into a
+// tamper-evident hash chain.
+func (p *Permissions) GovernanceStrict() bool {
+	if p == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(p.GovernanceMode), "strict")
+}
+
+// GovernanceStrict reports whether the config enables strict governance.
+func (c *Config) GovernanceStrict() bool {
+	if c == nil {
+		return false
+	}
+	return c.Permissions.GovernanceStrict()
 }
 
 type RemoteAuth struct {
@@ -277,7 +298,20 @@ type AuditExport struct {
 }
 
 type Audit struct {
-	Export *AuditExport `json:"export,omitempty" jsonschema:"description=Audit log export settings"`
+	Export  *AuditExport `json:"export,omitempty" jsonschema:"description=Audit log export settings"`
+	Storage string       `json:"storage,omitempty" jsonschema:"description=Durable audit storage backend,enum=file,enum=sqlite,default=file"`
+}
+
+// Sandbox configures mandatory command isolation. It is only enforced when
+// governance_mode is 'strict'.
+type Sandbox struct {
+	Mode      string `json:"mode,omitempty" jsonschema:"description=Sandbox backend used for command execution under strict governance,enum=local,enum=docker,enum=ssh,default=docker"`
+	Image     string `json:"image,omitempty" jsonschema:"description=Container image for the docker sandbox backend,example=alpine:3.20"`
+	Host      string `json:"host,omitempty" jsonschema:"description=SSH host for the ssh sandbox backend"`
+	User      string `json:"user,omitempty" jsonschema:"description=SSH user for the ssh sandbox backend"`
+	KeyPath   string `json:"key_path,omitempty" jsonschema:"description=SSH private key path for the ssh sandbox backend"`
+	Network   string `json:"network,omitempty" jsonschema:"description=Docker network mode,default=none"`
+	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"description=Per-command sandbox timeout in milliseconds,default=120000"`
 }
 
 type TrailerStyle string
@@ -457,6 +491,8 @@ type Config struct {
 	Remote *Remote `json:"remote,omitempty" jsonschema:"description=Remote execution profiles for SSH-based operations"`
 
 	Audit *Audit `json:"audit,omitempty" jsonschema:"description=Audit logging and export settings"`
+
+	Sandbox *Sandbox `json:"sandbox,omitempty" jsonschema:"description=Mandatory command sandbox settings (enforced under strict governance)"`
 
 	Tools Tools `json:"tools,omitzero" jsonschema:"description=Tool configurations"`
 

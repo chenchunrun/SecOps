@@ -149,6 +149,14 @@ func TestSQLiteAuditStore_DeleteEvent(t *testing.T) {
 	}
 	store.SaveEvent(event)
 
+	// The store is append-only by default: single-event deletion is refused to
+	// protect the tamper-evident hash chain.
+	if err := store.DeleteEvent(event.ID); err == nil {
+		t.Fatal("expected deletion to be refused on append-only store")
+	}
+
+	// Break-glass: explicitly enabling deletion allows it.
+	store.AllowDelete(true)
 	if err := store.DeleteEvent(event.ID); err != nil {
 		t.Fatal(err)
 	}

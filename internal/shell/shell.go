@@ -165,19 +165,88 @@ func (s *Shell) SetBlockFuncs(blockFuncs []BlockFunc) {
 	s.blockFuncs = blockFuncs
 }
 
-// CommandsBlocker creates a BlockFunc that blocks exact command matches
+// commandWrappers are programs that run another command supplied as their
+// arguments. The blocker must look past them so that, e.g., "env curl ..." or
+// "nohup wget ..." is still matched against the banned set.
+var commandWrappers = map[string]struct{}{
+	"env":     {},
+	"command": {},
+	"nohup":   {},
+	"nice":    {},
+	"ionice":  {},
+	"stdbuf":  {},
+	"setsid":  {},
+	"timeout": {},
+	"time":    {},
+	"xargs":   {},
+	"sudo":    {},
+	"doas":    {},
+}
+
+// normalizeCommandName reduces an argv[0] to its bare program name so that
+// absolute or relative paths (e.g. "/usr/bin/curl", "./curl") match the same
+// banned entry as "curl". Matching on the basename closes the trivial bypass
+// of invoking a banned binary by its full path.
+func normalizeCommandName(arg string) string {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return ""
+	}
+	// Strip any path component; works for both / and \ separators.
+	if idx := strings.LastIndexAny(arg, `/\`); idx >= 0 {
+		arg = arg[idx+1:]
+	}
+	return arg
+}
+
+// effectiveCommandName walks past known wrapper programs (env, sudo, nohup,
+// timeout, …) and skips their option flags / VAR=val assignments to find the
+// actual program being invoked.
+func effectiveCommandName(args []string) string {
+	for i := 0; i < len(args); i++ {
+		name := normalizeCommandName(args[i])
+		if name == "" {
+			continue
+		}
+		if _, isWrapper := commandWrappers[name]; !isWrapper {
+			return name
+		}
+		// Skip the wrapper's own flags and (for env) VAR=value assignments so
+		// the next bare token is treated as the wrapped command.
+		for i+1 < len(args) {
+			next := strings.TrimSpace(args[i+1])
+			if strings.HasPrefix(next, "-") || strings.Contains(next, "=") {
+				i++
+				continue
+			}
+			break
+		}
+	}
+	return ""
+}
+
+// CommandsBlocker creates a BlockFunc that blocks banned commands. Matching is
+// performed on the normalized program basename and also looks past wrapper
+// programs, so "/usr/bin/curl", "env curl", and "sudo wget" are all blocked.
 func CommandsBlocker(cmds []string) BlockFunc {
 	bannedSet := make(map[string]struct{})
 	for _, cmd := range cmds {
-		bannedSet[cmd] = struct{}{}
+		bannedSet[normalizeCommandName(cmd)] = struct{}{}
 	}
 
 	return func(args []string) bool {
 		if len(args) == 0 {
 			return false
 		}
-		_, ok := bannedSet[args[0]]
-		return ok
+		if _, ok := bannedSet[normalizeCommandName(args[0])]; ok {
+			return true
+		}
+		if effective := effectiveCommandName(args); effective != "" {
+			if _, ok := bannedSet[effective]; ok {
+				return true
+			}
+		}
+		return false
 	}
 }
 
@@ -198,6 +267,76 @@ func ArgumentsBlocker(cmd string, args []string, flags []string) BlockFunc {
 
 		return argsMatch && flagsMatch
 	}
+}
+
+// ScanBlockedCommand statically parses a command line and applies the provided
+// block functions to every simple command it contains. It is used to enforce
+// command blocklists on execution paths that do not run through the local
+// interpreter (e.g. remote SSH execution), where the per-exec block handler
+// never fires. It returns the offending command when a block func matches.
+//
+// Parsing failures are treated conservatively: if the command cannot be parsed
+// it is reported as blocked so that malformed or obfuscated input is rejected
+// rather than silently forwarded.
+func ScanBlockedCommand(command string, blockFuncs []BlockFunc) (blocked bool, offending string) {
+	command = strings.TrimSpace(command)
+	if command == "" || len(blockFuncs) == 0 {
+		return false, ""
+	}
+
+	parser := syntax.NewParser()
+	file, err := parser.Parse(strings.NewReader(command), "")
+	if err != nil {
+		return true, command
+	}
+
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if blocked {
+			return false
+		}
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		args := make([]string, 0, len(call.Args))
+		for _, w := range call.Args {
+			args = append(args, wordLiteral(w))
+		}
+		for _, fn := range blockFuncs {
+			if fn(args) {
+				blocked = true
+				offending = args[0]
+				return false
+			}
+		}
+		return true
+	})
+	return blocked, offending
+}
+
+// wordLiteral extracts a best-effort literal string from a shell word. Quoted
+// and bare literal parts are concatenated; non-literal parts (expansions,
+// command substitutions) are rendered as a placeholder so they never
+// accidentally match a banned literal.
+func wordLiteral(w *syntax.Word) string {
+	var b strings.Builder
+	for _, part := range w.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			b.WriteString(p.Value)
+		case *syntax.SglQuoted:
+			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			for _, dp := range p.Parts {
+				if lit, ok := dp.(*syntax.Lit); ok {
+					b.WriteString(lit.Value)
+				}
+			}
+		default:
+			b.WriteString("\x00")
+		}
+	}
+	return b.String()
 }
 
 func splitArgsFlags(parts []string) (args []string, flags []string) {

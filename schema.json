@@ -34,6 +34,15 @@
         "export": {
           "$ref": "#/$defs/AuditExport",
           "description": "Audit log export settings"
+        },
+        "storage": {
+          "type": "string",
+          "enum": [
+            "file",
+            "sqlite"
+          ],
+          "description": "Durable audit storage backend",
+          "default": "file"
         }
       },
       "additionalProperties": false,
@@ -228,6 +237,10 @@
         "audit": {
           "$ref": "#/$defs/Audit",
           "description": "Audit logging and export settings"
+        },
+        "sandbox": {
+          "$ref": "#/$defs/Sandbox",
+          "description": "Mandatory command sandbox settings (enforced under strict governance)"
         },
         "tools": {
           "$ref": "#/$defs/Tools",
@@ -652,6 +665,15 @@
           },
           "type": "object",
           "description": "Additional SecOps capability grants by role or agent ID"
+        },
+        "governance_mode": {
+          "type": "string",
+          "enum": [
+            "",
+            "strict"
+          ],
+          "description": "Governance enforcement mode; 'strict' enables mandatory sandbox",
+          "default": ""
         }
       },
       "additionalProperties": false,
@@ -842,6 +864,51 @@
         "id",
         "host"
       ]
+    },
+    "Sandbox": {
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "local",
+            "docker",
+            "ssh"
+          ],
+          "description": "Sandbox backend used for command execution under strict governance",
+          "default": "docker"
+        },
+        "image": {
+          "type": "string",
+          "description": "Container image for the docker sandbox backend",
+          "examples": [
+            "alpine:3.20"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "description": "SSH host for the ssh sandbox backend"
+        },
+        "user": {
+          "type": "string",
+          "description": "SSH user for the ssh sandbox backend"
+        },
+        "key_path": {
+          "type": "string",
+          "description": "SSH private key path for the ssh sandbox backend"
+        },
+        "network": {
+          "type": "string",
+          "description": "Docker network mode",
+          "default": "none"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Per-command sandbox timeout in milliseconds",
+          "default": 120000
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "SelectedModel": {
       "properties": {

@@ -5,13 +5,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
 // SQLiteAuditStore persists audit events to a SQLite database, following the
 // same persistence pattern used by the Crush base for sessions and messages.
+//
+// Events are written append-only and linked into a SHA-256 hash chain (see
+// signing.go) so tampering, deletion, or reordering of records is detectable.
+// Single-record deletion is disabled by default and must be explicitly enabled
+// as a break-glass operation.
 type SQLiteAuditStore struct {
 	db *sql.DB
+
+	// mu serializes sign+insert so the in-memory chain order matches the
+	// persisted rowid order.
+	mu    sync.Mutex
+	chain *signingChain
+
+	// allowDelete gates single-event deletion. It is false by default so the
+	// audit trail is immutable unless an operator opts into break-glass.
+	allowDelete bool
 }
 
 // NewSQLiteAuditStore creates a SQLite-backed audit store. The caller must
@@ -20,7 +35,31 @@ func NewSQLiteAuditStore(db *sql.DB) (*SQLiteAuditStore, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection is required")
 	}
-	return &SQLiteAuditStore{db: db}, nil
+	s := &SQLiteAuditStore{db: db}
+	s.chain = newSigningChain(s.loadLastSignature())
+	return s, nil
+}
+
+// AllowDelete toggles break-glass single-event deletion. It should only be set
+// true behind an explicit operator action with its own audit trail.
+func (s *SQLiteAuditStore) AllowDelete(allow bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allowDelete = allow
+}
+
+// loadLastSignature returns the signature of the most recently persisted event
+// so the chain continues across process restarts.
+func (s *SQLiteAuditStore) loadLastSignature() string {
+	var sig sql.NullString
+	row := s.db.QueryRow(`SELECT signature FROM audit_events ORDER BY timestamp DESC, rowid DESC LIMIT 1`)
+	if err := row.Scan(&sig); err != nil {
+		return ""
+	}
+	if sig.Valid {
+		return sig.String
+	}
+	return ""
 }
 
 func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
@@ -59,7 +98,41 @@ func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
 		approvedAtMs = event.ApprovedAt.UnixMilli()
 	}
 
-	const q = `INSERT OR REPLACE INTO audit_events (
+	// Serialize sign+insert so the in-memory chain order matches persisted
+	// rowid order even under concurrent writers.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Reject duplicate IDs: the store is append-only, so an existing ID means a
+	// replay or tamper attempt. Checking first avoids advancing the hash chain
+	// for a write that will be rejected.
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM audit_events WHERE id = ? LIMIT 1`, event.ID).Scan(&exists); err == nil {
+		return fmt.Errorf("audit event %s already exists (append-only store)", event.ID)
+	} else if err != sql.ErrNoRows {
+		return err
+	}
+
+	// Sign the event over the exact representation that will be read back, so
+	// the SHA-256 hash chain verifies after a round-trip through SQLite.
+	signed := *event
+	signed.Action = action
+	signed.Timestamp = time.UnixMilli(ts.UnixMilli()).UTC()
+	if approvedAtMs > 0 {
+		signed.ApprovedAt = time.UnixMilli(approvedAtMs).UTC()
+	} else {
+		signed.ApprovedAt = time.Time{}
+	}
+	if len(signed.Details) == 0 {
+		signed.Details = nil
+	}
+	if signed.ChangeData != nil && signed.ChangeData.FieldName == "" {
+		signed.ChangeData = nil
+	}
+	signature := s.chain.sign(&signed)
+	event.Signature = signature
+
+	const q = `INSERT INTO audit_events (
 		id, event_type, timestamp, session_id, user_id, username, source_ip,
 		action, resource_type, resource_name, resource_path,
 		transport, target_host, target_env, target_id,
@@ -76,9 +149,20 @@ func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
 		string(event.Result), event.ErrorMsg, event.RiskScore, event.RiskLevel, event.Severity,
 		string(detailsJSON), string(changeJSON),
 		event.ApprovalID, event.ApprovedBy, approvedAtMs,
-		event.Reason, event.Signature,
+		event.Reason, signature,
 	)
 	return err
+}
+
+// VerifyChain reads all persisted events in chronological order and verifies
+// the SHA-256 hash chain, returning an error at the first tampered, deleted, or
+// reordered record.
+func (s *SQLiteAuditStore) VerifyChain() error {
+	events, err := s.ListEvents(nil)
+	if err != nil {
+		return err
+	}
+	return VerifyChain(events)
 }
 
 func (s *SQLiteAuditStore) GetEvent(id string) (*AuditEvent, error) {
@@ -107,7 +191,7 @@ func (s *SQLiteAuditStore) ListEvents(filter *AuditFilter) ([]*AuditEvent, error
 		result, error_msg, risk_score, risk_level, severity,
 		details, change_data, approval_id, approved_by, approved_at,
 		reason, signature
-	FROM audit_events` + where + ` ORDER BY timestamp ASC`
+	FROM audit_events` + where + ` ORDER BY timestamp ASC, rowid ASC`
 
 	if filter != nil && filter.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.Limit, filter.Offset)
@@ -143,6 +227,15 @@ func (s *SQLiteAuditStore) CountEvents(filter *AuditFilter) (int, error) {
 }
 
 func (s *SQLiteAuditStore) DeleteEvent(id string) error {
+	s.mu.Lock()
+	allow := s.allowDelete
+	s.mu.Unlock()
+	if !allow {
+		// Single-event deletion would break the hash chain and is the primary
+		// tamper vector. Refuse it unless break-glass is explicitly enabled.
+		return fmt.Errorf("audit event deletion is disabled (append-only audit trail); enable break-glass to override")
+	}
+
 	res, err := s.db.Exec(`DELETE FROM audit_events WHERE id = ?`, id)
 	if err != nil {
 		return err
