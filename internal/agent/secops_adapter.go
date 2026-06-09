@@ -431,7 +431,9 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 		}
 	}
 
+	startedAt := timeNowUTC()
 	result, err := a.tool.Execute(params)
+	a.recordExecutionAuditEvent(ctx, call, role, startedAt, err)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(err.Error()), nil
 	}
@@ -442,6 +444,44 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 	}
 
 	return fantasy.NewTextResponse(string(resultBytes)), nil
+}
+
+// recordExecutionAuditEvent records a post-execution audit event for a SecOps
+// tool. Built-in bash execution is audited by the execution middleware, but
+// SecOps tools call exec/ssh directly inside tool.Execute, so without this the
+// audit trail would only contain the pre-execution permission/risk events and
+// never the actual command_executed/command_failed outcome. Raw parameters are
+// intentionally not recorded here to avoid leaking secrets into the trail; the
+// risk pre-events already capture the sanitized request context.
+func (a *Adapter) recordExecutionAuditEvent(
+	ctx context.Context,
+	call fantasy.ToolCall,
+	role string,
+	startedAt time.Time,
+	execErr error,
+) {
+	eventType := audit.EventTypeCommandExecuted
+	resultType := audit.ResultSuccess
+	if execErr != nil {
+		eventType = audit.EventTypeCommandFailed
+		resultType = audit.ResultFailure
+	}
+
+	builder := audit.NewAuditEventBuilder(eventType).
+		WithSession(tools.GetSessionFromContext(ctx)).
+		WithAction("secops_tool_executed").
+		WithResource("secops_tool", string(a.tool.Type()), "").
+		WithDetail("tool_call_id", call.ID).
+		WithDetail("role", role).
+		WithDetail("required_capabilities", a.requiredCapabilities()).
+		WithDetail("started_at", startedAt.Format(time.RFC3339Nano)).
+		WithDetail("duration_ms", time.Since(startedAt).Milliseconds())
+
+	event := builder.WithResult(resultType).Build()
+	if execErr != nil {
+		event.ErrorMsg = execErr.Error()
+	}
+	_ = audit.RecordGlobal(event)
 }
 
 // ProviderOptions implements fantasy.AgentTool.

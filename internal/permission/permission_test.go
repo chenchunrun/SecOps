@@ -337,6 +337,54 @@ func assertHighRiskRequiresApproval(t *testing.T, service Service, sessionID str
 	}
 }
 
+func TestPermissionService_StrictGovernanceDisablesBypasses(t *testing.T) {
+	// Under strict governance, even a benign low-risk request that skip/YOLO
+	// and the allow-list would normally auto-grant must be forced interactive.
+	service := NewPermissionService("/tmp", true, []string{"bash", "bash:execute"})
+	service.(*permissionService).SetGovernanceStrict(true)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	events := service.Subscribe(ctx)
+	resultCh := make(chan bool, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		granted, err := service.Request(ctx, CreatePermissionRequest{
+			SessionID:   "strict-session",
+			ToolCallID:  "call-strict",
+			ToolName:    "bash",
+			Action:      "execute",
+			Description: "benign low-risk command",
+			Params:      map[string]any{"command": "echo hello"},
+			Path:        "/tmp",
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- granted
+	}()
+
+	// The request must surface an interactive event rather than auto-granting.
+	select {
+	case event := <-events:
+		service.Deny(event.Payload)
+	case <-ctx.Done():
+		t.Fatal("strict governance did not force an interactive prompt")
+	}
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case granted := <-resultCh:
+		require.False(t, granted, "strict governance must not auto-grant via skip/allow-list")
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for request completion")
+	}
+}
+
 func TestPermissionService_SequentialProperties(t *testing.T) {
 	t.Run("Sequential permission requests with persistent grants", func(t *testing.T) {
 		service := NewPermissionService("/tmp", false, []string{})

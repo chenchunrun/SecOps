@@ -17,6 +17,12 @@ type localExecutor struct {
 
 func NewLocalExecutor(middlewares ...LocalMiddleware) LocalExecutor {
 	base := func(ctx context.Context, req LocalRequest) (LocalResult, error) {
+		// Under mandatory sandbox (strict governance), force the command into the
+		// isolated backend instead of running it on the host. This runs inside
+		// the policy/audit middleware chain, so denials and audit still apply.
+		if runner := currentMandatorySandbox(); runner != nil {
+			return runInMandatorySandbox(ctx, runner, req)
+		}
 		if req.RunInBackground {
 			return runImmediatelyInBackground(req)
 		}
@@ -125,6 +131,24 @@ waitLoop:
 		WorkingDirectory: bgShell.WorkingDir,
 		Background:       true,
 		ShellID:          bgShell.ID,
+	}, nil
+}
+
+// runInMandatorySandbox executes a command through the installed sandbox
+// runner. Background execution is not supported under mandatory sandboxing, so
+// the command always runs synchronously.
+func runInMandatorySandbox(ctx context.Context, runner SandboxRunner, req LocalRequest) (LocalResult, error) {
+	output, err := runner.RunSandboxed(ctx, req.Command, req.WorkingDir)
+	if err != nil {
+		if shell.IsInterrupt(err) {
+			return LocalResult{}, err
+		}
+		return LocalResult{}, &LocalExecutionError{Kind: LocalErrorKindExecution, Cause: err}
+	}
+	return LocalResult{
+		Output:           output,
+		WorkingDirectory: req.WorkingDir,
+		Background:       false,
 	}, nil
 }
 

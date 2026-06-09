@@ -84,7 +84,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	messages := message.NewService(q)
 	files := history.NewService(q, conn)
 	cfg := store.Config()
-	auditStore, auditCleanup := bootstrap.NewAuditStore(cfg)
+	auditStore, auditCleanup := bootstrap.NewAuditStore(cfg, conn)
 
 	app := &App{
 		Sessions:    sessions,
@@ -111,6 +111,10 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	// Register runtime-global audit sink so tool-level audit events (e.g. remote
 	// policy denials) are persisted under the current app lifecycle.
 	audit.SetGlobalStore(app.AuditStore)
+
+	// Under strict governance, force command execution through the configured
+	// sandbox so commands cannot run directly on the host.
+	bootstrap.InstallMandatorySandbox(cfg)
 
 	app.setupEvents()
 

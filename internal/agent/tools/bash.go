@@ -20,6 +20,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/fsext"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/policy"
+	"github.com/chenchunrun/SecOps/internal/security"
 	"github.com/chenchunrun/SecOps/internal/shell"
 )
 
@@ -100,7 +101,17 @@ type bashPolicyContext struct {
 	RemoteProfile *config.RemoteProfile
 }
 
-type bashPolicyEvaluator struct{}
+// bashPolicyEvaluator gates bash execution. It carries a risk assessor so that
+// commands scoring at or above the block threshold are hard-denied for both
+// local and remote execution, independent of the interactive permission gate
+// (which YOLO / allow-lists can bypass).
+type bashPolicyEvaluator struct {
+	risk *security.RiskAssessor
+}
+
+func newBashPolicyEvaluator() bashPolicyEvaluator {
+	return bashPolicyEvaluator{risk: security.NewRiskAssessor()}
+}
 
 var commandRedactionPatterns = []struct {
 	replacement string
@@ -147,7 +158,20 @@ type bashDescriptionData struct {
 	ModelName       string
 }
 
-var bannedCommands = []string{
+// bannedCommands is the hard blocklist enforced by the shell BlockFuncs for
+// both local and remote bash execution. It is sourced from
+// security.DefaultBannedCommands() so the bash hard gate and the risk
+// assessor share a single source of truth — closing the prior drift where
+// destructive commands (rm, dd, reboot, shutdown, halt) were scored as risky
+// but never hard-blocked, and could therefore slip through under YOLO mode.
+var bannedCommands = security.DefaultBannedCommands()
+
+// describedBannedCommands is the representative list surfaced in the tool
+// description shown to the model. The actually-enforced set (bannedCommands)
+// is broader; this curated list keeps model guidance focused on the commands
+// it most commonly attempts while enforcement still blocks the destructive
+// system commands defensively.
+var describedBannedCommands = []string{
 	// Network/Download tools
 	"alias",
 	"aria2c",
@@ -221,7 +245,7 @@ var bannedCommands = []string{
 }
 
 func bashDescription(attribution *config.Attribution, modelName string) string {
-	bannedCommandsStr := strings.Join(bannedCommands, ", ")
+	bannedCommandsStr := strings.Join(describedBannedCommands, ", ")
 	attr := config.Attribution{}
 	if attribution != nil {
 		attr = *attribution
@@ -281,7 +305,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		remoteCfg = remote[0]
 	}
 	desc := string(bashDescription(attribution, modelName))
-	decider := policy.NewDefaultDecider(bashPolicyEvaluator{}, nil)
+	decider := policy.NewDefaultDecider(newBashPolicyEvaluator(), nil)
 	localExecutor := execution.NewLocalExecutor()
 	remoteExecutor := execution.NewRemoteExecutor()
 
@@ -330,8 +354,10 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		if err != nil {
 			return fantasy.ToolResponse{}, err
 		}
-		if !decision.Allowed && isRemoteExecution {
-			recordRemotePolicyDeny(sessionID, remoteTarget, params, decision)
+		if !decision.Allowed {
+			if isRemoteExecution {
+				recordRemotePolicyDeny(sessionID, remoteTarget, params, decision)
+			}
 			return fantasy.NewTextErrorResponse(decision.Reason), nil
 		}
 		policyDecision := remotePolicyDecisionFromAuditFields(decision.AuditFields)
@@ -490,7 +516,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 	)
 }
 
-func (bashPolicyEvaluator) EvaluateBash(ctx context.Context, req policy.Request) (policy.Decision, error) {
+func (e bashPolicyEvaluator) EvaluateBash(ctx context.Context, req policy.Request) (policy.Decision, error) {
 	_ = ctx
 
 	bashCtx, ok := req.Parameters.(bashPolicyContext)
@@ -500,8 +526,46 @@ func (bashPolicyEvaluator) EvaluateBash(ctx context.Context, req policy.Request)
 
 	params := bashCtx.Params
 	isRemoteExecution := strings.TrimSpace(params.RemoteHost) != ""
+
+	// Risk-based hard block: a command scoring at or above the block threshold
+	// is denied outright. This is a hard gate that the interactive permission
+	// layer (YOLO, allow-lists, persistent grants) cannot override.
+	if e.risk != nil {
+		assessment := e.risk.AssessCommand(params.Command)
+		if assessment.Action == security.RiskActionBlock {
+			return policy.Decision{
+				Allowed: false,
+				Reason: fmt.Sprintf(
+					"command blocked: risk score %d (%s) exceeds block threshold",
+					assessment.Score, assessment.Level,
+				),
+				AuditFields: map[string]any{
+					"tool_name":     BashToolName,
+					"policy_type":   "risk",
+					"policy_rule":   string(assessment.Level),
+					"policy_result": "deny",
+					"risk_score":    assessment.Score,
+				},
+			}, nil
+		}
+	}
 	policyDecision := remotePolicyDecision{Type: "none", Result: "allow"}
 	if isRemoteExecution {
+		// Remote commands never traverse the local interpreter, so the per-exec
+		// block handler does not fire. Apply the same blocklist statically so
+		// banned commands cannot be smuggled onto remote hosts.
+		if blocked, offending := shell.ScanBlockedCommand(params.Command, blockFuncs()); blocked {
+			return policy.Decision{
+				Allowed: false,
+				Reason:  fmt.Sprintf("command is not allowed for security reasons: %q", offending),
+				AuditFields: map[string]any{
+					"tool_name":     BashToolName,
+					"policy_type":   "blocklist",
+					"policy_rule":   offending,
+					"policy_result": "deny",
+				},
+			}, nil
+		}
 		var err error
 		policyDecision, err = enforceRemoteCommandPolicy(bashCtx.RemoteProfile, params.Command)
 		if err != nil {

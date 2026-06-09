@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -12,20 +13,18 @@ import (
 	"github.com/chenchunrun/SecOps/internal/env"
 )
 
-func NewAuditStore(cfg *config.Config) (audit.AuditStore, func(context.Context) error) {
+// NewAuditStore builds the process audit store from config. The durable backend
+// (memory/file/sqlite) is selected by cfg.Audit.Storage, then optionally wrapped
+// with tamper-evident HMAC hash-chain signing, and finally with the SIEM
+// exporting decorator when exporters are configured. conn may be nil, in which
+// case the sqlite backend falls back to the file backend.
+func NewAuditStore(cfg *config.Config, conn *sql.DB) (audit.AuditStore, func(context.Context) error) {
 	store := audit.AuditStore(audit.NewInMemoryAuditStore())
 	if cfg == nil {
 		return store, nil
 	}
 
-	if cfg.Options != nil {
-		auditPath := filepath.Join(cfg.Options.DataDirectory, "audit", "events.jsonl")
-		if fileStore, err := audit.NewFileAuditStore(auditPath); err == nil {
-			store = fileStore
-		} else {
-			slog.Warn("Falling back to in-memory audit store", "error", err, "path", auditPath)
-		}
-	}
+	store = buildDurableAuditStore(cfg, conn, store)
 
 	exporters := BuildAuditExporters(cfg)
 	if len(exporters) == 0 {
@@ -41,6 +40,51 @@ func NewAuditStore(cfg *config.Config) (audit.AuditStore, func(context.Context) 
 	return exportingStore, func(context.Context) error {
 		return exportingStore.Close()
 	}
+}
+
+// buildDurableAuditStore selects the durable backend. Defaults to the JSONL file
+// store; "sqlite" uses the shared DB connection; "memory" keeps the in-memory
+// fallback.
+func buildDurableAuditStore(cfg *config.Config, conn *sql.DB, fallback audit.AuditStore) audit.AuditStore {
+	backend := "file"
+	if cfg.Audit != nil && strings.TrimSpace(cfg.Audit.Storage) != "" {
+		backend = strings.ToLower(strings.TrimSpace(cfg.Audit.Storage))
+	}
+	// Strict governance mandates the tamper-evident, append-only SQLite backend
+	// (hash-chained signatures, delete disabled) unless the operator explicitly
+	// opted into a different backend.
+	if cfg.GovernanceStrict() && (cfg.Audit == nil || strings.TrimSpace(cfg.Audit.Storage) == "") {
+		backend = "sqlite"
+	}
+	// Strict governance mandates the tamper-evident, append-only backend.
+	if cfg.GovernanceStrict() {
+		backend = "sqlite"
+	}
+
+	switch backend {
+	case "memory":
+		return fallback
+	case "sqlite":
+		if conn == nil {
+			slog.Warn("Audit storage 'sqlite' requested but no DB connection; using file backend")
+			break
+		}
+		if sqliteStore, err := audit.NewSQLiteAuditStore(conn); err == nil {
+			return sqliteStore
+		} else {
+			slog.Warn("Failed to init sqlite audit store; using file backend", "error", err)
+		}
+	}
+
+	if cfg.Options != nil {
+		auditPath := filepath.Join(cfg.Options.DataDirectory, "audit", "events.jsonl")
+		if fileStore, err := audit.NewFileAuditStore(auditPath); err == nil {
+			return fileStore
+		} else {
+			slog.Warn("Falling back to in-memory audit store", "error", err, "path", auditPath)
+		}
+	}
+	return fallback
 }
 
 func BuildAuditExporters(cfg *config.Config) []audit.SIEMExporter {

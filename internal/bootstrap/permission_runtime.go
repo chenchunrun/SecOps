@@ -21,11 +21,22 @@ func NewPermissionService(store *config.ConfigStore) permission.Service {
 		extraBypassIntentMarkers = cfg.Permissions.ExtraBypassIntentMarkers
 	}
 
-	return permission.NewPermissionServiceWithBypassMarkers(
+	svc := permission.NewPermissionServiceWithBypassMarkers(
 		store.WorkingDir(),
 		skipPermissionsRequests,
 		allowedTools,
 		bypassIntentMarkers,
 		extraBypassIntentMarkers,
 	)
+
+	// Activate strict governance when configured. SetGovernanceStrict is not
+	// part of the Service interface (to avoid disturbing mocks), so reach it via
+	// type assertion.
+	if cfg.GovernanceStrict() {
+		if gs, ok := svc.(interface{ SetGovernanceStrict(bool) }); ok {
+			gs.SetGovernanceStrict(true)
+		}
+	}
+
+	return svc
 }

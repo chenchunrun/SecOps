@@ -146,6 +146,18 @@ type permissionService struct {
 	activeRequestMu sync.Mutex
 	assessor        *security.RiskAssessor
 	bypassMarkers   []string
+
+	// governanceStrict disables non-interactive bypasses (YOLO, allow-list,
+	// session auto-approve) and forces an interactive decision for every
+	// request. Bypass attempts are still audited as break-glass events.
+	governanceStrict atomic.Bool
+}
+
+// SetGovernanceStrict enables or disables strict governance enforcement. It is
+// deliberately not part of the Service interface so existing mocks and call
+// sites are unaffected; callers type-assert to reach it.
+func (s *permissionService) SetGovernanceStrict(strict bool) {
+	s.governanceStrict.Store(strict)
 }
 
 func (s *permissionService) GrantPersistent(permission PermissionRequest) {
@@ -210,6 +222,14 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		s.recordBypassAuditEvent(opts, assessment, bypassPhrases)
 	}
 
+	// Under strict governance, all non-interactive bypasses (YOLO/skip,
+	// allow-list, session auto-approve, persistent grants) are disabled and
+	// every request must be decided interactively. This makes YOLO and
+	// allow-lists effectively break-glass rather than a standing bypass.
+	if s.governanceStrict.Load() {
+		forceInteractive = true
+	}
+
 	if s.skip.Load() && !forceInteractive {
 		return true, nil
 	}
@@ -272,18 +292,23 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		permission.Severity = mapRiskLevelToSeverity(assessment.Level)
 	}
 
-	s.sessionPermissionsMu.RLock()
-	for _, p := range s.sessionPermissions {
-		if p.ToolName == permission.ToolName && p.Action == permission.Action && p.SessionID == permission.SessionID && p.Path == permission.Path {
-			s.sessionPermissionsMu.RUnlock()
-			s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
-				ToolCallID: opts.ToolCallID,
-				Granted:    true,
-			})
-			return true, nil
+	// Persistent (session) grants are themselves a standing bypass, so they are
+	// honored only when the request is not forced interactive (high/critical
+	// risk or strict governance).
+	if !forceInteractive {
+		s.sessionPermissionsMu.RLock()
+		for _, p := range s.sessionPermissions {
+			if p.ToolName == permission.ToolName && p.Action == permission.Action && p.SessionID == permission.SessionID && p.Path == permission.Path {
+				s.sessionPermissionsMu.RUnlock()
+				s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+					ToolCallID: opts.ToolCallID,
+					Granted:    true,
+				})
+				return true, nil
+			}
 		}
+		s.sessionPermissionsMu.RUnlock()
 	}
-	s.sessionPermissionsMu.RUnlock()
 
 	s.activeRequestMu.Lock()
 	s.activeRequest = &permission
