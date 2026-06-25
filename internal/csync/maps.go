@@ -131,8 +131,14 @@ var (
 	_ json.Marshaler   = &Map[string, any]{}
 )
 
-// JSONSchemaAlias returns the plain map type to use for JSON schema generation.
-func (*Map[K, V]) JSONSchemaAlias() any {
+// JSONSchemaAlias returns the plain map type to use for JSON schema
+// generation. The value receiver is required: the invopop/jsonschema reflector
+// resolves the alias via the value type's method set. Changing this to a
+// pointer receiver silently breaks schema generation (the field renders as an
+// opaque Map[...] definition instead of the inlined map type), so the go vet
+// "passes lock by value" warning is a benign false positive here — this method
+// never touches the embedded mutex.
+func (Map[K, V]) JSONSchemaAlias() any { //nolint
 	m := map[K]V{}
 	return m
 }
