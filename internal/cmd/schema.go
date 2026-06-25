@@ -15,12 +15,23 @@ var schemaCmd = &cobra.Command{
 	Long:   "Generate JSON schema for the crush configuration file",
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		reflector := new(jsonschema.Reflector)
-		bts, err := json.MarshalIndent(reflector.Reflect(&config.Config{}), "", "  ")
+		bts, err := GenerateSchema()
 		if err != nil {
-			return fmt.Errorf("failed to marshal schema: %w", err)
+			return err
 		}
 		fmt.Println(string(bts))
 		return nil
 	},
+}
+
+// GenerateSchema reflects the config type into a pretty-printed JSON schema.
+// The returned bytes exclude the trailing newline; callers (the schema command
+// and its golden-file test) add or normalize it as needed.
+func GenerateSchema() ([]byte, error) {
+	reflector := new(jsonschema.Reflector)
+	bts, err := json.MarshalIndent(reflector.Reflect(&config.Config{}), "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal schema: %w", err)
+	}
+	return bts, nil
 }
