@@ -34,7 +34,7 @@ func TestSourcePatterns(t *testing.T) {
 
 func TestSourcePatternsOverride(t *testing.T) {
 	cases := []struct {
-		name string
+		name   string
 		source LogSource
 		envKey string
 	}{
@@ -130,9 +130,9 @@ func TestParseInfluxTimestamp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		value   interface{}
-		wantOk  bool
+		name   string
+		value  interface{}
+		wantOk bool
 	}{
 		{"float64", float64(1700000000), true},
 		{"int64", int64(1700000000), true},
@@ -202,11 +202,11 @@ func TestNetworkDiagnosticTool_AnalyzePing(t *testing.T) {
 	})
 
 	tests := []struct {
-		name           string
-		avg            float64
-		loss           float64
-		wantHealth     string
-		wantLossIssue  bool
+		name          string
+		avg           float64
+		loss          float64
+		wantHealth    string
+		wantLossIssue bool
 	}{
 		{"good latency", 10, 0, "good", false},
 		{"fair latency", 60, 0, "fair", false},
@@ -267,9 +267,9 @@ func TestStatusByAge(t *testing.T) {
 		age, policy int
 		want        string
 	}{
-		{10, 0, "unknown"},    // non-positive policy
-		{100, 90, "overdue"},  // age > policy
-		{75, 90, "due"},       // age >= 0.8*policy
+		{10, 0, "unknown"},   // non-positive policy
+		{100, 90, "overdue"}, // age > policy
+		{75, 90, "due"},      // age >= 0.8*policy
 		{10, 90, "ok"},
 	}
 	for _, tc := range tests {

@@ -56,8 +56,8 @@ func TestMapEvidenceEvent(t *testing.T) {
 			wantMinScore:  0.65,
 		},
 		{
-			name:  "无匹配但有 EventType 触发低置信兜底 T1078",
-			event: EvidenceEvent{EventType: "anomaly", Source: "edr"},
+			name:          "无匹配但有 EventType 触发低置信兜底 T1078",
+			event:         EvidenceEvent{EventType: "anomaly", Source: "edr"},
 			wantTechnique: "T1078",
 			wantMinScore:  0.1, // 兜底分数 0.15
 		},
@@ -67,8 +67,8 @@ func TestMapEvidenceEvent(t *testing.T) {
 			wantTechnique: "",
 		},
 		{
-			name:  "大小写不敏感匹配",
-			event: EvidenceEvent{Action: "BRUTE FORCE attempt"},
+			name:          "大小写不敏感匹配",
+			event:         EvidenceEvent{Action: "BRUTE FORCE attempt"},
 			wantTechnique: "T1110",
 			wantMinScore:  0.5,
 		},

@@ -45,7 +45,7 @@ func newTestSQLiteDB(t *testing.T) *sql.DB {
 		reason        TEXT NOT NULL DEFAULT '',
 		signature     TEXT NOT NULL DEFAULT ''
 	)`
-	if _, err := db.Exec(ddl); err != nil {
+	if _, err := db.ExecContext(t.Context(), ddl); err != nil {
 		t.Fatal(err)
 	}
 	return db

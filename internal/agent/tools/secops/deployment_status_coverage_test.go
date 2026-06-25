@@ -13,7 +13,8 @@ func runCmdOverride(t *testing.T, responses map[string]struct {
 	stdout string
 	stderr string
 	err    error
-}) func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+},
+) func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 	t.Helper()
 	return func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 		if r, ok := responses[name]; ok {
@@ -88,8 +89,8 @@ func TestDeploymentStatusTool_ValidateParams_覆盖补全(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "参数类型错误返回 ErrInvalidParams",
-			params: &struct{}{},
+			name:    "参数类型错误返回 ErrInvalidParams",
+			params:  &struct{}{},
 			wantErr: true,
 		},
 		{
@@ -764,10 +765,7 @@ func TestDeploymentStatusTool_GCP就绪False标记为降级(t *testing.T) {
 
 func TestDeploymentStatusTool_GCP无就绪条件标记为未知(t *testing.T) {
 	tool := NewDeploymentStatusTool(nil)
-	noCondJSON := strings.Replace(gcpCloudRunJSON,
-		`"conditions": [`, `"conditions": []`, 1)
-	// 上面替换可能不精确，直接用结构更可控的 JSON
-	noCondJSON = `{
+	noCondJSON := `{
   "status": {"url": "", "traffic": [{"percent": 100}], "conditions": []},
   "spec": {"template": {"metadata": {"name": ""}}}
 }`
@@ -1123,14 +1121,14 @@ func TestDeploymentStatusTool_版本推断(t *testing.T) {
 			wantPrev:    "",
 		},
 		{
-			name:        "回退到 version label",
-			labels:      map[string]string{"version": "v2"},
-			wantVer:     "v2",
+			name:    "回退到 version label",
+			labels:  map[string]string{"version": "v2"},
+			wantVer: "v2",
 		},
 		{
-			name:        "回退到 image.tag label",
-			labels:      map[string]string{"image.tag": "v3"},
-			wantVer:     "v3",
+			name:    "回退到 image.tag label",
+			labels:  map[string]string{"image.tag": "v3"},
+			wantVer: "v3",
 		},
 		{
 			name:        "回退到 helm.sh/chart annotation",
@@ -1146,13 +1144,13 @@ func TestDeploymentStatusTool_版本推断(t *testing.T) {
 			wantPrev:    "7",
 		},
 		{
-			name:        "全部缺失回退 unknown",
-			wantVer:     "unknown",
+			name:    "全部缺失回退 unknown",
+			wantVer: "unknown",
 		},
 		{
-			name:        "空白值视为缺失",
-			labels:      map[string]string{"app.kubernetes.io/version": "  "},
-			wantVer:     "unknown",
+			name:    "空白值视为缺失",
+			labels:  map[string]string{"app.kubernetes.io/version": "  "},
+			wantVer: "unknown",
 		},
 	}
 
@@ -1232,9 +1230,9 @@ func TestDeploymentStatusTool_shellQuoteDeployment(t *testing.T) {
 func TestDeploymentStatusTool_金丝雀推荐分健康状态(t *testing.T) {
 	tool := NewDeploymentStatusTool(nil)
 	tests := []struct {
-		name      string
-		health    string
-		wantRec   string
+		name    string
+		health  string
+		wantRec string
 	}{
 		{"健康->promote", "healthy", "promote"},
 		{"降级->hold", "degraded", "hold"},
@@ -1259,10 +1257,10 @@ func TestDeploymentStatusTool_金丝雀推荐分健康状态(t *testing.T) {
 
 func TestDeploymentStatusTool_SSH参数拼装(t *testing.T) {
 	tests := []struct {
-		name      string
-		params    *DeploymentStatusParams
-		wantErr   bool
-		wantSubs  []string
+		name     string
+		params   *DeploymentStatusParams
+		wantErr  bool
+		wantSubs []string
 	}{
 		{
 			name: "完整远程参数",
@@ -1273,8 +1271,8 @@ func TestDeploymentStatusTool_SSH参数拼装(t *testing.T) {
 			wantSubs: []string{"ops@10.0.0.5", "-p 2222", "-i", "/tmp/key", "-J", "bastion"},
 		},
 		{
-			name: "仅 host 无 user",
-			params: &DeploymentStatusParams{RemoteHost: "10.0.0.5"},
+			name:     "仅 host 无 user",
+			params:   &DeploymentStatusParams{RemoteHost: "10.0.0.5"},
 			wantSubs: []string{"10.0.0.5"},
 		},
 		{

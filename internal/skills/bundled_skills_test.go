@@ -142,6 +142,7 @@ func TestBundledSecuritySkillsDiscover(t *testing.T) {
 // shouldLintBundledSkillScript). Skips skills/secops/** scripts and paths under any tools/
 // directory (vendor trees).
 func TestBundledSkillScriptSyntax(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping script syntax crawl in -short")
 	}
@@ -202,21 +203,21 @@ func TestBundledSkillScriptSyntax(t *testing.T) {
 				if py == "" {
 					t.Skip("no python3/python on PATH")
 				}
-				cmd := exec.Command(py, "-m", "py_compile", scriptPath)
+				cmd := exec.CommandContext(t.Context(), py, "-m", "py_compile", scriptPath)
 				out, err := cmd.CombinedOutput()
 				require.NoError(t, err, "%s\n%s", scriptPath, out)
 			case ".sh":
 				if bash == "" {
 					t.Skip("no bash on PATH")
 				}
-				cmd := exec.Command(bash, "-n", scriptPath)
+				cmd := exec.CommandContext(t.Context(), bash, "-n", scriptPath)
 				out, err := cmd.CombinedOutput()
 				require.NoError(t, err, "%s\n%s", scriptPath, out)
 			case ".js":
 				if node == "" {
 					t.Skip("no node on PATH")
 				}
-				cmd := exec.Command(node, "--check", scriptPath)
+				cmd := exec.CommandContext(t.Context(), node, "--check", scriptPath)
 				out, err := cmd.CombinedOutput()
 				require.NoError(t, err, "%s\n%s", scriptPath, out)
 			}

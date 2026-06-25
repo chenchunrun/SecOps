@@ -29,7 +29,7 @@ func TestInMemoryAuditStore_SaveEvent_TruncatesAction(t *testing.T) {
 	store := NewInMemoryAuditStore()
 
 	event := &AuditEvent{
-		EventType:  EventTypeCommandExecuted,
+		EventType: EventTypeCommandExecuted,
 		Timestamp: time.Now().UTC(),
 		Action:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 65 chars
 		Result:    ResultSuccess,
@@ -57,10 +57,10 @@ func TestInMemoryAuditStore_SaveEvent_EvictsOldestWhenOverCapacity(t *testing.T)
 	// Insert slightly over the capacity. We set monotonic timestamps so FIFO is deterministic.
 	for i := 0; i < 10_005; i++ {
 		ev := &AuditEvent{
-			EventType:  EventTypeCommandExecuted,
-			Timestamp:  now.Add(time.Duration(i) * time.Millisecond),
-			Result:     ResultSuccess,
-			Action:     "test",
+			EventType: EventTypeCommandExecuted,
+			Timestamp: now.Add(time.Duration(i) * time.Millisecond),
+			Result:    ResultSuccess,
+			Action:    "test",
 		}
 		if err := store.SaveEvent(ev); err != nil {
 			t.Fatalf("SaveEvent() error at %d = %v", i, err)

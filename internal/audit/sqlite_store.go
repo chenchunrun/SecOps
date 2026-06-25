@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -52,7 +53,7 @@ func (s *SQLiteAuditStore) AllowDelete(allow bool) {
 // so the chain continues across process restarts.
 func (s *SQLiteAuditStore) loadLastSignature() string {
 	var sig sql.NullString
-	row := s.db.QueryRow(`SELECT signature FROM audit_events ORDER BY timestamp DESC, rowid DESC LIMIT 1`)
+	row := s.db.QueryRowContext(context.Background(), `SELECT signature FROM audit_events ORDER BY timestamp DESC, rowid DESC LIMIT 1`)
 	if err := row.Scan(&sig); err != nil {
 		return ""
 	}
@@ -107,7 +108,7 @@ func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
 	// replay or tamper attempt. Checking first avoids advancing the hash chain
 	// for a write that will be rejected.
 	var exists int
-	if err := s.db.QueryRow(`SELECT 1 FROM audit_events WHERE id = ? LIMIT 1`, event.ID).Scan(&exists); err == nil {
+	if err := s.db.QueryRowContext(context.Background(), `SELECT 1 FROM audit_events WHERE id = ? LIMIT 1`, event.ID).Scan(&exists); err == nil {
 		return fmt.Errorf("audit event %s already exists (append-only store)", event.ID)
 	} else if err != sql.ErrNoRows {
 		return err
@@ -141,7 +142,7 @@ func (s *SQLiteAuditStore) SaveEvent(event *AuditEvent) error {
 		reason, signature
 	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
-	_, err = s.db.Exec(q,
+	_, err = s.db.ExecContext(context.Background(), q,
 		event.ID, string(event.EventType), ts.UnixMilli(),
 		event.SessionID, event.UserID, event.Username, event.SourceIP,
 		action, event.ResourceType, event.ResourceName, event.ResourcePath,
@@ -166,7 +167,7 @@ func (s *SQLiteAuditStore) VerifyChain() error {
 }
 
 func (s *SQLiteAuditStore) GetEvent(id string) (*AuditEvent, error) {
-	row := s.db.QueryRow(`SELECT
+	row := s.db.QueryRowContext(context.Background(), `SELECT
 		id, event_type, timestamp, session_id, user_id, username, source_ip,
 		action, resource_type, resource_name, resource_path,
 		transport, target_host, target_env, target_id,
@@ -197,7 +198,7 @@ func (s *SQLiteAuditStore) ListEvents(filter *AuditFilter) ([]*AuditEvent, error
 		q += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.Limit, filter.Offset)
 	}
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(context.Background(), q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +223,7 @@ func (s *SQLiteAuditStore) CountEvents(filter *AuditFilter) (int, error) {
 	q := `SELECT COUNT(*) FROM audit_events` + where
 
 	var count int
-	err := s.db.QueryRow(q, args...).Scan(&count)
+	err := s.db.QueryRowContext(context.Background(), q, args...).Scan(&count)
 	return count, err
 }
 
@@ -236,7 +237,7 @@ func (s *SQLiteAuditStore) DeleteEvent(id string) error {
 		return fmt.Errorf("audit event deletion is disabled (append-only audit trail); enable break-glass to override")
 	}
 
-	res, err := s.db.Exec(`DELETE FROM audit_events WHERE id = ?`, id)
+	res, err := s.db.ExecContext(context.Background(), `DELETE FROM audit_events WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
@@ -249,7 +250,7 @@ func (s *SQLiteAuditStore) DeleteEvent(id string) error {
 
 func (s *SQLiteAuditStore) DeleteExpiredEvents(olderThan time.Duration) error {
 	cutoff := time.Now().Add(-olderThan).UnixMilli()
-	_, err := s.db.Exec(`DELETE FROM audit_events WHERE timestamp < ?`, cutoff)
+	_, err := s.db.ExecContext(context.Background(), `DELETE FROM audit_events WHERE timestamp < ?`, cutoff)
 	return err
 }
 

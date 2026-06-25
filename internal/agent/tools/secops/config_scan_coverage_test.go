@@ -356,10 +356,10 @@ func TestComplianceCheck_evalCISFilesystem_远程分支(t *testing.T) {
 
 func TestComplianceCheck_evalCISIPForward_远程分支(t *testing.T) {
 	cases := []struct {
-		name     string
-		out      string
-		fail     bool
-		want     ComplianceStatus
+		name string
+		out  string
+		fail bool
+		want ComplianceStatus
 	}{
 		{"值为 0 命中 passed", "0\n", false, StatusPassed},
 		{"值为 1 命中 warning", "1\n", false, StatusWarning},

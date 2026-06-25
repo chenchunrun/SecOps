@@ -40,6 +40,7 @@ func TestExecute_InvalidParams(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := tc.tool.Execute(badParams)
 			if !errors.Is(err, ErrInvalidParams) {
 				t.Errorf("expected ErrInvalidParams, got %v", err)

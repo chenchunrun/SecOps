@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	inMemoryAuditStoreMaxEvents  = 10_000
-	inMemoryAuditStoreMaxAction  = 64
+	inMemoryAuditStoreMaxEvents = 10_000
+	inMemoryAuditStoreMaxAction = 64
 )
 
 // InMemoryAuditStore 内存审计存储实现

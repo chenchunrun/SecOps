@@ -18,46 +18,46 @@ import (
 
 func TestParseRemoteCPU_各类输出(t *testing.T) {
 	tests := []struct {
-		name        string
-		raw         string
-		wantUsage   float64
-		wantIowait  float64
-		wantLoad    float64
+		name       string
+		raw        string
+		wantUsage  float64
+		wantIowait float64
+		wantLoad   float64
 	}{
 		{
-			name:        "标准top输出含空闲与iowait",
-			raw:         "%Cpu(s):  5.0 us,  2.0 sy,  0.0 ni, 90.0 id,  3.0 wa,  0.0 hi,  0.0 si\n0.50 0.42 1.20 2/300 1234",
-			wantUsage:   10.0,
-			wantIowait:  3.0,
-			wantLoad:    0.5,
+			name:       "标准top输出含空闲与iowait",
+			raw:        "%Cpu(s):  5.0 us,  2.0 sy,  0.0 ni, 90.0 id,  3.0 wa,  0.0 hi,  0.0 si\n0.50 0.42 1.20 2/300 1234",
+			wantUsage:  10.0,
+			wantIowait: 3.0,
+			wantLoad:   0.5,
 		},
 		{
-			name:        "空闲为100时使用率为0",
-			raw:         "%Cpu(s):  0.0 us,  0.0 sy,  0.0 ni,100.0 id,  0.0 wa\n1.00 0.80 0.50",
-			wantUsage:   0.0,
-			wantIowait:  0.0,
-			wantLoad:    1.0,
+			name:       "空闲为100时使用率为0",
+			raw:        "%Cpu(s):  0.0 us,  0.0 sy,  0.0 ni,100.0 id,  0.0 wa\n1.00 0.80 0.50",
+			wantUsage:  0.0,
+			wantIowait: 0.0,
+			wantLoad:   1.0,
 		},
 		{
-			name:        "空输出全部归零",
-			raw:         "",
-			wantUsage:   0.0,
-			wantIowait:  0.0,
-			wantLoad:    0.0,
+			name:       "空输出全部归零",
+			raw:        "",
+			wantUsage:  0.0,
+			wantIowait: 0.0,
+			wantLoad:   0.0,
 		},
 		{
-			name:        "负值load被丢弃",
-			raw:         "no cpu line here\n-1.0 bad load",
-			wantUsage:   0.0,
-			wantIowait:  0.0,
-			wantLoad:    0.0,
+			name:       "负值load被丢弃",
+			raw:        "no cpu line here\n-1.0 bad load",
+			wantUsage:  0.0,
+			wantIowait: 0.0,
+			wantLoad:   0.0,
 		},
 		{
-			name:        "cpu行带id触发usage计算并取首字段load",
-			raw:         "%Cpu(s):  10.0 us, 90.0 id,  0.0 wa\n2.50 loadavg",
-			wantUsage:   10.0, // 100 - 90 idle
-			wantIowait:  0.0,
-			wantLoad:    2.5,
+			name:       "cpu行带id触发usage计算并取首字段load",
+			raw:        "%Cpu(s):  10.0 us, 90.0 id,  0.0 wa\n2.50 loadavg",
+			wantUsage:  10.0, // 100 - 90 idle
+			wantIowait: 0.0,
+			wantLoad:   2.5,
 		},
 	}
 
@@ -103,12 +103,12 @@ func TestParsePercentField_边界(t *testing.T) {
 
 func TestParseRemoteMemory_free与meminfo格式(t *testing.T) {
 	tests := []struct {
-		name           string
-		raw            string
-		wantTotal      float64
-		wantUsed       float64
-		wantAvailable  float64
-		wantSwapPct    float64
+		name          string
+		raw           string
+		wantTotal     float64
+		wantUsed      float64
+		wantAvailable float64
+		wantSwapPct   float64
 	}{
 		{
 			// free -b 风格：Mem: total used shared buff/cache available
@@ -128,8 +128,8 @@ func TestParseRemoteMemory_free与meminfo格式(t *testing.T) {
 			wantSwapPct:   0.0,
 		},
 		{
-			name:   "meminfo格式含swap",
-			raw:    "MemTotal:       16384 kB\nMemFree:          4096 kB\nMemAvailable:    8192 kB\nBuffers:          512 kB\nCached:          1024 kB\nSwapTotal:       2048 kB\nSwapFree:        1024 kB",
+			name: "meminfo格式含swap",
+			raw:  "MemTotal:       16384 kB\nMemFree:          4096 kB\nMemAvailable:    8192 kB\nBuffers:          512 kB\nCached:          1024 kB\nSwapTotal:       2048 kB\nSwapFree:        1024 kB",
 			// MemTotal 16384*1024 = 16777216; MemAvailable 8192*1024=8388608; used=8388608
 			// swap (2048-1024)/2048*100 = 50
 			wantTotal:     16777216,
@@ -280,7 +280,7 @@ func TestParseRemoteProcessStats(t *testing.T) {
 	}{
 		{
 			name:       "混合进程状态",
-			raw:         "R 50.0 5.0\nS 1.0 2.0\nR 80.0 60.0\nD 0.5 0.1",
+			raw:        "R 50.0 5.0\nS 1.0 2.0\nR 80.0 60.0\nD 0.5 0.1",
 			wantTotal:  4,
 			wantRun:    2,
 			wantTopCPU: 80.0,
@@ -288,7 +288,7 @@ func TestParseRemoteProcessStats(t *testing.T) {
 		},
 		{
 			name:       "空输入归零",
-			raw:         "",
+			raw:        "",
 			wantTotal:  0,
 			wantRun:    0,
 			wantTopCPU: 0,
@@ -296,13 +296,13 @@ func TestParseRemoteProcessStats(t *testing.T) {
 		},
 		{
 			name:       "两字段行被跳过",
-			raw:         "R 1.0\nS a", // "S a" 仅2字段，跳过
+			raw:        "R 1.0\nS a", // "S a" 仅2字段，跳过
 			wantTotal:  0,
 			wantTopCPU: 0,
 		},
 		{
 			name:       "非数字CPU/mem被忽略但仍计数",
-			raw:         "R x y\nZ 0 0", // "R x y" 3字段→total++ running++；cpu/mem解析失败
+			raw:        "R x y\nZ 0 0", // "R x y" 3字段→total++ running++；cpu/mem解析失败
 			wantTotal:  2,
 			wantRun:    1,
 			wantTopCPU: 0,
@@ -343,9 +343,9 @@ func newRemoteTool(stdout string, err error) *ResourceMonitorTool {
 
 func remoteParams() *ResourceMonitorParams {
 	return &ResourceMonitorParams{
-		Target:      "10.0.0.9",
-		RemoteHost:  "10.0.0.9",
-		RemoteUser:  "ops",
+		Target:        "10.0.0.9",
+		RemoteHost:    "10.0.0.9",
+		RemoteUser:    "ops",
 		RemotePort:    22,
 		RemoteKeyPath: "/tmp/id_ed25519",
 		Metrics:       []string{"cpu"},
@@ -685,7 +685,7 @@ func TestSampleCPUUsage_无CPUStat环境返回零(t *testing.T) {
 
 func TestResourceMonitor_Execute远程采集汇总(t *testing.T) {
 	tool := NewResourceMonitorTool(nil)
-	cpuOut := "%Cpu(s): 99.0 us, 0.0 id, 0.0 wa\n0.5 load\n" // usage=100 (clamp)
+	cpuOut := "%Cpu(s): 99.0 us, 0.0 id, 0.0 wa\n0.5 load\n"             // usage=100 (clamp)
 	memOut := "Mem: 17179869184 16000000000 0 0 1000000000 1000000000\n" // ~93%
 	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 		// 根据 ssh args 末尾的远程命令路由返回不同 stdout

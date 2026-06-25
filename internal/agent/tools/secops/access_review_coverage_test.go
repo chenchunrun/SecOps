@@ -49,8 +49,8 @@ func TestAccessReviewTool_getAWSAccessEntries_ParsesIAMJSON(t *testing.T) {
 	tmp := t.TempDir()
 	now := time.Now().UTC()
 	oldUser := now.Add(-400 * 24 * time.Hour).Format(time.RFC3339) // >365d → high
-	midUser := now.Add(-150 * 24 * time.Hour).Format(time.RFC3339)  // >120d → medium
-	newUser := now.Add(-10 * 24 * time.Hour).Format(time.RFC3339)   // → low
+	midUser := now.Add(-150 * 24 * time.Hour).Format(time.RFC3339) // >120d → medium
+	newUser := now.Add(-10 * 24 * time.Hour).Format(time.RFC3339)  // → low
 	body := fmt.Sprintf(`{
   "Users": [
     {"UserName":"admin","Arn":"arn:aws:iam::123:user/admin","CreateDate":"%s","PasswordLastUsed":"%s"},

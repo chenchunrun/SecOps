@@ -32,6 +32,7 @@ func TestRunCommandHelpers(t *testing.T) {
 	}
 
 	t.Run("three output helpers return stdout on success", func(t *testing.T) {
+		t.Parallel()
 		for _, runner := range threeOutputRunners {
 			out, stderr, err := runner(context.Background(), "echo", "hello")
 			if err != nil {
@@ -47,6 +48,7 @@ func TestRunCommandHelpers(t *testing.T) {
 	})
 
 	t.Run("three output helpers capture stderr on exit error", func(t *testing.T) {
+		t.Parallel()
 		for _, runner := range threeOutputRunners {
 			out, _, err := runner(context.Background(), "sh", "-c", "echo msg && exit 1")
 			if err == nil {
@@ -64,6 +66,7 @@ func TestRunCommandHelpers(t *testing.T) {
 	}
 
 	t.Run("two output helper returns stdout on success", func(t *testing.T) {
+		t.Parallel()
 		for _, runner := range twoOutputRunners {
 			out, err := runner(context.Background(), "echo", "ok")
 			if err != nil {
@@ -76,6 +79,7 @@ func TestRunCommandHelpers(t *testing.T) {
 	})
 
 	t.Run("two output helper returns error on failure", func(t *testing.T) {
+		t.Parallel()
 		for _, runner := range twoOutputRunners {
 			_, err := runner(context.Background(), "false")
 			if err == nil {
@@ -85,6 +89,7 @@ func TestRunCommandHelpers(t *testing.T) {
 	})
 
 	t.Run("context cancellation is respected", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		_, _, err := runLogCommand(ctx, "sleep", "5")

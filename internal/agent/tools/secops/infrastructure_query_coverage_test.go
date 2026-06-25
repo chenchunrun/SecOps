@@ -731,9 +731,9 @@ func TestInfrastructureQueryTool_getTerraformStateFromCLI_WorkdirArgs(t *testing
 	tmp := t.TempDir()
 
 	tests := []struct {
-		name          string
-		target        string
-		wantChdirIn   string // 期望 args 中包含此 chdir 片段
+		name            string
+		target          string
+		wantChdirIn     string // 期望 args 中包含此 chdir 片段
 		wantChdirAbsent bool
 	}{
 		{name: "target为目录生成chdir", target: tmp, wantChdirIn: "-chdir=" + tmp},
@@ -1196,12 +1196,12 @@ func TestInfrastructureQueryTool_parseFloatAndZoneToRegion(t *testing.T) {
 
 	// zoneToRegion: 各类 zone 格式。
 	cases := map[string]string{
-		"us-central1-a":          "us-central1",
-		"europe-west1-b":         "europe-west1",
+		"us-central1-a":                 "us-central1",
+		"europe-west1-b":                "europe-west1",
 		"projects/x/zones/asia-east1-a": "asia-east1",
-		"single":                 "single", // 无连字符原样返回
-		"":                       "",       // 空字符串
-		"  us-east1-c  ":         "us-east1", // 含空白会被 trim 后按 zone 处理
+		"single":                        "single",   // 无连字符原样返回
+		"":                              "",         // 空字符串
+		"  us-east1-c  ":                "us-east1", // 含空白会被 trim 后按 zone 处理
 	}
 	for zone, want := range cases {
 		if got := zoneToRegion(zone); got != want {

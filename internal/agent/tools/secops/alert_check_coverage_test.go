@@ -775,10 +775,14 @@ func TestAlertCheckTool_getDispatchersFallback(t *testing.T) {
 		invoke     func(*AlertCheckTool) []AlertInfo
 		wantMinLen int
 	}{
-		{"prometheus", func(t *AlertCheckTool) []AlertInfo { return t.getPrometheusAlerts(&AlertCheckParams{System: "prometheus"}) }, 1},
+		{"prometheus", func(t *AlertCheckTool) []AlertInfo {
+			return t.getPrometheusAlerts(&AlertCheckParams{System: "prometheus"})
+		}, 1},
 		{"grafana", func(t *AlertCheckTool) []AlertInfo { return t.getGrafanaAlerts(&AlertCheckParams{System: "grafana"}) }, 1},
 		{"datadog", func(t *AlertCheckTool) []AlertInfo { return t.getDatadogAlerts(&AlertCheckParams{System: "datadog"}) }, 1},
-		{"pagerduty", func(t *AlertCheckTool) []AlertInfo { return t.getPagerDutyAlerts(&AlertCheckParams{System: "pagerduty"}) }, 1},
+		{"pagerduty", func(t *AlertCheckTool) []AlertInfo {
+			return t.getPagerDutyAlerts(&AlertCheckParams{System: "pagerduty"})
+		}, 1},
 	}
 
 	for _, tc := range cases {
@@ -804,8 +808,9 @@ func TestAlertCheckTool_getDispatchersFallback(t *testing.T) {
 }
 
 // TestAlertCheckTool_performCheckLiveViaHTTP 通过 httptest 驱动 performCheck,确认 live 数据源分支被命中。
-// 注意: Datadog 与回退子测试使用 t.Setenv, 父测试不可并行。
 func TestAlertCheckTool_performCheckLiveViaHTTP(t *testing.T) {
+	t.Parallel()
+
 	t.Run("Prometheus live 数据源", func(t *testing.T) {
 		t.Parallel()
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -846,24 +851,6 @@ func TestAlertCheckTool_performCheckLiveViaHTTP(t *testing.T) {
 		}
 	})
 
-	t.Run("Datadog live 数据源", func(t *testing.T) {
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"monitors":[{"id":1,"name":"LiveDD","message":"m","overall_state":"Alert","classification":"critical"}]}`))
-		}))
-		defer ts.Close()
-		t.Setenv("SECOPS_DATADOG_APP_KEY", "app")
-
-		tool := NewAlertCheckTool(nil)
-		result := tool.performCheck(&AlertCheckParams{System: "datadog", Endpoint: ts.URL, APIToken: "api"})
-		if result.DataSource != "live" {
-			t.Fatalf("expected live data source, got %q", result.DataSource)
-		}
-		if result.Total != 1 {
-			t.Fatalf("expected 1 live alert, got %+v", result)
-		}
-	})
-
 	t.Run("PagerDuty live 数据源", func(t *testing.T) {
 		t.Parallel()
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -874,6 +861,29 @@ func TestAlertCheckTool_performCheckLiveViaHTTP(t *testing.T) {
 
 		tool := NewAlertCheckTool(nil)
 		result := tool.performCheck(&AlertCheckParams{System: "pagerduty", Endpoint: ts.URL, APIToken: "tok"})
+		if result.DataSource != "live" {
+			t.Fatalf("expected live data source, got %q", result.DataSource)
+		}
+		if result.Total != 1 {
+			t.Fatalf("expected 1 live alert, got %+v", result)
+		}
+	})
+}
+
+// TestAlertCheckTool_performCheckLiveViaHTTP_EnvScoped groups the subtests that
+// mutate process environment via t.Setenv. These cannot run under a parallel
+// parent, so they live in their own non-parallel test.
+func TestAlertCheckTool_performCheckLiveViaHTTP_EnvScoped(t *testing.T) {
+	t.Run("Datadog live 数据源", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"monitors":[{"id":1,"name":"LiveDD","message":"m","overall_state":"Alert","classification":"critical"}]}`))
+		}))
+		defer ts.Close()
+		t.Setenv("SECOPS_DATADOG_APP_KEY", "app")
+
+		tool := NewAlertCheckTool(nil)
+		result := tool.performCheck(&AlertCheckParams{System: "datadog", Endpoint: ts.URL, APIToken: "api"})
 		if result.DataSource != "live" {
 			t.Fatalf("expected live data source, got %q", result.DataSource)
 		}
