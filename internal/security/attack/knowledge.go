@@ -84,6 +84,10 @@ func (kb *KnowledgeBase) Get(id string) (Technique, bool) {
 
 // TacticsFor returns the unique tactics covered by the given technique IDs.
 func (kb *KnowledgeBase) TacticsFor(ids []string) []string {
+	if kb == nil {
+		return nil
+	}
+
 	seen := make(map[string]struct{})
 	var tactics []string
 	for _, id := range ids {

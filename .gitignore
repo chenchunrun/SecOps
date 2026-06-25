@@ -60,9 +60,10 @@ completions/crush.*sh
 .prettierignore
 .task
 
-# Compiled binary
-SecOps
-crush
+# Compiled binary (anchored to repo root: a bare "SecOps" would also match the
+# case-insensitive secops/ source directory on macOS, hiding new files there)
+/SecOps
+/crush
 
 # SecOps internal development docs (keep local only)
 /SECOPS_DOD_MATRIX.md
