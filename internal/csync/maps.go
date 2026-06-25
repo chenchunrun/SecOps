@@ -131,7 +131,8 @@ var (
 	_ json.Marshaler   = &Map[string, any]{}
 )
 
-func (Map[K, V]) JSONSchemaAlias() any { //nolint
+// JSONSchemaAlias returns the plain map type to use for JSON schema generation.
+func (*Map[K, V]) JSONSchemaAlias() any {
 	m := map[K]V{}
 	return m
 }
