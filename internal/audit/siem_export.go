@@ -12,9 +12,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/chenchunrun/SecOps/internal/security/redact"
 )
 
 // redactionRegexes holds the credential patterns used to redact sensitive data
@@ -33,46 +34,10 @@ import (
 // 11. Generic API key        (api_key=, apikey=, api-key=)
 // 12. Database DSN           (mysql://, postgres://, mongodb://, redis://)
 // 13. JWT token              (eyJ... - JSON Web Token header)
-var redactionRegexes = []*regexp.Regexp{
-	// Bearer token (Authorization header)
-	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9_-]+`),
-	// Basic auth (Authorization header) — HIGH-05
-	regexp.MustCompile(`(?i)basic\s+[A-Za-z0-9+/=]{8,}`),
-	// Stripe keys
-	regexp.MustCompile(`(?i)sk_live_[A-Za-z0-9_-]+`),
-	regexp.MustCompile(`(?i)sk_test_[A-Za-z0-9_-]+`),
-	// AWS access key IDs
-	regexp.MustCompile(`(?i)AKIA[A-Za-z0-9]+`),
-	regexp.MustCompile(`(?i)ASIA[A-Za-z0-9]+`),
-	// AWS secret key
-	regexp.MustCompile(`(?i)aws_secret_access_key[=:]\s*\S+`),
-	// URL password query param
-	regexp.MustCompile(`(?i)[?&]password=[^&\s]+`),
-	// Azure SAS token — HIGH-05
-	regexp.MustCompile(`(?i)[?&]sig=[A-Za-z0-9%+/=]{20,}`),
-	// Generic password/secret/token field — HIGH-05
-	regexp.MustCompile(`(?i)(password|passwd|secret|token)\s*[=:]\s*['"]?[A-Za-z0-9_@#$%^&*!\-]{8,}`),
-	// PEM private key header + body (multiline) — HIGH-05
-	regexp.MustCompile(`(?s)-----BEGIN[^-]*PRIVATE KEY-----[^-]*-----END[^-]*PRIVATE KEY-----`),
-	// PEM private key header only (fallback for single-line contexts)
-	regexp.MustCompile(`-----BEGIN[^-]*PRIVATE KEY-----`),
-	// GitHub tokens
-	regexp.MustCompile(`(?i)ghp_[a-zA-Z0-9]{36}`),
-	regexp.MustCompile(`(?i)github_pat_[a-zA-Z0-9_]{22,}`),
-	// GCP credentials
-	regexp.MustCompile(`(?i)gcp_(credentials|service_account|api_key|access_token|refresh_token|secret_key|auth|key)[a-zA-Z0-9_-]*`),
-	regexp.MustCompile(`(?i)_GOOGLE[a-zA-Z0-9_-]+|GOOGLE_[A-Z0-9_]+`),
-	// Slack token
-	regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`),
-	// Generic API key
-	regexp.MustCompile(`(?i)(api_key|apikey|api-key)\s*[=:]\s*['"]?[A-Za-z0-9_\-]{20,}`),
-	// Database DSNs with embedded credentials
-	regexp.MustCompile(`(?i)(mysql|postgres|mongodb|redis|postgresql)://[^@\s]+:[^@\s]+@`),
-	// JWT token
-	regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`),
-}
-
-const redacted = "***REDACTED***"
+//
+// The patterns themselves live in internal/security/redact and are shared with
+// the shell command logger; this comment documents the historical coverage for
+// SIEM export callers.
 
 // siemHTTPTimeout bounds each SIEM HTTP attempt so a hung receiver cannot block
 // the exporter indefinitely.
@@ -89,11 +54,7 @@ const maxSIEMResponseBytes = 64 * 1024
 func redactValue(v interface{}) interface{} {
 	switch val := v.(type) {
 	case string:
-		result := val
-		for _, re := range redactionRegexes {
-			result = re.ReplaceAllString(result, redacted)
-		}
-		return result
+		return redact.String(val)
 	case map[string]interface{}:
 		cp := make(map[string]interface{}, len(val))
 		for k, v := range val {
@@ -109,18 +70,6 @@ func redactValue(v interface{}) interface{} {
 	default:
 		return v
 	}
-}
-
-// redactString applies all credential redaction patterns to a plain string.
-func redactString(s string) string {
-	if s == "" {
-		return s
-	}
-	result := s
-	for _, re := range redactionRegexes {
-		result = re.ReplaceAllString(result, redacted)
-	}
-	return result
 }
 
 // redactEvent creates a deep copy of the given event with all credential fields
@@ -143,13 +92,13 @@ func redactEvent(event *AuditEvent) *AuditEvent {
 		Action:       event.Action,
 		ResourceType: event.ResourceType,
 		ResourceName: event.ResourceName,
-		ResourcePath: redactString(event.ResourcePath),
+		ResourcePath: redact.String(event.ResourcePath),
 		Transport:    event.Transport,
 		TargetHost:   event.TargetHost,
 		TargetEnv:    event.TargetEnv,
 		TargetID:     event.TargetID,
 		Result:       event.Result,
-		ErrorMsg:     redactString(event.ErrorMsg),
+		ErrorMsg:     redact.String(event.ErrorMsg),
 		RiskScore:    event.RiskScore,
 		RiskLevel:    event.RiskLevel,
 		Severity:     event.Severity,
@@ -157,7 +106,7 @@ func redactEvent(event *AuditEvent) *AuditEvent {
 		ApprovalID:   event.ApprovalID,
 		ApprovedBy:   event.ApprovedBy,
 		ApprovedAt:   event.ApprovedAt,
-		Reason:       redactString(event.Reason),
+		Reason:       redact.String(event.Reason),
 		Signature:    event.Signature,
 	}
 	for k, v := range event.Details {

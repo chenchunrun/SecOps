@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chenchunrun/SecOps/internal/security/redact"
 )
 
 func newTLSTestConfig(server *httptest.Server) *tls.Config {
@@ -321,7 +323,7 @@ func TestSyslogExporter_Export_UDP_Success(t *testing.T) {
 		if !strings.HasPrefix(msg, "<134>1 2026-03-26T12:00:00Z audit-host secops-agent - evt-syslog-1 - ") {
 			t.Fatalf("unexpected syslog header: %q", msg)
 		}
-		if !strings.Contains(msg, redacted) {
+		if !strings.Contains(msg, redact.Redacted) {
 			t.Fatalf("expected redacted payload, got %q", msg)
 		}
 		if strings.Contains(msg, "secret-token") {
@@ -674,7 +676,7 @@ func TestRedactValue_All13Patterns(t *testing.T) {
 				t.Fatalf("expected string result, got %T", result)
 			}
 			if tc.redacted {
-				if !strings.Contains(resultStr, redacted) {
+				if !strings.Contains(resultStr, redact.Redacted) {
 					t.Errorf("expected redaction marker in %q, got %q", tc.name, resultStr)
 				}
 			} else {
@@ -714,7 +716,7 @@ func TestRedactValue_NestedStruct(t *testing.T) {
 	}
 
 	// mysql:// URL password should be redacted (regex replaces user:pass@ portion)
-	if !strings.Contains(resultMap["db_conn"].(string), redacted) {
+	if !strings.Contains(resultMap["db_conn"].(string), redact.Redacted) {
 		t.Errorf("expected db_conn to contain redaction marker, got %v", resultMap["db_conn"])
 	}
 
@@ -722,13 +724,13 @@ func TestRedactValue_NestedStruct(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected nested map, got %T", resultMap["metadata"])
 	}
-	if !strings.Contains(meta["token"].(string), redacted) {
+	if !strings.Contains(meta["token"].(string), redact.Redacted) {
 		t.Errorf("expected token to contain redaction marker, got %v", meta["token"])
 	}
 	if meta["note"] != "this is safe" {
 		t.Errorf("expected note unchanged, got %v", meta["note"])
 	}
-	if gcpCredVal, ok := meta["gcp_cred"].(string); !ok || !strings.Contains(gcpCredVal, redacted) {
+	if gcpCredVal, ok := meta["gcp_cred"].(string); !ok || !strings.Contains(gcpCredVal, redact.Redacted) {
 		t.Errorf("expected gcp_cred to contain redaction marker, got %v", meta["gcp_cred"])
 	}
 
@@ -736,7 +738,7 @@ func TestRedactValue_NestedStruct(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected slice, got %T", resultMap["tokens"])
 	}
-	if tokens[0] != redacted {
+	if tokens[0] != redact.Redacted {
 		t.Errorf("expected token redacted, got %v", tokens[0])
 	}
 	if tokens[1] != "normal_value" {
@@ -763,11 +765,11 @@ func TestRedactEvent_DoesNotMutateOriginal(t *testing.T) {
 		t.Error("expected redactEvent to return a new struct pointer, got same pointer")
 	}
 	// Verify credential in Details was redacted in the copy
-	if !strings.Contains(cp.Details["bearer_token"].(string), redacted) {
+	if !strings.Contains(cp.Details["bearer_token"].(string), redact.Redacted) {
 		t.Errorf("expected Details[\"bearer_token\"] to be redacted in copy, got %v", cp.Details["bearer_token"])
 	}
 	// Verify original Details is unchanged
-	if strings.Contains(event.Details["bearer_token"].(string), redacted) {
+	if strings.Contains(event.Details["bearer_token"].(string), redact.Redacted) {
 		t.Error("expected original Details[\"bearer_token\"] to be unchanged")
 	}
 	// Verify the Details map was deep-copied (same keys but different underlying map)
