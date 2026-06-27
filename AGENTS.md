@@ -44,11 +44,14 @@ internal/
   security/
     capability.go                  Capability-based gate model
     risk_assessment.go             Multi-factor risk assessment engine
+    attack/                        Reduced ATT&CK corpus + evidence reasoner
+    redact/                        Shared credential-redaction patterns (used by
+                                   audit/SIEM export and the shell command log)
   audit/
     audit.go                       Audit event model and service
     audit_store.go                 Persistent audit storage
     compliance_report.go           Compliance report generation
-    siem_export.go                 SIEM exporters with redaction
+    siem_export.go                 SIEM exporters (redaction delegated to security/redact)
   sandbox/
     executor.go                    Local/Docker/SSH execution backend
   skills/                          Skill file discovery and loading
