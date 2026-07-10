@@ -517,6 +517,115 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 	return fmt.Errorf("splunk export failed after %d retries: %w", maxRetries, lastErr)
 }
 
+// AzureSentinelExporter exports redacted audit events to Azure Sentinel or a
+// compatible Azure Monitor ingestion endpoint. TLSEnabled defaults to true;
+// plaintext HTTP exports are rejected to prevent credential exposure.
+type AzureSentinelExporter struct {
+	Endpoint   string // e.g. "https://example.ingest.monitor.azure.com/dataCollectionRules/.../streams/..."
+	Token      string
+	RuleID     string
+	TLSEnabled bool
+	TLSConfig  *tls.Config
+}
+
+// Export sends events to Azure Sentinel as a compact JSON array.
+func (e *AzureSentinelExporter) Export(ctx context.Context, events []*AuditEvent) error {
+	if !e.TLSEnabled {
+		return errors.New("AzureSentinelExporter: TLS must be enabled to prevent credential exposure over plaintext HTTP")
+	}
+	if err := validateHTTPSURL("AzureSentinelExporter", e.Endpoint); err != nil {
+		return err
+	}
+	if len(events) == 0 {
+		return nil
+	}
+
+	payload := make([]map[string]interface{}, 0, len(events))
+	for _, ev := range events {
+		eventBytes, err := json.Marshal(redactEvent(ev))
+		if err != nil {
+			return fmt.Errorf("failed to marshal redacted audit event: %w", err)
+		}
+		var event map[string]interface{}
+		if err := json.Unmarshal(eventBytes, &event); err != nil {
+			return fmt.Errorf("failed to unmarshal redacted audit event: %w", err)
+		}
+		event["time_generated"] = ev.Timestamp.UTC().Format(time.RFC3339Nano)
+		if e.RuleID != "" {
+			event["rule_id"] = e.RuleID
+		}
+		payload = append(payload, event)
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Azure Sentinel payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.Endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(e.Token) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(e.Token))
+	}
+
+	return e.doRequestWithRetry(req)
+}
+
+func (e *AzureSentinelExporter) doRequestWithRetry(req *http.Request) error {
+	const maxRetries = 3
+
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return fmt.Errorf("failed to buffer request body: %w", err)
+		}
+	}
+
+	client := &http.Client{Timeout: siemHTTPTimeout}
+	if e.TLSConfig != nil {
+		if e.TLSConfig.InsecureSkipVerify {
+			return fmt.Errorf("AzureSentinelExporter: InsecureSkipVerify is prohibited for audit transport")
+		}
+		client.Transport = &http.Transport{TLSClientConfig: e.TLSConfig}
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			if err := sleepWithContext(req.Context(), backoffDuration(attempt)); err != nil {
+				return fmt.Errorf("Azure Sentinel export aborted: %w", err)
+			}
+		}
+
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxSIEMResponseBytes))
+		resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return nil
+		}
+
+		lastErr = fmt.Errorf("Azure Sentinel request failed with status %d: %s", resp.StatusCode, string(respBody))
+		if resp.StatusCode < 500 {
+			return lastErr
+		}
+	}
+
+	return fmt.Errorf("Azure Sentinel export failed after %d retries: %w", maxRetries, lastErr)
+}
+
 // backoffDuration returns the exponential backoff delay for the given attempt
 // (attempt is 1-based for the first retry).
 func backoffDuration(attempt int) time.Duration {

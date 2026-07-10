@@ -92,7 +92,7 @@ func BuildAuditExporters(cfg *config.Config) []audit.SIEMExporter {
 		return nil
 	}
 
-	exporters := make([]audit.SIEMExporter, 0, 3)
+	exporters := make([]audit.SIEMExporter, 0, 4)
 	if syslogCfg := cfg.Audit.Export.Syslog; syslogCfg != nil && syslogCfg.Enabled && strings.TrimSpace(syslogCfg.Address) != "" {
 		exporters = append(exporters, &audit.SyslogExporter{
 			Network:  strings.TrimSpace(syslogCfg.Network),
@@ -137,6 +137,14 @@ func BuildAuditExporters(cfg *config.Config) []audit.SIEMExporter {
 			Endpoint:   strings.TrimSpace(splunkCfg.Endpoint),
 			Token:      resolve(splunkCfg.Token),
 			Index:      strings.TrimSpace(splunkCfg.Index),
+			TLSEnabled: true,
+		})
+	}
+	if sentinelCfg := cfg.Audit.Export.AzureSentinel; sentinelCfg != nil && sentinelCfg.Enabled && strings.TrimSpace(sentinelCfg.Endpoint) != "" {
+		exporters = append(exporters, &audit.AzureSentinelExporter{
+			Endpoint:   strings.TrimSpace(sentinelCfg.Endpoint),
+			Token:      resolve(sentinelCfg.Token),
+			RuleID:     strings.TrimSpace(sentinelCfg.RuleID),
 			TLSEnabled: true,
 		})
 	}

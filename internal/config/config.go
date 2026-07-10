@@ -291,10 +291,18 @@ type AuditSplunk struct {
 	Index    string `json:"index,omitempty" jsonschema:"description=Target index"`
 }
 
+type AuditAzureSentinel struct {
+	Enabled  bool   `json:"enabled,omitempty" jsonschema:"description=Enable Azure Sentinel audit export,default=false"`
+	Endpoint string `json:"endpoint,omitempty" jsonschema:"description=Azure Log Analytics Data Collector or ingestion HTTPS endpoint"`
+	Token    string `json:"token,omitempty" jsonschema:"description=Bearer token or signed collector token; supports $ENV references"`
+	RuleID   string `json:"rule_id,omitempty" jsonschema:"description=Sentinel analytics rule or stream identifier,example=secops-audit"`
+}
+
 type AuditExport struct {
-	Syslog *AuditSyslog `json:"syslog,omitempty" jsonschema:"description=Syslog export settings"`
-	ELK    *AuditELK    `json:"elk,omitempty" jsonschema:"description=Elasticsearch/ELK export settings"`
-	Splunk *AuditSplunk `json:"splunk,omitempty" jsonschema:"description=Splunk HEC export settings"`
+	Syslog        *AuditSyslog        `json:"syslog,omitempty" jsonschema:"description=Syslog export settings"`
+	ELK           *AuditELK           `json:"elk,omitempty" jsonschema:"description=Elasticsearch/ELK export settings"`
+	Splunk        *AuditSplunk        `json:"splunk,omitempty" jsonschema:"description=Splunk HEC export settings"`
+	AzureSentinel *AuditAzureSentinel `json:"azure_sentinel,omitempty" jsonschema:"description=Azure Sentinel export settings"`
 }
 
 type Audit struct {

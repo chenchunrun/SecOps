@@ -48,6 +48,32 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "AuditAzureSentinel": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Azure Sentinel audit export",
+          "default": false
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Azure Log Analytics Data Collector or ingestion HTTPS endpoint"
+        },
+        "token": {
+          "type": "string",
+          "description": "Bearer token or signed collector token; supports $ENV references"
+        },
+        "rule_id": {
+          "type": "string",
+          "description": "Sentinel analytics rule or stream identifier",
+          "examples": [
+            "secops-audit"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "AuditELK": {
       "properties": {
         "enabled": {
@@ -94,6 +120,10 @@
         "splunk": {
           "$ref": "#/$defs/AuditSplunk",
           "description": "Splunk HEC export settings"
+        },
+        "azure_sentinel": {
+          "$ref": "#/$defs/AuditAzureSentinel",
+          "description": "Azure Sentinel export settings"
         }
       },
       "additionalProperties": false,

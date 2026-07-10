@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"testing"
 	"time"
 )
@@ -351,6 +352,43 @@ func TestComplianceReportGenerator_SuspiciousEvents(t *testing.T) {
 	suspEvent := report.SuspiciousEvents[0]
 	if suspEvent.UserID != "hacker" {
 		t.Errorf("expected suspicious user hacker, got %s", suspEvent.UserID)
+	}
+}
+
+func TestComplianceReport_ExportPDF(t *testing.T) {
+	report := &ComplianceReport{
+		ID:               "rpt_test",
+		Framework:        FrameworkSOC2,
+		GeneratedAt:      time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC),
+		ComplianceStatus: "warning",
+		ComplianceScore:  82.5,
+		TotalEvents:      10,
+		SuccessfulEvents: 8,
+		FailedEvents:     1,
+		DeniedEvents:     1,
+		HighRiskEvents:   2,
+		Recommendations:  []string{"Review high-risk events"},
+	}
+
+	pdf, err := report.ExportPDF()
+	if err != nil {
+		t.Fatalf("expected PDF export success, got %v", err)
+	}
+
+	if !bytes.HasPrefix(pdf, []byte("%PDF-1.4")) {
+		t.Fatalf("expected PDF header, got %q", string(pdf[:8]))
+	}
+	if !bytes.Contains(pdf, []byte("SecOps Compliance Report")) {
+		t.Fatalf("expected report title in PDF bytes")
+	}
+	if !bytes.Contains(pdf, []byte("rpt_test")) {
+		t.Fatalf("expected report ID in PDF bytes")
+	}
+	if !bytes.Contains(pdf, []byte("warning")) {
+		t.Fatalf("expected compliance status in PDF bytes")
+	}
+	if !bytes.Contains(pdf, []byte("%%EOF")) {
+		t.Fatalf("expected PDF EOF marker")
 	}
 }
 

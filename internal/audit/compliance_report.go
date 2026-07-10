@@ -1,8 +1,10 @@
 package audit
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -156,6 +158,85 @@ func (g *ComplianceReportGenerator) GenerateReport(framework ComplianceFramework
 	report.Recommendations = g.generateRecommendations(report)
 
 	return report, nil
+}
+
+// ExportPDF renders a compact single-page PDF representation of the compliance
+// report. It intentionally avoids external dependencies so report generation
+// remains available in minimal SecOps deployments.
+func (r *ComplianceReport) ExportPDF() ([]byte, error) {
+	if r == nil {
+		return nil, fmt.Errorf("report cannot be nil")
+	}
+
+	lines := []string{
+		"SecOps Compliance Report",
+		fmt.Sprintf("Report ID: %s", r.ID),
+		fmt.Sprintf("Framework: %s", r.Framework),
+		fmt.Sprintf("Generated At: %s", r.GeneratedAt.UTC().Format(time.RFC3339)),
+		fmt.Sprintf("Status: %s", r.ComplianceStatus),
+		fmt.Sprintf("Score: %.1f", r.ComplianceScore),
+		fmt.Sprintf("Total Events: %d", r.TotalEvents),
+		fmt.Sprintf("Successful Events: %d", r.SuccessfulEvents),
+		fmt.Sprintf("Failed Events: %d", r.FailedEvents),
+		fmt.Sprintf("Denied Events: %d", r.DeniedEvents),
+		fmt.Sprintf("High Risk Events: %d", r.HighRiskEvents),
+		fmt.Sprintf("Critical Risk Events: %d", r.CriticalRiskEvents),
+	}
+	if len(r.Recommendations) > 0 {
+		lines = append(lines, "Recommendations:")
+		for _, recommendation := range r.Recommendations {
+			lines = append(lines, "- "+recommendation)
+		}
+	}
+
+	return buildSimplePDF(lines), nil
+}
+
+func buildSimplePDF(lines []string) []byte {
+	var stream bytes.Buffer
+	stream.WriteString("BT\n/F1 12 Tf\n50 780 Td\n14 TL\n")
+	for i, line := range lines {
+		if i > 0 {
+			stream.WriteString("T*\n")
+		}
+		stream.WriteString("(")
+		stream.WriteString(escapePDFText(line))
+		stream.WriteString(") Tj\n")
+	}
+	stream.WriteString("ET\n")
+
+	objects := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", stream.Len(), stream.String()),
+	}
+
+	var pdf bytes.Buffer
+	pdf.WriteString("%PDF-1.4\n")
+	offsets := make([]int, 0, len(objects)+1)
+	offsets = append(offsets, 0)
+	for i, obj := range objects {
+		offsets = append(offsets, pdf.Len())
+		fmt.Fprintf(&pdf, "%d 0 obj\n%s\nendobj\n", i+1, obj)
+	}
+
+	xrefOffset := pdf.Len()
+	fmt.Fprintf(&pdf, "xref\n0 %d\n", len(objects)+1)
+	pdf.WriteString("0000000000 65535 f \n")
+	for _, offset := range offsets[1:] {
+		fmt.Fprintf(&pdf, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&pdf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xrefOffset)
+	return pdf.Bytes()
+}
+
+func escapePDFText(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "(", "\\(")
+	s = strings.ReplaceAll(s, ")", "\\)")
+	return s
 }
 
 // analyzeEvents 分析审计事件

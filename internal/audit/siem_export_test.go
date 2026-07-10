@@ -279,6 +279,81 @@ func TestSplunkExporter_Export_RetryExhausted(t *testing.T) {
 	}
 }
 
+// --- AzureSentinelExporter tests ---
+
+func TestAzureSentinelExporter_Export_Success(t *testing.T) {
+	var receivedBody []byte
+	var receivedAuth string
+	var receivedContentType string
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		receivedContentType = r.Header.Get("Content-Type")
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	event := DefaultAuditEvent(EventTypeSecurityAlert)
+	event.ID = "evt-sentinel-1"
+	event.Details["token"] = "Authorization: Bearer secret-token"
+
+	exporter := &AzureSentinelExporter{
+		Endpoint:   server.URL,
+		Token:      "sentinel-token",
+		RuleID:     "secops-audit",
+		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(server),
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{event})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if receivedAuth != "Bearer sentinel-token" {
+		t.Fatalf("expected bearer auth, got %q", receivedAuth)
+	}
+	if receivedContentType != "application/json" {
+		t.Fatalf("expected JSON content type, got %q", receivedContentType)
+	}
+
+	var payload []map[string]interface{}
+	if err := json.Unmarshal(receivedBody, &payload); err != nil {
+		t.Fatalf("expected valid JSON payload, got %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected one event, got %d", len(payload))
+	}
+	if payload[0]["rule_id"] != "secops-audit" {
+		t.Fatalf("expected rule_id to be included, got %#v", payload[0]["rule_id"])
+	}
+	bodyString := string(receivedBody)
+	if !strings.Contains(bodyString, redact.Redacted) {
+		t.Fatalf("expected redacted token in payload, got %s", bodyString)
+	}
+	if strings.Contains(bodyString, "secret-token") {
+		t.Fatalf("expected sensitive token to be removed, got %s", bodyString)
+	}
+}
+
+func TestAzureSentinelExporter_TLSRequired(t *testing.T) {
+	exporter := &AzureSentinelExporter{
+		Endpoint:   "https://sentinel.example/api/logs",
+		Token:      "token",
+		TLSEnabled: false,
+	}
+
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)})
+	if err == nil {
+		t.Fatal("expected TLS error, got nil")
+	}
+	if !strings.Contains(err.Error(), "TLS must be enabled") {
+		t.Fatalf("expected TLS error, got %v", err)
+	}
+}
+
 // --- SyslogExporter tests ---
 
 func TestSyslogExporter_Export_UDP_Success(t *testing.T) {
