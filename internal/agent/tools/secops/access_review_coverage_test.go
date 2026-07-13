@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,9 @@ import (
 // runAccessCommand) without any cloud credentials or network access.
 func makePathStub(t *testing.T, dir, binName, stdoutBody string) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell CLI stubs are not supported on Windows")
+	}
 	script := "#!/bin/sh\ncat <<'EOF_STUB_OUT'\n" + stdoutBody + "\nEOF_STUB_OUT\n"
 	stubPath := filepath.Join(dir, binName)
 	if err := os.WriteFile(stubPath, []byte(script), 0o755); err != nil {
