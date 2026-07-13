@@ -599,7 +599,7 @@ func (e *AzureSentinelExporter) doRequestWithRetry(req *http.Request) error {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			if err := sleepWithContext(req.Context(), backoffDuration(attempt)); err != nil {
-				return fmt.Errorf("Azure Sentinel export aborted: %w", err)
+				return fmt.Errorf("azure Sentinel export aborted: %w", err)
 			}
 		}
 
@@ -617,13 +617,13 @@ func (e *AzureSentinelExporter) doRequestWithRetry(req *http.Request) error {
 			return nil
 		}
 
-		lastErr = fmt.Errorf("Azure Sentinel request failed with status %d: %s", resp.StatusCode, string(respBody))
+		lastErr = fmt.Errorf("azure Sentinel request failed with status %d: %s", resp.StatusCode, string(respBody))
 		if resp.StatusCode < 500 {
 			return lastErr
 		}
 	}
 
-	return fmt.Errorf("Azure Sentinel export failed after %d retries: %w", maxRetries, lastErr)
+	return fmt.Errorf("azure Sentinel export failed after %d retries: %w", maxRetries, lastErr)
 }
 
 // backoffDuration returns the exponential backoff delay for the given attempt
