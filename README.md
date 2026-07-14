@@ -23,7 +23,7 @@ Core contributor:
 
 ## What SecOps Adds
 
-- **20 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, ATT&CK reasoning, incident assessment, deployment and infrastructure queries, and more.
+- **18 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, ATT&CK reasoning, incident assessment, deployment and infrastructure queries, and more.
 - **35 security skills:** defensive skills (IR, threat intelligence, log analysis, malware analysis, compliance reporting) plus 7 red team skills with a mandatory authorization gate.
 - **Risk-aware execution:** capability checks and permission decisions evaluate risk signals before sensitive tools or commands run.
 - **Audit and SIEM pipeline:** every governed action can be recorded, reviewed, and exported to ELK, Splunk, Azure Sentinel, or generic JSON sinks with redaction.
@@ -127,8 +127,11 @@ check it explicitly.
 This fork includes SecOps runtime capabilities, risk-aware permissions,
 auditing, and secure execution controls.
 
-Release-closeout and project-governance materials are maintained as local-only
-process records and are intentionally excluded from the public repository.
+The cross-platform CI closure passed Build, Security, Lint, and Snapshot on
+2026-07-14. The stabilization baseline is commit
+[`86c91a3`](https://github.com/chenchunrun/SecOps/commit/86c91a3599e35fe36026bf9239dd2426b9e0bf0a);
+the remaining release action is to tag that verified line and publish a GitHub
+Release.
 
 Recommended release verification commands:
 
@@ -146,6 +149,7 @@ Public reference material:
 - [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
 - [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
 - [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md)
+- [`SECOPS_CLOSEOUT_GAP_PLAN_2026-07-10.md`](/Users/newmba/SecOpsCode/crush-main/SECOPS_CLOSEOUT_GAP_PLAN_2026-07-10.md)
 
 ## Installation
 
