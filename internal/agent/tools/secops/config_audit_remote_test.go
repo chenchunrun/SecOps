@@ -3,6 +3,7 @@ package secops
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -12,6 +13,24 @@ import (
 func installFixedSSHStub(t *testing.T, response string, fail bool) {
 	t.Helper()
 	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		stub := filepath.Join(dir, "ssh.cmd")
+		body := "@echo off\r\n"
+		if fail {
+			body += "echo remote command failed 1>&2\r\nexit /b 1\r\n"
+		} else {
+			respFile := filepath.Join(dir, "resp")
+			if err := os.WriteFile(respFile, []byte(response), 0o644); err != nil {
+				t.Fatalf("write resp: %v", err)
+			}
+			body += "type \"" + respFile + "\"\r\nexit /b 0\r\n"
+		}
+		if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
+			t.Fatalf("write ssh stub: %v", err)
+		}
+		t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		return
+	}
 
 	var body string
 	if fail {
@@ -28,7 +47,7 @@ func installFixedSSHStub(t *testing.T, response string, fail bool) {
 	if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
 		t.Fatalf("write ssh stub: %v", err)
 	}
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // auditRemoteParams returns audit params that route every *ForParams helper through

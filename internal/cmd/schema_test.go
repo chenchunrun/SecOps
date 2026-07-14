@@ -41,6 +41,9 @@ func repoRoot(t *testing.T) string {
 // re-run `go run . schema` and verify the diff is intentional before updating
 // schema.json.
 func TestGenerateSchema_MatchesCommittedGolden(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("schema golden is generated on the Linux CI baseline")
+	}
 	t.Parallel()
 
 	got, err := GenerateSchema()
