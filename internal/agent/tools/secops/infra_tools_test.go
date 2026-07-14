@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -2046,8 +2047,16 @@ func TestInfrastructureQueryTool_Execute_Costs(t *testing.T) {
 func TestInfrastructureQueryTool_getGCPCostsFromCLI(t *testing.T) {
 	tool := NewInfrastructureQueryTool(nil)
 	tmp := t.TempDir()
-	gcloudPath := filepath.Join(tmp, "gcloud")
-	script := `#!/bin/sh
+	if runtime.GOOS == "windows" {
+		gcloudPath := filepath.Join(tmp, "gcloud.cmd")
+		script := "@echo off\r\nif \"%1 %2 %3\"==\"billing accounts list\" (echo [{\"name\":\"billingAccounts/ABC123\",\"open\":true}]) else if \"%1 %2 %3\"==\"billing budgets list\" (echo [{\"displayName\":\"prod-budget\",\"amount\":{\"specifiedAmount\":{\"currencyCode\":\"USD\",\"units\":\"120\",\"nanos\":500000000}}}]) else (echo [])\r\n"
+		if err := os.WriteFile(gcloudPath, []byte(script), 0o755); err != nil {
+			t.Fatalf("Write gcloud stub failed: %v", err)
+		}
+		t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+	} else {
+		gcloudPath := filepath.Join(tmp, "gcloud")
+		script := `#!/bin/sh
 if [ "$1 $2 $3" = "billing accounts list" ]; then
   echo '[{"name":"billingAccounts/ABC123","open":true}]'
   exit 0
@@ -2058,10 +2067,11 @@ if [ "$1 $2 $3" = "billing budgets list" ]; then
 fi
 echo '[]'
 `
-	if err := os.WriteFile(gcloudPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("Write gcloud stub failed: %v", err)
+		if err := os.WriteFile(gcloudPath, []byte(script), 0o755); err != nil {
+			t.Fatalf("Write gcloud stub failed: %v", err)
+		}
+		t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
-	t.Setenv("PATH", tmp+":"+os.Getenv("PATH"))
 
 	costs := tool.getGCPCostsFromCLI(&InfrastructureQueryParams{
 		SystemType: "gcp",

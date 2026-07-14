@@ -565,7 +565,7 @@ func TestBuildLocalCommand(t *testing.T) {
 	cmd := exec.buildCommand(ctx, "ls -la", cfg)
 
 	assert.NotNil(t, cmd)
-	assert.Equal(t, "sh", filepath.Base(cmd.Path))
+	assert.Equal(t, "sh", strings.TrimSuffix(filepath.Base(cmd.Path), filepath.Ext(cmd.Path)))
 	assert.Contains(t, cmd.Args, "-c")
 	assert.Contains(t, cmd.Args, "ls -la")
 	assert.Equal(t, "/tmp", cmd.Dir)
