@@ -2091,18 +2091,27 @@ echo '[]'
 func TestInfrastructureQueryTool_getAzureCostsFromCLI(t *testing.T) {
 	tool := NewInfrastructureQueryTool(nil)
 	tmp := t.TempDir()
-	azPath := filepath.Join(tmp, "az")
-	script := `#!/bin/sh
+	if runtime.GOOS == "windows" {
+		azPath := filepath.Join(tmp, "az.cmd")
+		script := "@echo off\r\nif \"%1 %2 %3\"==\"consumption usage list\" (echo [{\"meterCategory\":\"Compute\",\"pretaxCost\":10.5,\"currency\":\"USD\"},{\"meterCategory\":\"Storage\",\"pretaxCost\":2.0,\"currency\":\"USD\"},{\"meterCategory\":\"Compute\",\"pretaxCost\":1.5,\"currency\":\"USD\"}]) else (echo [])\r\n"
+		if err := os.WriteFile(azPath, []byte(script), 0o755); err != nil {
+			t.Fatalf("Write az stub failed: %v", err)
+		}
+		t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+	} else {
+		azPath := filepath.Join(tmp, "az")
+		script := `#!/bin/sh
 if [ "$1 $2 $3" = "consumption usage list" ]; then
   echo '[{"meterCategory":"Compute","pretaxCost":10.5,"currency":"USD"},{"meterCategory":"Storage","pretaxCost":2.0,"currency":"USD"},{"meterCategory":"Compute","pretaxCost":1.5,"currency":"USD"}]'
   exit 0
 fi
 echo '[]'
 `
-	if err := os.WriteFile(azPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("Write az stub failed: %v", err)
+		if err := os.WriteFile(azPath, []byte(script), 0o755); err != nil {
+			t.Fatalf("Write az stub failed: %v", err)
+		}
+		t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
-	t.Setenv("PATH", tmp+":"+os.Getenv("PATH"))
 
 	costs := tool.getAzureCostsFromCLI(&InfrastructureQueryParams{
 		SystemType: "azure",
