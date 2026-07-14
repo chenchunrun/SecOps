@@ -3,6 +3,7 @@ package secops
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -649,6 +650,9 @@ func TestRunResourceCommand_命令不存在(t *testing.T) {
 // 至少覆盖这些路径并确保不 panic；不依赖于真实子进程或网络。
 
 func TestSampleMemoryLinux_非Linux返回零(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("requires an environment without /proc/meminfo")
+	}
 	// /proc/meminfo 在 macOS 上不存在，ReadFile 失败 → 返回 (0,0,0,0)
 	total, used, avail, swap := sampleMemoryLinux()
 	if total != 0 || used != 0 || avail != 0 || swap != 0 {
@@ -658,6 +662,9 @@ func TestSampleMemoryLinux_非Linux返回零(t *testing.T) {
 }
 
 func TestReadCPUStat_非Linux返回false(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("requires an environment without /proc/stat")
+	}
 	// /proc/stat 在 macOS 上不存在
 	if _, ok := readCPUStat(); ok {
 		t.Error("readCPUStat 在无 /proc 环境应返回 ok=false")
@@ -665,6 +672,9 @@ func TestReadCPUStat_非Linux返回false(t *testing.T) {
 }
 
 func TestSampleNetwork_非Linux返回零(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("requires a non-Linux environment")
+	}
 	// runtime.GOOS != linux → 直接返回 (0,0,0,0)，不读 /proc
 	in, out, pin, pout := sampleNetwork()
 	if in != 0 || out != 0 || pin != 0 || pout != 0 {
