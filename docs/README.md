@@ -8,6 +8,7 @@ standard metadata.
 
 - [`docs/guides/secops_README.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/secops_README.md)
 - [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/INSTALL_ONECLICK_zh-CN.md)
+- [`docs/guides/PRODUCT_WHITEPAPER_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/PRODUCT_WHITEPAPER_zh-CN.md)
 
 ## Legal
 
