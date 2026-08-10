@@ -26,8 +26,13 @@ func (c *fakeComputer) Exec(_ context.Context, _ computer.ExecRequest) (*compute
 	return c.result, c.err
 }
 
-func (c *fakeComputer) Backend() computer.Backend { return computer.BackendLocal }
-func (c *fakeComputer) State() computer.State     { return computer.StateActive }
+func (c *fakeComputer) Backend() computer.Backend {
+	return computer.BackendLocal
+}
+
+func (c *fakeComputer) State() computer.State {
+	return computer.StateActive
+}
 func (c *fakeComputer) Suspend(context.Context) error {
 	return nil
 }
