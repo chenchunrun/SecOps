@@ -33,12 +33,15 @@ func (c *fakeComputer) Backend() computer.Backend {
 func (c *fakeComputer) State() computer.State {
 	return computer.StateActive
 }
+
 func (c *fakeComputer) Suspend(context.Context) error {
 	return nil
 }
+
 func (c *fakeComputer) Resume(context.Context) error {
 	return nil
 }
+
 func (c *fakeComputer) Destroy(context.Context) error {
 	return nil
 }
