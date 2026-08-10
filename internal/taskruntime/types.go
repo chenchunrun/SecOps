@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chenchunrun/SecOps/internal/computer"
+	"github.com/chenchunrun/SecOps/internal/workspace"
 )
 
 type ID string
@@ -33,9 +34,10 @@ var (
 )
 
 type Submission struct {
-	ID         ID
-	ComputerID computer.ID
-	Request    computer.ExecRequest
+	ID          ID
+	ComputerID  computer.ID
+	WorkspaceID workspace.ID
+	Request     computer.ExecRequest
 }
 
 type Result struct {
@@ -46,18 +48,19 @@ type Result struct {
 }
 
 type Task struct {
-	ID         ID                   `json:"id"`
-	ComputerID computer.ID          `json:"computer_id"`
-	State      State                `json:"state"`
-	Request    computer.ExecRequest `json:"request"`
-	Attempt    int                  `json:"attempt"`
-	Result     *Result              `json:"result,omitempty"`
-	Error      string               `json:"error,omitempty"`
-	CreatedAt  time.Time            `json:"created_at"`
-	UpdatedAt  time.Time            `json:"updated_at"`
-	StartedAt  time.Time            `json:"started_at,omitempty"`
-	FinishedAt time.Time            `json:"finished_at,omitempty"`
-	Version    uint64               `json:"version"`
+	ID          ID                   `json:"id"`
+	ComputerID  computer.ID          `json:"computer_id"`
+	WorkspaceID workspace.ID         `json:"workspace_id,omitempty"`
+	State       State                `json:"state"`
+	Request     computer.ExecRequest `json:"request"`
+	Attempt     int                  `json:"attempt"`
+	Result      *Result              `json:"result,omitempty"`
+	Error       string               `json:"error,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
+	StartedAt   time.Time            `json:"started_at,omitempty"`
+	FinishedAt  time.Time            `json:"finished_at,omitempty"`
+	Version     uint64               `json:"version"`
 }
 
 func (s State) valid() bool {

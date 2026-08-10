@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chenchunrun/SecOps/internal/computer"
+	"github.com/chenchunrun/SecOps/internal/workspace"
 )
 
 type Computer interface {
@@ -38,12 +39,13 @@ func (r *Runtime) Submit(ctx context.Context, submission Submission) (Task, erro
 	}
 	now := time.Now().UTC()
 	task := Task{
-		ID:         submission.ID,
-		ComputerID: submission.ComputerID,
-		State:      StatePending,
-		Request:    submission.Request,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          submission.ID,
+		ComputerID:  submission.ComputerID,
+		WorkspaceID: submission.WorkspaceID,
+		State:       StatePending,
+		Request:     submission.Request,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	r.mu.Lock()
@@ -222,6 +224,11 @@ func validateSubmission(submission Submission) error {
 	}
 	if strings.TrimSpace(submission.Request.Command) == "" {
 		return fmt.Errorf("%w: command is required", ErrInvalidTask)
+	}
+	if submission.WorkspaceID != "" {
+		if err := workspace.ValidateID(submission.WorkspaceID); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidTask, err)
+		}
 	}
 	return nil
 }

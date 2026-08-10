@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/chenchunrun/SecOps/internal/computer"
+	"github.com/chenchunrun/SecOps/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -258,6 +259,30 @@ func TestRuntimeRunAssignedResolvesStableComputerIdentity(t *testing.T) {
 	require.Equal(t, StateSucceeded, completed.State)
 	require.Equal(t, "assigned\n", completed.Result.Output)
 	require.Equal(t, 1, machine.calls)
+}
+
+func TestRuntimePersistsWorkspaceIdentity(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	require.NoError(t, err)
+	runtime, err := New(store)
+	require.NoError(t, err)
+	task, err := runtime.Submit(context.Background(), Submission{
+		ID:          "task-workspace",
+		ComputerID:  "computer-1",
+		WorkspaceID: workspace.ID("workspace-1"),
+		Request:     computer.ExecRequest{Command: "build"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, workspace.ID("workspace-1"), task.WorkspaceID)
+
+	reopened, err := NewFileStore(root)
+	require.NoError(t, err)
+	persisted, err := reopened.Get(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, workspace.ID("workspace-1"), persisted.WorkspaceID)
 }
 
 type fakeResolver struct {

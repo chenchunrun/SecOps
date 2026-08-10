@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/chenchunrun/SecOps/internal/computer"
@@ -13,7 +14,7 @@ func TestNewComputerRuntimeRecoversRunningTasksWithoutReplay(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store, err := taskruntime.NewFileStore(root)
+	store, err := taskruntime.NewFileStore(filepath.Join(root, "tasks"))
 	require.NoError(t, err)
 	running, err := store.Create(context.Background(), taskruntime.Task{
 		ID:         "task-running-at-crash",
@@ -37,4 +38,13 @@ func TestNewComputerRuntimeRecoversRunningTasksWithoutReplay(t *testing.T) {
 	machine, err := runtime.Computers.Get(DefaultLocalComputerID)
 	require.NoError(t, err)
 	require.Equal(t, computer.BackendLocal, machine.Backend())
+	defaultWorkspace, err := runtime.Workspaces.Get(context.Background(), DefaultWorkspaceID)
+	require.NoError(t, err)
+	require.DirExists(t, defaultWorkspace.Root)
+
+	restarted, err := newComputerRuntime(context.Background(), root)
+	require.NoError(t, err)
+	restartedWorkspace, err := restarted.Workspaces.Get(context.Background(), DefaultWorkspaceID)
+	require.NoError(t, err)
+	require.Equal(t, defaultWorkspace.Root, restartedWorkspace.Root)
 }
