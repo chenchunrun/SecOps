@@ -123,6 +123,8 @@ func TestSchedulerRoutesDeterministically(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			decision, scheduleErr := scheduler.Schedule(context.Background(), Request{
 				RequestID:    tt.name,
 				Capabilities: tt.capabilities,
@@ -145,16 +147,6 @@ func TestSchedulerFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	const localID computer.ID = "local-a"
-	observer := &recordingObserver{}
-	scheduler, err := New(
-		fakeInventory{computers: []computer.Computer{
-			&fakeComputer{id: localID, backend: computer.BackendLocal, state: computer.StateActive},
-		}},
-		[]Profile{{ComputerID: localID, Capabilities: []string{security.CapabilityFileRead}, Scopes: []Scope{ScopeWorkspace}}},
-		observer,
-	)
-	require.NoError(t, err)
-
 	tests := []struct {
 		name        string
 		request     Request
@@ -211,13 +203,25 @@ func TestSchedulerFailsClosed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observer := &recordingObserver{}
+			scheduler, err := New(
+				fakeInventory{computers: []computer.Computer{
+					&fakeComputer{id: localID, backend: computer.BackendLocal, state: computer.StateActive},
+				}},
+				[]Profile{{ComputerID: localID, Capabilities: []string{security.CapabilityFileRead}, Scopes: []Scope{ScopeWorkspace}}},
+				observer,
+			)
+			require.NoError(t, err)
+
 			decision, scheduleErr := scheduler.Schedule(context.Background(), tt.request)
 			require.ErrorIs(t, scheduleErr, tt.wantError)
 			require.Equal(t, tt.wantOutcome, decision.Outcome)
 			require.Empty(t, decision.ComputerID)
+			require.Len(t, observer.events, 1)
 		})
 	}
-	require.Len(t, observer.events, len(tests))
 }
 
 func TestSchedulerExcludesUnavailableAndSortsByID(t *testing.T) {
