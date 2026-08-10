@@ -70,13 +70,13 @@ type Profile struct {
 
 // Decision explains why a scheduling request was or was not selected.
 type Decision struct {
-	RequestID    string
-	Outcome      Outcome
-	ComputerID   computer.ID
-	Backend      computer.Backend
-	Capabilities []string
-	RiskScore    int
-	Reasons      []string
+	RequestID    string           `json:"request_id"`
+	Outcome      Outcome          `json:"outcome"`
+	ComputerID   computer.ID      `json:"computer_id,omitempty"`
+	Backend      computer.Backend `json:"backend,omitempty"`
+	Capabilities []string         `json:"capabilities"`
+	RiskScore    int              `json:"risk_score"`
+	Reasons      []string         `json:"reasons"`
 }
 
 // Event is the immutable audit representation of a scheduling decision.
