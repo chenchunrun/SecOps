@@ -52,6 +52,7 @@ internal/
     audit_store.go                 Persistent audit storage
     compliance_report.go           Compliance report generation
     siem_export.go                 SIEM exporters (redaction delegated to security/redact)
+  computer/                        Stable Computer identity, lifecycle, and backend adapters
   sandbox/
     executor.go                    Local/Docker/SSH execution backend
   skills/                          Skill file discovery and loading
@@ -117,6 +118,9 @@ intentionally reclassified for publication.
   generated code in `internal/db/`. Migrations in `internal/db/migrations/`.
 - **Pub/sub**: `internal/pubsub` for decoupled communication between agent,
   UI, and services.
+- **Computer boundary**: `internal/computer` owns stable logical IDs and
+  lifecycle state. Local, Docker, and SSH are adapters behind that boundary;
+  provider SDK types must not enter the core Computer model.
 - **CGO disabled**: builds with `CGO_ENABLED=0` and
   `GOEXPERIMENT=greenteagc`.
 
