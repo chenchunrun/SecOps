@@ -367,7 +367,7 @@ func TestComplianceReport_ExportPDF(t *testing.T) {
 		FailedEvents:     1,
 		DeniedEvents:     1,
 		HighRiskEvents:   2,
-		Recommendations:  []string{"Review high-risk events"},
+		Recommendations:  []string{"检查高风险事件"},
 	}
 
 	pdf, err := report.ExportPDF()
@@ -378,17 +378,26 @@ func TestComplianceReport_ExportPDF(t *testing.T) {
 	if !bytes.HasPrefix(pdf, []byte("%PDF-1.4")) {
 		t.Fatalf("expected PDF header, got %q", string(pdf[:8]))
 	}
-	if !bytes.Contains(pdf, []byte("SecOps Compliance Report")) {
+	if !bytes.Contains(pdf, []byte(encodePDFText("SecOps Compliance Report"))) {
 		t.Fatalf("expected report title in PDF bytes")
 	}
-	if !bytes.Contains(pdf, []byte("rpt_test")) {
+	if !bytes.Contains(pdf, []byte(encodePDFText("rpt_test"))) {
 		t.Fatalf("expected report ID in PDF bytes")
 	}
-	if !bytes.Contains(pdf, []byte("warning")) {
+	if !bytes.Contains(pdf, []byte(encodePDFText("warning"))) {
 		t.Fatalf("expected compliance status in PDF bytes")
 	}
 	if !bytes.Contains(pdf, []byte("%%EOF")) {
 		t.Fatalf("expected PDF EOF marker")
+	}
+	if !bytes.Contains(pdf, []byte("/UniGB-UCS2-H")) {
+		t.Fatalf("expected PDF to declare a Unicode CJK encoding")
+	}
+	if !bytes.Contains(pdf, []byte("68c067e5")) {
+		t.Fatalf("expected Chinese recommendation to be encoded as UTF-16BE")
+	}
+	if bytes.Contains(pdf, []byte("检查")) {
+		t.Fatalf("expected PDF text not to contain raw UTF-8 bytes")
 	}
 }
 

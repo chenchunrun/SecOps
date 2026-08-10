@@ -6,15 +6,15 @@ standard metadata.
 
 ## Guides
 
-- [`docs/guides/secops_README.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/secops_README.md)
-- [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/INSTALL_ONECLICK_zh-CN.md)
-- [`docs/guides/PRODUCT_WHITEPAPER_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/PRODUCT_WHITEPAPER_zh-CN.md)
+- [`docs/guides/secops_README.md`](guides/secops_README.md)
+- [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](guides/INSTALL_ONECLICK_zh-CN.md)
+- [`docs/guides/PRODUCT_WHITEPAPER_zh-CN.md`](guides/PRODUCT_WHITEPAPER_zh-CN.md)
 
 ## Legal
 
-- [`docs/legal/CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/CONTRIBUTORS.md)
-- [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
-- [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
+- [`docs/legal/CONTRIBUTORS.md`](legal/CONTRIBUTORS.md)
+- [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+- [`LICENSES/FILE_LICENSE_MAP.md`](../LICENSES/FILE_LICENSE_MAP.md)
 
 ## Local-only Scope
 

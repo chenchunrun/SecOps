@@ -2,10 +2,11 @@ package audit
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 // ComplianceFramework 合规框架
@@ -199,9 +200,9 @@ func buildSimplePDF(lines []string) []byte {
 		if i > 0 {
 			stream.WriteString("T*\n")
 		}
-		stream.WriteString("(")
-		stream.WriteString(escapePDFText(line))
-		stream.WriteString(") Tj\n")
+		stream.WriteString("<")
+		stream.WriteString(encodePDFText(line))
+		stream.WriteString("> Tj\n")
 	}
 	stream.WriteString("ET\n")
 
@@ -209,8 +210,9 @@ func buildSimplePDF(lines []string) []byte {
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		"<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [6 0 R] >>",
 		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", stream.Len(), stream.String()),
+		"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 5 >> >>",
 	}
 
 	var pdf bytes.Buffer
@@ -232,11 +234,14 @@ func buildSimplePDF(lines []string) []byte {
 	return pdf.Bytes()
 }
 
-func escapePDFText(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "(", "\\(")
-	s = strings.ReplaceAll(s, ")", "\\)")
-	return s
+func encodePDFText(s string) string {
+	codeUnits := utf16.Encode([]rune(s))
+	encoded := make([]byte, len(codeUnits)*2)
+	for i, codeUnit := range codeUnits {
+		encoded[i*2] = byte(codeUnit >> 8)
+		encoded[i*2+1] = byte(codeUnit)
+	}
+	return hex.EncodeToString(encoded)
 }
 
 // analyzeEvents 分析审计事件

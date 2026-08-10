@@ -518,8 +518,8 @@ func (e *SplunkExporter) doRequestWithRetry(req *http.Request) error {
 }
 
 // AzureSentinelExporter exports redacted audit events to Azure Sentinel or a
-// compatible Azure Monitor ingestion endpoint. TLSEnabled defaults to true;
-// plaintext HTTP exports are rejected to prevent credential exposure.
+// compatible Azure Monitor ingestion endpoint. Callers must explicitly set
+// TLSEnabled; plaintext HTTP exports are rejected to prevent credential exposure.
 type AzureSentinelExporter struct {
 	Endpoint   string // e.g. "https://example.ingest.monitor.azure.com/dataCollectionRules/.../streams/..."
 	Token      string
@@ -541,7 +541,10 @@ func (e *AzureSentinelExporter) Export(ctx context.Context, events []*AuditEvent
 	}
 
 	payload := make([]map[string]interface{}, 0, len(events))
-	for _, ev := range events {
+	for i, ev := range events {
+		if ev == nil {
+			return fmt.Errorf("audit event at index %d cannot be nil", i)
+		}
 		eventBytes, err := json.Marshal(redactEvent(ev))
 		if err != nil {
 			return fmt.Errorf("failed to marshal redacted audit event: %w", err)
@@ -596,11 +599,19 @@ func (e *AzureSentinelExporter) doRequestWithRetry(req *http.Request) error {
 	}
 
 	var lastErr error
+	var retryAfter time.Duration
+	var hasRetryAfter bool
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			if err := sleepWithContext(req.Context(), backoffDuration(attempt)); err != nil {
+			delay := backoffDuration(attempt)
+			if hasRetryAfter {
+				delay = retryAfter
+			}
+			if err := sleepWithContext(req.Context(), delay); err != nil {
 				return fmt.Errorf("azure Sentinel export aborted: %w", err)
 			}
+			retryAfter = 0
+			hasRetryAfter = false
 		}
 
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -618,12 +629,34 @@ func (e *AzureSentinelExporter) doRequestWithRetry(req *http.Request) error {
 		}
 
 		lastErr = fmt.Errorf("azure Sentinel request failed with status %d: %s", resp.StatusCode, string(respBody))
-		if resp.StatusCode < 500 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter, hasRetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+			continue
+		}
+		if resp.StatusCode != http.StatusRequestTimeout && resp.StatusCode < 500 {
 			return lastErr
 		}
 	}
 
 	return fmt.Errorf("azure Sentinel export failed after %d retries: %w", maxRetries, lastErr)
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if delay, err := time.ParseDuration(value + "s"); err == nil && delay >= 0 {
+		return delay, true
+	}
+	retryAt, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	if delay := retryAt.Sub(now); delay > 0 {
+		return delay, true
+	}
+	return 0, true
 }
 
 // backoffDuration returns the exponential backoff delay for the given attempt

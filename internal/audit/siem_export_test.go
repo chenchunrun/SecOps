@@ -354,6 +354,44 @@ func TestAzureSentinelExporter_TLSRequired(t *testing.T) {
 	}
 }
 
+func TestAzureSentinelExporter_RetriesRateLimit(t *testing.T) {
+	var attempts int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	exporter := &AzureSentinelExporter{
+		Endpoint:   server.URL,
+		TLSEnabled: true,
+		TLSConfig:  newTLSTestConfig(server),
+	}
+	err := exporter.Export(context.Background(), []*AuditEvent{DefaultAuditEvent(EventTypeSecurityAlert)})
+	if err != nil {
+		t.Fatalf("expected rate-limited export to recover, got %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected two attempts, got %d", attempts)
+	}
+}
+
+func TestAzureSentinelExporter_RejectsNilEvent(t *testing.T) {
+	exporter := &AzureSentinelExporter{
+		Endpoint:   "https://sentinel.example/api/logs",
+		TLSEnabled: true,
+	}
+	err := exporter.Export(context.Background(), []*AuditEvent{nil})
+	if err == nil || !strings.Contains(err.Error(), "index 0") {
+		t.Fatalf("expected indexed nil-event error, got %v", err)
+	}
+}
+
 // --- SyslogExporter tests ---
 
 func TestSyslogExporter_Export_UDP_Success(t *testing.T) {

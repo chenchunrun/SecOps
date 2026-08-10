@@ -108,19 +108,19 @@ check it explicitly.
 - **Toolset unification:** fixed built-in tools now use dataset-backed builders and catalog helpers instead of scattered ad hoc registration.
 - **Execution middleware refactor:** policy and audit concerns were lifted into shared middleware around local and remote execution.
 - **Security hardening:** SIEM exporters require real HTTPS endpoints, SSH targets enforce host/port allowlists, and dangerous path access is checked earlier in the execution path.
-- **Public-docs split:** durable public guides stay under [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md), while process records stay local-only.
+- **Public-docs split:** durable public guides stay under [`docs/README.md`](docs/README.md), while process records stay local-only.
 
 ## Documentation
 
 - Product and usage guide:
-  [`docs/guides/secops_README.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/secops_README.md)
+  [`docs/guides/secops_README.md`](docs/guides/secops_README.md)
 - Installation guide:
-  [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/INSTALL_ONECLICK_zh-CN.md)
+  [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](docs/guides/INSTALL_ONECLICK_zh-CN.md)
 - Licensing and contributor records:
-  [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
-  [`docs/legal/CONTRIBUTORS.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/CONTRIBUTORS.md)
+  [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+  [`docs/legal/CONTRIBUTORS.md`](docs/legal/CONTRIBUTORS.md)
 - Full documentation index:
-  [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md)
+  [`docs/README.md`](docs/README.md)
 
 ## Validation
 
@@ -145,11 +145,11 @@ CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 
 Public reference material:
 
-- [`docs/guides/secops_README.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/secops_README.md)
-- [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](/Users/newmba/SecOpsCode/crush-main/docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
-- [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md)
-- [`docs/README.md`](/Users/newmba/SecOpsCode/crush-main/docs/README.md)
-- [`SECOPS_CLOSEOUT_GAP_PLAN_2026-07-10.md`](/Users/newmba/SecOpsCode/crush-main/SECOPS_CLOSEOUT_GAP_PLAN_2026-07-10.md)
+- [`docs/guides/secops_README.md`](docs/guides/secops_README.md)
+- [`docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md`](docs/legal/MIXED_LICENSE_ASSESSMENT_2026-04-04.md)
+- [`LICENSES/FILE_LICENSE_MAP.md`](LICENSES/FILE_LICENSE_MAP.md)
+- [`docs/README.md`](docs/README.md)
+- [`SECOPS_CLOSEOUT_GAP_PLAN_2026-07-10.md`](SECOPS_CLOSEOUT_GAP_PLAN_2026-07-10.md)
 
 ## Installation
 
@@ -176,7 +176,7 @@ go install github.com/chenchunrun/SecOps@latest
 
 One-click packaging and Windows notes:
 
-- [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](/Users/newmba/SecOpsCode/crush-main/docs/guides/INSTALL_ONECLICK_zh-CN.md)
+- [`docs/guides/INSTALL_ONECLICK_zh-CN.md`](docs/guides/INSTALL_ONECLICK_zh-CN.md)
 
 > [!WARNING]
 > Productivity may increase when using SecOps and you may find yourself nerd
@@ -836,12 +836,12 @@ We’d love to hear your thoughts on this project. Need help? We gotchu. You can
 This repository is a mixed-license fork.
 
 - The inherited and derivative Crush codebase remains governed by
-  [`LICENSE.md`](/Users/newmba/SecOpsCode/crush-main/LICENSE.md), which
+  [`LICENSE.md`](LICENSE.md), which
   contains the upstream `FSL-1.1-MIT` terms.
 - Selected independent fork additions may be published under
-  [`LICENSES/MIT-CHENCHUNRUN.txt`](/Users/newmba/SecOpsCode/crush-main/LICENSES/MIT-CHENCHUNRUN.txt).
+  [`LICENSES/MIT-CHENCHUNRUN.txt`](LICENSES/MIT-CHENCHUNRUN.txt).
 - The current file-level designation is recorded in
-  [`LICENSES/FILE_LICENSE_MAP.md`](/Users/newmba/SecOpsCode/crush-main/LICENSES/FILE_LICENSE_MAP.md).
+  [`LICENSES/FILE_LICENSE_MAP.md`](LICENSES/FILE_LICENSE_MAP.md).
 
 This repository should not currently be represented as a single-license MIT
 project or as wholly OSI-open-source.
