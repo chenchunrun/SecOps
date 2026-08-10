@@ -239,7 +239,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, cmd string, cfg SandboxConf
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
 		}
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			result.Error = fmt.Errorf("%w: %v", ErrTimeout, err)
 		} else {
 			result.Error = err
@@ -372,7 +372,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd string, cfg SandboxCon
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
 		}
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			result.Error = fmt.Errorf("%w: %v", ErrTimeout, err)
 		} else {
 			result.Error = err
@@ -490,7 +490,7 @@ func (e *SSHExecutor) Execute(ctx context.Context, cmd string, cfg SandboxConfig
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
 		}
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			result.Error = fmt.Errorf("%w: %v", ErrTimeout, err)
 		} else {
 			result.Error = err
