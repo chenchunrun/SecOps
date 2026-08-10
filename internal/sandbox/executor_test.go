@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -323,10 +324,9 @@ func TestLocalExecutorStderrCapture(t *testing.T) {
 }
 
 func TestDockerExecutorNotFound(t *testing.T) {
-	t.Parallel()
-
 	exec := NewDockerExecutor()
 	ctx := context.Background()
+	t.Setenv("PATH", t.TempDir())
 	cfg := SandboxConfig{
 		TimeoutSeconds: 5,
 		TraceID:        "test-docker",
@@ -565,10 +565,16 @@ func TestBuildLocalCommand(t *testing.T) {
 	cmd := exec.buildCommand(ctx, "ls -la", cfg)
 
 	assert.NotNil(t, cmd)
-	assert.Equal(t, "sh", strings.TrimSuffix(filepath.Base(cmd.Path), filepath.Ext(cmd.Path)))
+	expectedShell := "sh"
+	expectedDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		expectedShell = "bash"
+		expectedDir = os.TempDir()
+	}
+	assert.Equal(t, expectedShell, strings.TrimSuffix(filepath.Base(cmd.Path), filepath.Ext(cmd.Path)))
 	assert.Contains(t, cmd.Args, "-c")
 	assert.Contains(t, cmd.Args, "ls -la")
-	assert.Equal(t, "/tmp", cmd.Dir)
+	assert.Equal(t, expectedDir, cmd.Dir)
 }
 
 func TestAuditLogEntry(t *testing.T) {

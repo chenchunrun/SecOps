@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -168,15 +169,23 @@ func checkCommandSafety(cmd string, cfg SandboxConfig) error {
 // buildLocalCommand constructs the command for local execution.
 func (e *LocalExecutor) buildCommand(ctx context.Context, cmd string, cfg SandboxConfig) *exec.Cmd {
 	// Use shell to support pipelines and complex commands
-	shellCmd := exec.CommandContext(ctx, "sh", "-c", cmd)
+	shell := "sh"
+	safeDir := "/tmp"
+	if runtime.GOOS == "windows" {
+		if bash, err := exec.LookPath("bash"); err == nil {
+			shell = bash
+		}
+		safeDir = os.TempDir()
+	}
+	shellCmd := exec.CommandContext(ctx, shell, "-c", cmd)
 
 	// Set environment constraints
 	env := os.Environ()
-	env = append(env, "HOME=/tmp")
+	env = append(env, "HOME="+safeDir)
 	shellCmd.Env = env
 
 	// Configure working directory to a safe location
-	shellCmd.Dir = "/tmp"
+	shellCmd.Dir = safeDir
 
 	return shellCmd
 }
