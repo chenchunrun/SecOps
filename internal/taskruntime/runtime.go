@@ -16,6 +16,10 @@ type Computer interface {
 	Exec(ctx context.Context, request computer.ExecRequest) (*computer.ExecutionResult, error)
 }
 
+type ComputerResolver interface {
+	Get(id computer.ID) (computer.Computer, error)
+}
+
 type Runtime struct {
 	store Store
 	mu    sync.Mutex
@@ -49,6 +53,31 @@ func (r *Runtime) Submit(ctx context.Context, submission Submission) (Task, erro
 		return Task{}, fmt.Errorf("persist submitted task: %w", err)
 	}
 	return created, nil
+}
+
+func (r *Runtime) Get(ctx context.Context, id ID) (Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, err := r.store.Get(ctx, id)
+	if err != nil {
+		return Task{}, fmt.Errorf("load durable task: %w", err)
+	}
+	return task, nil
+}
+
+func (r *Runtime) RunAssigned(ctx context.Context, id ID, resolver ComputerResolver) (Task, error) {
+	if resolver == nil {
+		return Task{}, fmt.Errorf("%w: computer resolver is required", ErrInvalidTask)
+	}
+	task, err := r.Get(ctx, id)
+	if err != nil {
+		return Task{}, err
+	}
+	machine, err := resolver.Get(task.ComputerID)
+	if err != nil {
+		return task, fmt.Errorf("resolve assigned computer %s: %w", task.ComputerID, err)
+	}
+	return r.Run(ctx, id, machine)
 }
 
 func (r *Runtime) Run(ctx context.Context, id ID, machine Computer) (Task, error) {

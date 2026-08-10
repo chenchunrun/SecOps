@@ -26,6 +26,18 @@ func (c *fakeComputer) Exec(_ context.Context, _ computer.ExecRequest) (*compute
 	return c.result, c.err
 }
 
+func (c *fakeComputer) Backend() computer.Backend { return computer.BackendLocal }
+func (c *fakeComputer) State() computer.State     { return computer.StateActive }
+func (c *fakeComputer) Suspend(context.Context) error {
+	return nil
+}
+func (c *fakeComputer) Resume(context.Context) error {
+	return nil
+}
+func (c *fakeComputer) Destroy(context.Context) error {
+	return nil
+}
+
 func TestRuntimePersistsSuccessfulTaskAcrossRestart(t *testing.T) {
 	t.Parallel()
 
@@ -215,4 +227,39 @@ func TestFileStoreRejectsTraversalAndStaleUpdates(t *testing.T) {
 	persisted, err := store.Get(context.Background(), created.ID)
 	require.NoError(t, err)
 	require.Equal(t, StateRunning, persisted.State)
+}
+
+func TestRuntimeRunAssignedResolvesStableComputerIdentity(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewFileStore(t.TempDir())
+	require.NoError(t, err)
+	runtime, err := New(store)
+	require.NoError(t, err)
+	task, err := runtime.Submit(context.Background(), Submission{
+		ID:         "task-assigned",
+		ComputerID: "computer-1",
+		Request:    computer.ExecRequest{Command: "echo assigned"},
+	})
+	require.NoError(t, err)
+
+	machine := &fakeComputer{id: "computer-1", result: &computer.ExecutionResult{Output: "assigned\n"}}
+	resolver := &fakeResolver{computers: map[computer.ID]computer.Computer{"computer-1": machine}}
+	completed, err := runtime.RunAssigned(context.Background(), task.ID, resolver)
+	require.NoError(t, err)
+	require.Equal(t, StateSucceeded, completed.State)
+	require.Equal(t, "assigned\n", completed.Result.Output)
+	require.Equal(t, 1, machine.calls)
+}
+
+type fakeResolver struct {
+	computers map[computer.ID]computer.Computer
+}
+
+func (r *fakeResolver) Get(id computer.ID) (computer.Computer, error) {
+	machine, ok := r.computers[id]
+	if !ok {
+		return nil, computer.ErrNotFound
+	}
+	return machine, nil
 }

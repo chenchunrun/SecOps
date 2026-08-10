@@ -61,6 +61,7 @@ type App struct {
 
 	AgentCoordinator agent.Coordinator
 	AuditStore       audit.AuditStore
+	ComputerRuntime  *bootstrap.ComputerRuntime
 
 	LSPManager *lsp.Manager
 
@@ -85,15 +86,20 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	files := history.NewService(q, conn)
 	cfg := store.Config()
 	auditStore, auditCleanup := bootstrap.NewAuditStore(cfg, conn)
+	computerRuntime, err := bootstrap.NewComputerRuntime(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize computer runtime: %w", err)
+	}
 
 	app := &App{
-		Sessions:    sessions,
-		Messages:    messages,
-		History:     files,
-		Permissions: bootstrap.NewPermissionService(store),
-		FileTracker: filetracker.NewService(q),
-		LSPManager:  lsp.NewManager(store),
-		AuditStore:  auditStore,
+		Sessions:        sessions,
+		Messages:        messages,
+		History:         files,
+		Permissions:     bootstrap.NewPermissionService(store),
+		FileTracker:     filetracker.NewService(q),
+		LSPManager:      lsp.NewManager(store),
+		AuditStore:      auditStore,
+		ComputerRuntime: computerRuntime,
 
 		globalCtx: ctx,
 
@@ -107,6 +113,9 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	if auditCleanup != nil {
 		app.cleanupFuncs = append(app.cleanupFuncs, auditCleanup)
 	}
+	app.cleanupFuncs = append(app.cleanupFuncs, func(ctx context.Context) error {
+		return app.ComputerRuntime.Computers.DestroyAll(ctx)
+	})
 
 	// Register runtime-global audit sink so tool-level audit events (e.g. remote
 	// policy denials) are persisted under the current app lifecycle.
