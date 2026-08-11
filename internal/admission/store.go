@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	idPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	versionPattern = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,127})\.v([0-9]{20})\.json$`)
+	idPattern         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	versionPattern    = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,127})\.v([0-9]{20})\.json$`)
+	storeCoordinators sync.Map
 )
 
 type Store interface {
@@ -26,8 +27,9 @@ type Store interface {
 }
 
 type FileStore struct {
-	root string
-	mu   sync.Mutex
+	root        string
+	mu          sync.Mutex
+	coordinator *sync.Mutex
 }
 
 func NewFileStore(root string) (*FileStore, error) {
@@ -37,7 +39,20 @@ func NewFileStore(root string) (*FileStore, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("create admission store: %w", err)
 	}
-	return &FileStore{root: root}, nil
+	canonicalRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve admission store root: %w", err)
+	}
+	coordinator, _ := storeCoordinators.LoadOrStore(filepath.Clean(canonicalRoot), &sync.Mutex{})
+	return &FileStore{
+		root:        root,
+		coordinator: coordinator.(*sync.Mutex),
+	}, nil
+}
+
+// CoordinationLock serializes compound store operations for the same root.
+func (s *FileStore) CoordinationLock() sync.Locker {
+	return s.coordinator
 }
 
 func (s *FileStore) Create(ctx context.Context, lease Lease) (Lease, error) {

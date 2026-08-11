@@ -13,7 +13,11 @@ import (
 type Manager struct {
 	store    Store
 	profiles map[computer.ID]Profile
-	mu       sync.Mutex
+	mu       sync.Locker
+}
+
+type coordinatedStore interface {
+	CoordinationLock() sync.Locker
 }
 
 func (m *Manager) CanAcquire(ctx context.Context, computerID computer.ID, demand Resources) (bool, error) {
@@ -71,7 +75,13 @@ func NewManager(store Store, profiles []Profile) (*Manager, error) {
 		}
 		indexed[profile.ComputerID] = profile
 	}
-	return &Manager{store: store, profiles: indexed}, nil
+	coordination := sync.Locker(&sync.Mutex{})
+	if coordinated, ok := store.(coordinatedStore); ok {
+		if shared := coordinated.CoordinationLock(); shared != nil {
+			coordination = shared
+		}
+	}
+	return &Manager{store: store, profiles: indexed, mu: coordination}, nil
 }
 
 func (m *Manager) Acquire(ctx context.Context, request Request) (Lease, error) {
