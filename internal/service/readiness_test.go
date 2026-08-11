@@ -16,7 +16,7 @@ import (
 func TestTCPReadinessVerifierWaitsForDeclaredPort(t *testing.T) {
 	t.Parallel()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, listener.Close()) })
 	port := listener.Addr().(*net.TCPAddr).Port
@@ -38,7 +38,7 @@ func TestTCPReadinessVerifierWaitsForDeclaredPort(t *testing.T) {
 func TestTCPReadinessVerifierFailsClosedOnTimeout(t *testing.T) {
 	t.Parallel()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
 	require.NoError(t, listener.Close())
