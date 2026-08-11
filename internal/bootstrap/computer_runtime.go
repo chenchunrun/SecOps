@@ -12,6 +12,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/service"
 	"github.com/chenchunrun/SecOps/internal/taskruntime"
+	"github.com/chenchunrun/SecOps/internal/verification"
 	"github.com/chenchunrun/SecOps/internal/workspace"
 )
 
@@ -23,12 +24,15 @@ const (
 )
 
 type ComputerRuntime struct {
-	Computers         *computer.Manager
-	Tasks             *taskruntime.Runtime
-	Workspaces        *workspace.Manager
-	Recovered         []taskruntime.Task
-	Services          *service.Manager
-	RecoveredServices []service.Service
+	Computers           *computer.Manager
+	Tasks               *taskruntime.Runtime
+	Workspaces          *workspace.Manager
+	Recovered           []taskruntime.Task
+	VerificationStore   *verification.FileStore
+	VerificationMaker   *verification.Maker
+	VerificationChecker *verification.Checker
+	Services            *service.Manager
+	RecoveredServices   []service.Service
 }
 
 func NewComputerRuntime(ctx context.Context, cfg *config.Config) (*ComputerRuntime, error) {
@@ -54,6 +58,18 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 	tasks, err := taskruntime.New(store)
 	if err != nil {
 		return nil, fmt.Errorf("initialize durable task runtime: %w", err)
+	}
+	verificationStore, err := verification.NewFileStore(filepath.Join(runtimeRoot, "verifications"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize verification store: %w", err)
+	}
+	verificationMaker, err := verification.NewMaker(verificationStore)
+	if err != nil {
+		return nil, fmt.Errorf("initialize verification maker: %w", err)
+	}
+	verificationChecker, err := verification.NewChecker(verificationStore)
+	if err != nil {
+		return nil, fmt.Errorf("initialize verification checker: %w", err)
 	}
 	manager := computer.NewManager()
 	local, err := computer.NewLocalComputer(DefaultLocalComputerID)
@@ -161,11 +177,14 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 		slog.Warn("Recovered interrupted durable services", "count", len(recoveredServices))
 	}
 	return &ComputerRuntime{
-		Computers:         manager,
-		Tasks:             tasks,
-		Workspaces:        workspaces,
-		Recovered:         recovered,
-		Services:          services,
-		RecoveredServices: recoveredServices,
+		Computers:           manager,
+		Tasks:               tasks,
+		Workspaces:          workspaces,
+		Recovered:           recovered,
+		VerificationStore:   verificationStore,
+		VerificationMaker:   verificationMaker,
+		VerificationChecker: verificationChecker,
+		Services:            services,
+		RecoveredServices:   recoveredServices,
 	}, nil
 }
