@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/chenchunrun/SecOps/internal/admission"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/service"
@@ -31,6 +32,8 @@ type ComputerRuntime struct {
 	VerificationStore   *verification.FileStore
 	VerificationMaker   *verification.Maker
 	VerificationChecker *verification.Checker
+	AdmissionStore      *admission.FileStore
+	Admission           *admission.Manager
 	Services            *service.Manager
 	RecoveredServices   []service.Service
 }
@@ -113,6 +116,21 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 			KeyPath: strings.TrimSpace(cfg.Sandbox.KeyPath),
 		}
 	}
+	admissionStore, err := admission.NewFileStore(filepath.Join(runtimeRoot, "admission"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize admission store: %w", err)
+	}
+	admissionProfiles := make([]admission.Profile, 0)
+	for _, machine := range manager.List() {
+		admissionProfiles = append(admissionProfiles, admission.Profile{
+			ComputerID: machine.ID(),
+			Capacity:   defaultAdmissionCapacity(),
+		})
+	}
+	admissionManager, err := admission.NewManager(admissionStore, admissionProfiles)
+	if err != nil {
+		return nil, fmt.Errorf("initialize admission manager: %w", err)
+	}
 	workspaces, err := workspace.NewManager(
 		filepath.Join(runtimeRoot, "workspaces"),
 		filepath.Join(runtimeRoot, "snapshots"),
@@ -184,6 +202,8 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 		VerificationStore:   verificationStore,
 		VerificationMaker:   verificationMaker,
 		VerificationChecker: verificationChecker,
+		AdmissionStore:      admissionStore,
+		Admission:           admissionManager,
 		Services:            services,
 		RecoveredServices:   recoveredServices,
 	}, nil

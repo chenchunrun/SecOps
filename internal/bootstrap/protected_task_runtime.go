@@ -121,11 +121,12 @@ func (r *ProtectedScheduledTaskRuntime) SubmitAndRun(
 	}
 
 	decision, err := r.scheduled.scheduler.Schedule(ctx, scheduler.Request{
-		RequestID:     string(submission.Task.ID),
-		Capabilities:  submission.Task.Capabilities,
-		Scope:         submission.Task.Scope,
-		Authorization: submission.Task.Authorization,
-		Risk:          submission.Task.Risk,
+		RequestID:      string(submission.Task.ID),
+		Capabilities:   submission.Task.Capabilities,
+		Scope:          submission.Task.Scope,
+		Authorization:  submission.Task.Authorization,
+		Risk:           submission.Task.Risk,
+		ResourceDemand: normalizeAdmissionDemand(submission.Task.ResourceDemand),
 	})
 	result.SchedulerDecision = decision
 	if err != nil {
@@ -152,16 +153,17 @@ func (r *ProtectedScheduledTaskRuntime) SubmitAndRun(
 	}
 
 	task, err := r.scheduled.runtime.Tasks.Submit(ctx, taskruntime.Submission{
-		ID:          submission.Task.ID,
-		ComputerID:  decision.ComputerID,
-		WorkspaceID: submission.Task.WorkspaceID,
-		Request:     submission.Task.Request,
+		ID:             submission.Task.ID,
+		ComputerID:     decision.ComputerID,
+		WorkspaceID:    submission.Task.WorkspaceID,
+		Request:        submission.Task.Request,
+		ResourceDemand: normalizeAdmissionDemand(submission.Task.ResourceDemand),
 	})
 	result.Task = task
 	if err != nil {
 		return result, fmt.Errorf("persist protected durable task: %w", err)
 	}
-	task, err = r.scheduled.runtime.Tasks.RunAssigned(ctx, task.ID, resolver)
+	task, err = r.scheduled.runtime.RunTaskAdmitted(ctx, task.ID, resolver)
 	result.Task = task
 	if err != nil {
 		return result, fmt.Errorf("run protected durable task: %w", err)

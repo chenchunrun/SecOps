@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/chenchunrun/SecOps/internal/admission"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/scheduler"
 	"github.com/chenchunrun/SecOps/internal/security"
@@ -17,13 +18,14 @@ var ErrRuntimeSchedulerRequired = errors.New("runtime scheduler is required")
 // ScheduledSubmission declares task requirements without exposing a Computer
 // ID or backend preference to the caller.
 type ScheduledSubmission struct {
-	ID            taskruntime.ID
-	WorkspaceID   workspace.ID
-	Request       computer.ExecRequest
-	Capabilities  []string
-	Scope         scheduler.Scope
-	Authorization scheduler.Authorization
-	Risk          *security.RiskAssessment
+	ID             taskruntime.ID
+	WorkspaceID    workspace.ID
+	Request        computer.ExecRequest
+	Capabilities   []string
+	Scope          scheduler.Scope
+	Authorization  scheduler.Authorization
+	Risk           *security.RiskAssessment
+	ResourceDemand admission.Resources
 }
 
 // ScheduledTaskRuntime composes deterministic scheduling with durable task
@@ -54,22 +56,25 @@ func (r *ScheduledTaskRuntime) Submit(
 	ctx context.Context,
 	submission ScheduledSubmission,
 ) (taskruntime.Task, scheduler.Decision, error) {
+	demand := normalizeAdmissionDemand(submission.ResourceDemand)
 	decision, err := r.scheduler.Schedule(ctx, scheduler.Request{
-		RequestID:     string(submission.ID),
-		Capabilities:  submission.Capabilities,
-		Scope:         submission.Scope,
-		Authorization: submission.Authorization,
-		Risk:          submission.Risk,
+		RequestID:      string(submission.ID),
+		Capabilities:   submission.Capabilities,
+		Scope:          submission.Scope,
+		Authorization:  submission.Authorization,
+		Risk:           submission.Risk,
+		ResourceDemand: demand,
 	})
 	if err != nil {
 		return taskruntime.Task{}, decision, fmt.Errorf("schedule durable task: %w", err)
 	}
 
 	task, err := r.runtime.Tasks.Submit(ctx, taskruntime.Submission{
-		ID:          submission.ID,
-		ComputerID:  decision.ComputerID,
-		WorkspaceID: submission.WorkspaceID,
-		Request:     submission.Request,
+		ID:             submission.ID,
+		ComputerID:     decision.ComputerID,
+		WorkspaceID:    submission.WorkspaceID,
+		Request:        submission.Request,
+		ResourceDemand: demand,
 	})
 	if err != nil {
 		return taskruntime.Task{}, decision, fmt.Errorf("persist scheduled durable task: %w", err)
@@ -87,7 +92,7 @@ func (r *ScheduledTaskRuntime) SubmitAndRun(
 	if err != nil {
 		return task, decision, err
 	}
-	task, err = r.runtime.Tasks.RunAssigned(ctx, task.ID, r.runtime.Computers)
+	task, err = r.runtime.RunTaskAdmitted(ctx, task.ID, r.runtime.Computers)
 	if err != nil {
 		return task, decision, fmt.Errorf("run scheduled durable task: %w", err)
 	}

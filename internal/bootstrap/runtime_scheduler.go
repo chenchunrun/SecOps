@@ -33,7 +33,7 @@ func NewRuntimeScheduler(runtime *ComputerRuntime, auditPath string) (*scheduler
 			Scopes:       scopes,
 		})
 	}
-	runtimeScheduler, err := scheduler.New(runtime.Computers, profiles, observer)
+	runtimeScheduler, err := scheduler.NewWithAdmission(runtime.Computers, profiles, observer, runtime.Admission)
 	if err != nil {
 		return nil, fmt.Errorf("initialize runtime scheduler: %w", err)
 	}

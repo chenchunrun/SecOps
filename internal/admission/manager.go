@@ -16,6 +16,47 @@ type Manager struct {
 	mu       sync.Mutex
 }
 
+func (m *Manager) CanAcquire(ctx context.Context, computerID computer.ID, demand Resources) (bool, error) {
+	if !idPattern.MatchString(string(computerID)) || !validResources(demand) {
+		return false, ErrInvalidRequest
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	profile, configured := m.profiles[computerID]
+	if !configured {
+		return false, fmt.Errorf("%w: %s", ErrUnknownComputer, computerID)
+	}
+	active, err := m.store.List(ctx, StateActive)
+	if err != nil {
+		return false, fmt.Errorf("list active admission leases: %w", err)
+	}
+	used := Resources{}
+	for _, lease := range active {
+		if lease.ComputerID == computerID {
+			used.Slots += lease.Demand.Slots
+			used.CPUUnits += lease.Demand.CPUUnits
+			used.MemoryMB += lease.Demand.MemoryMB
+		}
+	}
+	return fits(used, demand, profile.Capacity), nil
+}
+
+func (m *Manager) RegisterProfile(profile Profile) error {
+	if !idPattern.MatchString(string(profile.ComputerID)) || !validResources(profile.Capacity) {
+		return fmt.Errorf("%w: invalid capacity profile", ErrInvalidRequest)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current, exists := m.profiles[profile.ComputerID]; exists {
+		if current.Capacity != profile.Capacity {
+			return fmt.Errorf("%w: computer profile %q already has different capacity", ErrLeaseConflict, profile.ComputerID)
+		}
+		return nil
+	}
+	m.profiles[profile.ComputerID] = profile
+	return nil
+}
+
 func NewManager(store Store, profiles []Profile) (*Manager, error) {
 	if store == nil {
 		return nil, fmt.Errorf("%w: store is required", ErrInvalidRequest)
@@ -37,6 +78,8 @@ func (m *Manager) Acquire(ctx context.Context, request Request) (Lease, error) {
 	if err := validateRequest(request); err != nil {
 		return Lease{}, err
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	profile, configured := m.profiles[request.ComputerID]
 	if !configured {
 		return Lease{}, fmt.Errorf("%w: %s", ErrUnknownComputer, request.ComputerID)
@@ -44,9 +87,6 @@ func (m *Manager) Acquire(ctx context.Context, request Request) (Lease, error) {
 	if !fits(Resources{}, request.Demand, profile.Capacity) {
 		return Lease{}, ErrCapacityExceeded
 	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	existing, err := m.store.Get(ctx, request.LeaseID)
 	if err == nil {
 		if existing.TaskID != request.TaskID || existing.ComputerID != request.ComputerID || existing.Demand != request.Demand {

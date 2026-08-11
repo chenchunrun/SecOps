@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/chenchunrun/SecOps/internal/admission"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/security"
@@ -20,6 +21,7 @@ var (
 	ErrRiskBlocked           = errors.New("scheduler risk blocked")
 	ErrNoCandidate           = errors.New("scheduler has no eligible candidate")
 	ErrAuditFailed           = errors.New("scheduler audit failed")
+	ErrAdmissionFailed       = errors.New("scheduler resource admission failed")
 )
 
 // Scope describes the execution environment required by a task. It is not a
@@ -54,11 +56,12 @@ type Authorization struct {
 // Request contains declarative execution requirements. It intentionally has no
 // preferred backend or Computer field.
 type Request struct {
-	RequestID     string
-	Capabilities  []string
-	Scope         Scope
-	Authorization Authorization
-	Risk          *security.RiskAssessment
+	RequestID      string
+	Capabilities   []string
+	Scope          Scope
+	Authorization  Authorization
+	Risk           *security.RiskAssessment
+	ResourceDemand admission.Resources
 }
 
 // Profile is trusted scheduler configuration for a registered Computer.
@@ -95,16 +98,25 @@ type Inventory interface {
 	List() []computer.Computer
 }
 
+type Admission interface {
+	CanAcquire(ctx context.Context, computerID computer.ID, demand admission.Resources) (bool, error)
+}
+
 // Scheduler deterministically applies capability, permission, risk, lifecycle,
 // and backend-isolation policy.
 type Scheduler struct {
 	inventory Inventory
 	profiles  map[computer.ID]Profile
 	observer  Observer
+	admission Admission
 }
 
 // New creates a Scheduler from trusted Computer profiles.
 func New(inventory Inventory, profiles []Profile, observer Observer) (*Scheduler, error) {
+	return NewWithAdmission(inventory, profiles, observer, nil)
+}
+
+func NewWithAdmission(inventory Inventory, profiles []Profile, observer Observer, resourceAdmission Admission) (*Scheduler, error) {
 	if inventory == nil {
 		return nil, fmt.Errorf("%w: inventory is required", ErrInvalidRequest)
 	}
@@ -122,7 +134,7 @@ func New(inventory Inventory, profiles []Profile, observer Observer) (*Scheduler
 		indexed[profile.ComputerID] = profile
 	}
 
-	return &Scheduler{inventory: inventory, profiles: indexed, observer: observer}, nil
+	return &Scheduler{inventory: inventory, profiles: indexed, observer: observer, admission: resourceAdmission}, nil
 }
 
 // Schedule returns an executable Computer only after all fail-closed checks and
@@ -157,7 +169,12 @@ func (s *Scheduler) Schedule(ctx context.Context, request Request) (Decision, er
 		return s.finish(ctx, decision, request.Authorization.Decision, ErrAuthorizationRequired)
 	}
 
-	candidates := s.eligibleCandidates(request, decision.Capabilities)
+	candidates, admissionErr := s.eligibleCandidates(ctx, request, decision.Capabilities)
+	if admissionErr != nil {
+		decision.Outcome = OutcomeDenied
+		decision.Reasons = []string{"Computer resource admission could not be evaluated."}
+		return s.finish(ctx, decision, request.Authorization.Decision, fmt.Errorf("%w: %v", ErrAdmissionFailed, admissionErr))
+	}
 	if len(candidates) == 0 {
 		decision.Outcome = OutcomeNoCandidate
 		decision.Reasons = []string{"No active Computer satisfies every capability and scope requirement."}
@@ -183,7 +200,7 @@ func (s *Scheduler) Schedule(ctx context.Context, request Request) (Decision, er
 	return s.finish(ctx, decision, request.Authorization.Decision, nil)
 }
 
-func (s *Scheduler) eligibleCandidates(request Request, capabilities []string) []computer.Computer {
+func (s *Scheduler) eligibleCandidates(ctx context.Context, request Request, capabilities []string) ([]computer.Computer, error) {
 	var candidates []computer.Computer
 	for _, candidate := range s.inventory.List() {
 		if candidate == nil || !runnableState(candidate.State()) {
@@ -196,9 +213,18 @@ func (s *Scheduler) eligibleCandidates(request Request, capabilities []string) [
 		if !backendSupportsScope(candidate.Backend(), request.Scope) {
 			continue
 		}
+		if s.admission != nil && request.ResourceDemand != (admission.Resources{}) {
+			available, err := s.admission.CanAcquire(ctx, candidate.ID(), request.ResourceDemand)
+			if err != nil {
+				return nil, err
+			}
+			if !available {
+				continue
+			}
+		}
 		candidates = append(candidates, candidate)
 	}
-	return candidates
+	return candidates, nil
 }
 
 func (s *Scheduler) finish(

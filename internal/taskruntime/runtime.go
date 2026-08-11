@@ -45,6 +45,7 @@ func (r *Runtime) Submit(ctx context.Context, submission Submission) (Task, erro
 		State:          StatePending,
 		Request:        submission.Request,
 		VerificationID: submission.VerificationID,
+		ResourceDemand: submission.ResourceDemand,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

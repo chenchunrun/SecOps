@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/chenchunrun/SecOps/internal/admission"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/workspace"
 )
@@ -43,6 +44,7 @@ type Submission struct {
 	WorkspaceID    workspace.ID
 	Request        computer.ExecRequest
 	VerificationID string
+	ResourceDemand admission.Resources
 }
 
 type Result struct {
@@ -58,6 +60,7 @@ type Task struct {
 	WorkspaceID             workspace.ID         `json:"workspace_id,omitempty"`
 	State                   State                `json:"state"`
 	Request                 computer.ExecRequest `json:"request"`
+	ResourceDemand          admission.Resources  `json:"resource_demand,omitempty"`
 	Attempt                 int                  `json:"attempt"`
 	Result                  *Result              `json:"result,omitempty"`
 	Error                   string               `json:"error,omitempty"`
