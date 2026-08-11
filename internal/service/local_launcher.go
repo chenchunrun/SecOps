@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -65,6 +64,7 @@ func (l *LocalLauncher) Start(ctx context.Context, machine computer.Computer, sp
 	command.Dir = spec.WorkingDirectory
 	command.Stdout = stdout
 	command.Stderr = stderr
+	configureServiceProcess(command)
 	if err := command.Start(); err != nil {
 		_ = stdout.Close()
 		_ = stderr.Close()
@@ -113,18 +113,5 @@ func (p *localProcess) Wait() error {
 }
 
 func (p *localProcess) Stop(ctx context.Context) error {
-	select {
-	case <-p.done:
-		return nil
-	default:
-	}
-	if err := p.command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("kill local service process: %w", err)
-	}
-	select {
-	case <-p.done:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("wait for local service process: %w", ctx.Err())
-	}
+	return stopServiceProcess(ctx, p.command.Process, p.done)
 }
