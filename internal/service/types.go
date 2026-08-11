@@ -41,7 +41,7 @@ var (
 	ErrBackendUnsupported     = errors.New("service backend unsupported")
 	ErrReadinessFailed        = errors.New("service readiness failed")
 	ErrInvalidDockerProfile   = errors.New("invalid Docker service profile")
-	ErrPortPublishingDisabled = errors.New("Docker service port publishing disabled")
+	ErrPortPublishingDisabled = errors.New("docker service port publishing disabled")
 )
 
 // Port is a backend-neutral logical port claim.
