@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	DefaultLocalComputerID computer.ID  = "local-default"
-	DefaultWorkspaceID     workspace.ID = "default"
+	DefaultLocalComputerID  computer.ID  = "local-default"
+	DefaultDockerComputerID computer.ID  = "docker-default"
+	DefaultWorkspaceID      workspace.ID = "default"
 )
 
 type ComputerRuntime struct {
@@ -37,10 +38,14 @@ func NewComputerRuntime(ctx context.Context, cfg *config.Config) (*ComputerRunti
 	if dataDirectory == "" {
 		dataDirectory = filepath.Dir(config.GlobalConfigData())
 	}
-	return newComputerRuntime(ctx, filepath.Join(dataDirectory, "runtime"))
+	return newComputerRuntimeWithConfig(ctx, filepath.Join(dataDirectory, "runtime"), cfg)
 }
 
 func newComputerRuntime(ctx context.Context, runtimeRoot string) (*ComputerRuntime, error) {
+	return newComputerRuntimeWithConfig(ctx, runtimeRoot, nil)
+}
+
+func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *config.Config) (*ComputerRuntime, error) {
 	store, err := taskruntime.NewFileStore(filepath.Join(runtimeRoot, "tasks"))
 	if err != nil {
 		return nil, fmt.Errorf("initialize durable task store: %w", err)
@@ -56,6 +61,21 @@ func newComputerRuntime(ctx context.Context, runtimeRoot string) (*ComputerRunti
 	}
 	if err := manager.Register(local); err != nil {
 		return nil, fmt.Errorf("register default local computer: %w", err)
+	}
+	dockerProfiles := make(map[computer.ID]service.DockerProfile)
+	if cfg != nil && cfg.Sandbox != nil && strings.EqualFold(strings.TrimSpace(cfg.Sandbox.Mode), "docker") &&
+		strings.TrimSpace(cfg.Sandbox.Image) != "" {
+		dockerComputer, err := computer.NewDockerComputer(DefaultDockerComputerID)
+		if err != nil {
+			return nil, fmt.Errorf("initialize default Docker computer: %w", err)
+		}
+		if err := manager.Register(dockerComputer); err != nil {
+			return nil, fmt.Errorf("register default Docker computer: %w", err)
+		}
+		dockerProfiles[DefaultDockerComputerID] = service.DockerProfile{
+			Image:   cfg.Sandbox.Image,
+			Network: cfg.Sandbox.Network,
+		}
 	}
 	workspaces, err := workspace.NewManager(
 		filepath.Join(runtimeRoot, "workspaces"),
@@ -83,9 +103,24 @@ func newComputerRuntime(ctx context.Context, runtimeRoot string) (*ComputerRunti
 	if err != nil {
 		return nil, fmt.Errorf("initialize durable service store: %w", err)
 	}
-	serviceLauncher, err := service.NewLocalLauncher(filepath.Join(runtimeRoot, "service-logs"))
+	serviceLogRoot := filepath.Join(runtimeRoot, "service-logs")
+	localServiceLauncher, err := service.NewLocalLauncher(serviceLogRoot)
 	if err != nil {
 		return nil, fmt.Errorf("initialize local service launcher: %w", err)
+	}
+	serviceLaunchers := map[computer.Backend]service.Launcher{
+		computer.BackendLocal: localServiceLauncher,
+	}
+	if len(dockerProfiles) > 0 {
+		dockerServiceLauncher, err := service.NewDockerLauncher(serviceLogRoot, dockerProfiles)
+		if err != nil {
+			return nil, fmt.Errorf("initialize Docker service launcher: %w", err)
+		}
+		serviceLaunchers[computer.BackendDocker] = dockerServiceLauncher
+	}
+	serviceLauncher, err := service.NewBackendLauncher(serviceLaunchers)
+	if err != nil {
+		return nil, fmt.Errorf("initialize service backend launcher: %w", err)
 	}
 	services, err := service.NewManager(serviceStore, manager, serviceLauncher)
 	if err != nil {

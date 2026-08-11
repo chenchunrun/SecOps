@@ -38,24 +38,22 @@ func TestTCPReadinessVerifierWaitsForDeclaredPort(t *testing.T) {
 func TestTCPReadinessVerifierFailsClosedOnTimeout(t *testing.T) {
 	t.Parallel()
 
-	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	require.NoError(t, listener.Close())
+	const port = 65000
+	const host = "192.0.2.1"
 	verifier := NewTCPReadinessVerifier()
 
-	err = verifier.WaitReady(context.Background(), nil, Service{Spec: Spec{
+	err := verifier.WaitReady(context.Background(), nil, Service{Spec: Spec{
 		Command: "serve",
 		Ports:   []Port{{Name: "http", Protocol: ProtocolTCP, Number: port}},
 		Readiness: &ReadinessProbe{
 			Port:     "http",
-			Host:     "127.0.0.1",
+			Host:     host,
 			Timeout:  50 * time.Millisecond,
 			Interval: 5 * time.Millisecond,
 		},
 	}})
 	require.ErrorIs(t, err, ErrReadinessFailed)
-	require.Contains(t, err.Error(), net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	require.Contains(t, err.Error(), net.JoinHostPort(host, strconv.Itoa(port)))
 }
 
 type failingReadinessVerifier struct {

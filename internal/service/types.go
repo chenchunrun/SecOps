@@ -33,13 +33,15 @@ const (
 )
 
 var (
-	ErrInvalidService     = errors.New("invalid durable service")
-	ErrNotFound           = errors.New("durable service not found")
-	ErrAlreadyExists      = errors.New("durable service already exists")
-	ErrConflict           = errors.New("durable service version conflict")
-	ErrPortConflict       = errors.New("service port conflict")
-	ErrBackendUnsupported = errors.New("service backend unsupported")
-	ErrReadinessFailed    = errors.New("service readiness failed")
+	ErrInvalidService         = errors.New("invalid durable service")
+	ErrNotFound               = errors.New("durable service not found")
+	ErrAlreadyExists          = errors.New("durable service already exists")
+	ErrConflict               = errors.New("durable service version conflict")
+	ErrPortConflict           = errors.New("service port conflict")
+	ErrBackendUnsupported     = errors.New("service backend unsupported")
+	ErrReadinessFailed        = errors.New("service readiness failed")
+	ErrInvalidDockerProfile   = errors.New("invalid Docker service profile")
+	ErrPortPublishingDisabled = errors.New("Docker service port publishing disabled")
 )
 
 // Port is a backend-neutral logical port claim.
