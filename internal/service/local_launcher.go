@@ -61,7 +61,7 @@ func (l *LocalLauncher) Start(ctx context.Context, machine computer.Computer, sp
 		_ = os.Remove(logs.Stdout)
 		return nil, fmt.Errorf("create local service stderr log: %w", err)
 	}
-	command := localServiceCommand(spec.Command)
+	command := localServiceCommand(ctx, spec.Command)
 	command.Dir = spec.WorkingDirectory
 	command.Stdout = stdout
 	command.Stderr = stderr
@@ -87,11 +87,12 @@ func (l *LocalLauncher) Start(ctx context.Context, machine computer.Computer, sp
 	return process, nil
 }
 
-func localServiceCommand(command string) *exec.Cmd {
+func localServiceCommand(ctx context.Context, command string) *exec.Cmd {
+	serviceContext := context.WithoutCancel(ctx)
 	if runtime.GOOS == "windows" {
-		return exec.Command("cmd.exe", "/C", command)
+		return exec.CommandContext(serviceContext, "cmd.exe", "/C", command)
 	}
-	return exec.Command("/bin/sh", "-c", command)
+	return exec.CommandContext(serviceContext, "/bin/sh", "-c", command)
 }
 
 type localProcess struct {
