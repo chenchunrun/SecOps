@@ -50,11 +50,6 @@ func NewFileStore(root string) (*FileStore, error) {
 	}, nil
 }
 
-// CoordinationLock serializes compound store operations for the same root.
-func (s *FileStore) CoordinationLock() sync.Locker {
-	return s.coordinator
-}
-
 func (s *FileStore) Create(ctx context.Context, lease Lease) (Lease, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
