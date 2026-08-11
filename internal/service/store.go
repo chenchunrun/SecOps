@@ -232,6 +232,23 @@ func validateSpec(spec Spec) error {
 		names[name] = struct{}{}
 		claims[claim] = struct{}{}
 	}
+	if spec.Readiness != nil {
+		probePort := strings.TrimSpace(spec.Readiness.Port)
+		if probePort == "" || spec.Readiness.Timeout <= 0 || spec.Readiness.Interval <= 0 ||
+			strings.ContainsAny(strings.TrimSpace(spec.Readiness.Host), " /\\") {
+			return ErrInvalidService
+		}
+		found := false
+		for _, port := range spec.Ports {
+			if strings.TrimSpace(port.Name) == probePort && port.Protocol == ProtocolTCP {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return ErrInvalidService
+		}
+	}
 	return nil
 }
 

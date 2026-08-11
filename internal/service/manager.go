@@ -13,19 +13,39 @@ type Manager struct {
 	store     Store
 	computers ComputerResolver
 	launcher  Launcher
+	readiness ReadinessVerifier
 	processes map[ID]Process
 }
 
-func NewManager(store Store, computers ComputerResolver, launcher Launcher) (*Manager, error) {
+// ManagerOption customizes durable service management.
+type ManagerOption func(*Manager)
+
+// WithReadinessVerifier replaces the default TCP readiness verifier.
+func WithReadinessVerifier(verifier ReadinessVerifier) ManagerOption {
+	return func(manager *Manager) {
+		if verifier != nil {
+			manager.readiness = verifier
+		}
+	}
+}
+
+func NewManager(store Store, computers ComputerResolver, launcher Launcher, options ...ManagerOption) (*Manager, error) {
 	if store == nil || computers == nil || launcher == nil {
 		return nil, ErrInvalidService
 	}
-	return &Manager{
+	manager := &Manager{
 		store:     store,
 		computers: computers,
 		launcher:  launcher,
+		readiness: NewTCPReadinessVerifier(),
 		processes: make(map[ID]Process),
-	}, nil
+	}
+	for _, option := range options {
+		if option != nil {
+			option(manager)
+		}
+	}
+	return manager, nil
 }
 
 func (m *Manager) Start(ctx context.Context, submission Submission) (Service, error) {
@@ -66,11 +86,21 @@ func (m *Manager) Start(ctx context.Context, submission Submission) (Service, er
 	if err != nil {
 		return m.fail(ctx, created, err)
 	}
-	created.State = StateRunning
 	created.ProcessID = process.PID()
 	created.Logs = process.Logs()
 	created.StartedAt = time.Now().UTC()
 	created.UpdatedAt = created.StartedAt
+	created, err = m.store.Update(ctx, created)
+	if err != nil {
+		_ = process.Stop(context.Background())
+		return Service{}, err
+	}
+	if err := m.readiness.WaitReady(ctx, machine, created); err != nil {
+		_ = process.Stop(context.Background())
+		return m.fail(ctx, created, err)
+	}
+	created.State = StateRunning
+	created.UpdatedAt = time.Now().UTC()
 	created, err = m.store.Update(ctx, created)
 	if err != nil {
 		_ = process.Stop(context.Background())

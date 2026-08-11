@@ -39,6 +39,7 @@ var (
 	ErrConflict           = errors.New("durable service version conflict")
 	ErrPortConflict       = errors.New("service port conflict")
 	ErrBackendUnsupported = errors.New("service backend unsupported")
+	ErrReadinessFailed    = errors.New("service readiness failed")
 )
 
 // Port is a backend-neutral logical port claim.
@@ -50,9 +51,18 @@ type Port struct {
 
 // Spec is the durable, secret-free declaration of a background service.
 type Spec struct {
-	Command          string `json:"command"`
-	WorkingDirectory string `json:"working_directory,omitempty"`
-	Ports            []Port `json:"ports,omitempty"`
+	Command          string          `json:"command"`
+	WorkingDirectory string          `json:"working_directory,omitempty"`
+	Ports            []Port          `json:"ports,omitempty"`
+	Readiness        *ReadinessProbe `json:"readiness,omitempty"`
+}
+
+// ReadinessProbe waits for a declared TCP port before a service is running.
+type ReadinessProbe struct {
+	Port     string        `json:"port"`
+	Host     string        `json:"host,omitempty"`
+	Timeout  time.Duration `json:"timeout"`
+	Interval time.Duration `json:"interval"`
 }
 
 // LogPaths identify output evidence stored outside the service process.
@@ -94,6 +104,11 @@ type Process interface {
 // Launcher adapts service lifecycle operations to a Computer backend.
 type Launcher interface {
 	Start(ctx context.Context, machine computer.Computer, spec Spec) (Process, error)
+}
+
+// ReadinessVerifier validates that a launched service can accept traffic.
+type ReadinessVerifier interface {
+	WaitReady(ctx context.Context, machine computer.Computer, service Service) error
 }
 
 type ComputerResolver interface {
