@@ -39,13 +39,14 @@ func (r *Runtime) Submit(ctx context.Context, submission Submission) (Task, erro
 	}
 	now := time.Now().UTC()
 	task := Task{
-		ID:          submission.ID,
-		ComputerID:  submission.ComputerID,
-		WorkspaceID: submission.WorkspaceID,
-		State:       StatePending,
-		Request:     submission.Request,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:             submission.ID,
+		ComputerID:     submission.ComputerID,
+		WorkspaceID:    submission.WorkspaceID,
+		State:          StatePending,
+		Request:        submission.Request,
+		VerificationID: submission.VerificationID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	r.mu.Lock()
@@ -117,6 +118,9 @@ func (r *Runtime) Run(ctx context.Context, id ID, machine Computer) (Task, error
 	task.UpdatedAt = now
 	task.Result = nil
 	task.Error = ""
+	task.VerificationVerdict = ""
+	task.VerificationEvidenceIDs = nil
+	task.VerificationFindings = nil
 	task, err = r.store.Update(ctx, task)
 	r.mu.Unlock()
 	if err != nil {
@@ -137,11 +141,17 @@ func (r *Runtime) Run(ctx context.Context, id ID, machine Computer) (Task, error
 			RiskScore: executionResult.RiskScore,
 		}
 	}
-	task.FinishedAt = finishedAt
 	task.UpdatedAt = finishedAt
 	if executionErr == nil {
-		task.State = StateSucceeded
+		if task.VerificationID != "" {
+			task.State = StateVerifying
+			task.FinishedAt = time.Time{}
+		} else {
+			task.State = StateSucceeded
+			task.FinishedAt = finishedAt
+		}
 	} else {
+		task.FinishedAt = finishedAt
 		task.Error = executionErr.Error()
 		if errors.Is(executionErr, context.Canceled) {
 			task.State = StateCancelled
@@ -205,6 +215,9 @@ func (r *Runtime) Retry(ctx context.Context, id ID) (Task, error) {
 	task.State = StatePending
 	task.Result = nil
 	task.Error = ""
+	task.VerificationVerdict = ""
+	task.VerificationEvidenceIDs = nil
+	task.VerificationFindings = nil
 	task.StartedAt = time.Time{}
 	task.FinishedAt = time.Time{}
 	task.UpdatedAt = time.Now().UTC()
@@ -228,6 +241,11 @@ func validateSubmission(submission Submission) error {
 	if submission.WorkspaceID != "" {
 		if err := workspace.ValidateID(submission.WorkspaceID); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidTask, err)
+		}
+	}
+	if submission.VerificationID != "" {
+		if err := validateID(ID(submission.VerificationID)); err != nil {
+			return fmt.Errorf("%w: invalid verification id", ErrInvalidTask)
 		}
 	}
 	return nil
