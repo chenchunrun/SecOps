@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -155,7 +156,9 @@ func TestSSHProcessCopiesRemoteLogsOutsideRuntime(t *testing.T) {
 	require.Equal(t, "diagnostic\n", string(stderr))
 	stdoutInfo, err := os.Stat(process.Logs().Stdout)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), stdoutInfo.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		require.Equal(t, os.FileMode(0o600), stdoutInfo.Mode().Perm())
+	}
 }
 
 func TestSSHLauncherFailsClosedWithoutTrustedProfile(t *testing.T) {
