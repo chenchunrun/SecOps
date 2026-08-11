@@ -18,6 +18,7 @@ import (
 const (
 	DefaultLocalComputerID  computer.ID  = "local-default"
 	DefaultDockerComputerID computer.ID  = "docker-default"
+	DefaultSSHComputerID    computer.ID  = "ssh-default"
 	DefaultWorkspaceID      workspace.ID = "default"
 )
 
@@ -63,6 +64,7 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 		return nil, fmt.Errorf("register default local computer: %w", err)
 	}
 	dockerProfiles := make(map[computer.ID]service.DockerProfile)
+	sshProfiles := make(map[computer.ID]service.SSHProfile)
 	if cfg != nil && cfg.Sandbox != nil && strings.EqualFold(strings.TrimSpace(cfg.Sandbox.Mode), "docker") &&
 		strings.TrimSpace(cfg.Sandbox.Image) != "" {
 		dockerComputer, err := computer.NewDockerComputer(DefaultDockerComputerID)
@@ -75,6 +77,24 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 		dockerProfiles[DefaultDockerComputerID] = service.DockerProfile{
 			Image:   cfg.Sandbox.Image,
 			Network: cfg.Sandbox.Network,
+		}
+	}
+	if cfg != nil && cfg.Sandbox != nil && strings.EqualFold(strings.TrimSpace(cfg.Sandbox.Mode), "ssh") &&
+		strings.TrimSpace(cfg.Sandbox.Host) != "" {
+		sshComputer, err := computer.NewSSHComputer(
+			DefaultSSHComputerID,
+			strings.TrimSpace(cfg.Sandbox.User),
+			strings.TrimSpace(cfg.Sandbox.KeyPath),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("initialize default SSH computer: %w", err)
+		}
+		if err := manager.Register(sshComputer); err != nil {
+			return nil, fmt.Errorf("register default SSH computer: %w", err)
+		}
+		sshProfiles[DefaultSSHComputerID] = service.SSHProfile{
+			Target:  sshTarget(cfg.Sandbox.User, cfg.Sandbox.Host),
+			KeyPath: strings.TrimSpace(cfg.Sandbox.KeyPath),
 		}
 	}
 	workspaces, err := workspace.NewManager(
@@ -117,6 +137,13 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 			return nil, fmt.Errorf("initialize Docker service launcher: %w", err)
 		}
 		serviceLaunchers[computer.BackendDocker] = dockerServiceLauncher
+	}
+	if len(sshProfiles) > 0 {
+		sshServiceLauncher, err := service.NewSSHLauncher(serviceLogRoot, sshProfiles)
+		if err != nil {
+			return nil, fmt.Errorf("initialize SSH service launcher: %w", err)
+		}
+		serviceLaunchers[computer.BackendSSH] = sshServiceLauncher
 	}
 	serviceLauncher, err := service.NewBackendLauncher(serviceLaunchers)
 	if err != nil {
