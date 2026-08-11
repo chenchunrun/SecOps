@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/chenchunrun/SecOps/internal/computer"
+	"github.com/chenchunrun/SecOps/internal/security/redact"
 )
 
 var (
@@ -65,7 +67,17 @@ func (c *LeaseComputer) Exec(
 		clearStringValues(request.Config.Environment)
 		c.lease.Revoke()
 	}()
-	return c.computer.Exec(ctx, request)
+	result, execErr := c.computer.Exec(ctx, request)
+	if result != nil {
+		result.Output = redactLeaseValues(result.Output, environment)
+	}
+	if execErr != nil {
+		return result, &redactedExecutionError{
+			message: redactLeaseValues(execErr.Error(), environment),
+			cause:   execErr,
+		}
+	}
+	return result, nil
 }
 
 func (c *LeaseComputer) Suspend(ctx context.Context) error { return c.computer.Suspend(ctx) }
@@ -89,3 +101,20 @@ func clearStringValues(values map[string]string) {
 		delete(values, name)
 	}
 }
+
+func redactLeaseValues(value string, environment map[string]string) string {
+	for _, secret := range environment {
+		if secret != "" {
+			value = strings.ReplaceAll(value, secret, redact.Redacted)
+		}
+	}
+	return redact.String(value)
+}
+
+type redactedExecutionError struct {
+	message string
+	cause   error
+}
+
+func (e *redactedExecutionError) Error() string { return e.message }
+func (e *redactedExecutionError) Unwrap() error { return e.cause }

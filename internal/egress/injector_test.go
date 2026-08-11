@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/chenchunrun/SecOps/internal/computer"
+	"github.com/chenchunrun/SecOps/internal/security/redact"
 	"github.com/chenchunrun/SecOps/internal/taskruntime"
 )
 
@@ -18,6 +19,7 @@ type capturingComputer struct {
 	backend computer.Backend
 	request computer.ExecRequest
 	execErr error
+	output  string
 }
 
 func (c *capturingComputer) ID() computer.ID           { return c.id }
@@ -30,7 +32,7 @@ func (c *capturingComputer) Exec(_ context.Context, request computer.ExecRequest
 	}
 	request.Config.Environment = environment
 	c.request = request
-	return &computer.ExecutionResult{Output: "executed", ExitCode: 0}, c.execErr
+	return &computer.ExecutionResult{Output: c.output, ExitCode: 0}, c.execErr
 }
 func (c *capturingComputer) Suspend(context.Context) error { return nil }
 func (c *capturingComputer) Resume(context.Context) error  { return nil }
@@ -48,7 +50,7 @@ func TestLeaseComputerInjectsForOneExecutionAndRevokes(t *testing.T) {
 	}, time.Minute)
 	require.NoError(t, err)
 
-	base := &capturingComputer{id: "local", backend: computer.BackendLocal}
+	base := &capturingComputer{id: "local", backend: computer.BackendLocal, output: "token=secret-value"}
 	wrapped, err := NewLeaseComputer(base, lease)
 	require.NoError(t, err)
 	require.Equal(t, base.ID(), wrapped.ID())
@@ -59,10 +61,11 @@ func TestLeaseComputerInjectsForOneExecutionAndRevokes(t *testing.T) {
 		"PROXY_TOKEN": "caller-value",
 		"REGION":      "test",
 	}
-	_, err = wrapped.Exec(context.Background(), request)
+	result, err := wrapped.Exec(context.Background(), request)
 	require.NoError(t, err)
 	require.Equal(t, "secret-value", base.request.Config.Environment["PROXY_TOKEN"])
 	require.Equal(t, "test", base.request.Config.Environment["REGION"])
+	require.Equal(t, redact.Redacted, result.Output)
 
 	_, err = wrapped.Exec(context.Background(), request)
 	require.ErrorIs(t, err, ErrLeaseRevoked)
