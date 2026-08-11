@@ -43,6 +43,18 @@ type ProtectedScheduledTaskRuntime struct {
 	scheduled *ScheduledTaskRuntime
 	policy    *egress.Policy
 	broker    *egress.Broker
+	observer  egress.Observer
+}
+
+// ProtectedRuntimeOption customizes protected runtime behavior.
+type ProtectedRuntimeOption func(*ProtectedScheduledTaskRuntime)
+
+// WithEgressObserver requires every egress decision to be recorded before
+// durable task persistence.
+func WithEgressObserver(observer egress.Observer) ProtectedRuntimeOption {
+	return func(runtime *ProtectedScheduledTaskRuntime) {
+		runtime.observer = observer
+	}
 }
 
 // NewProtectedScheduledTaskRuntime creates the fail-closed protected execution
@@ -52,6 +64,7 @@ func NewProtectedScheduledTaskRuntime(
 	runtimeScheduler *scheduler.Scheduler,
 	policy *egress.Policy,
 	broker *egress.Broker,
+	options ...ProtectedRuntimeOption,
 ) (*ProtectedScheduledTaskRuntime, error) {
 	if policy == nil {
 		return nil, ErrEgressPolicyRequired
@@ -63,7 +76,13 @@ func NewProtectedScheduledTaskRuntime(
 	if err != nil {
 		return nil, err
 	}
-	return &ProtectedScheduledTaskRuntime{scheduled: scheduled, policy: policy, broker: broker}, nil
+	protected := &ProtectedScheduledTaskRuntime{scheduled: scheduled, policy: policy, broker: broker}
+	for _, option := range options {
+		if option != nil {
+			option(protected)
+		}
+	}
+	return protected, nil
 }
 
 // SubmitAndRun completes every security decision before task persistence, then
@@ -87,6 +106,15 @@ func (r *ProtectedScheduledTaskRuntime) SubmitAndRun(
 	for _, destination := range submission.Destinations {
 		decision, err := r.policy.Authorize(destination)
 		result.EgressDecisions = append(result.EgressDecisions, decision)
+		if r.observer != nil {
+			auditErr := r.observer.Record(ctx, egress.Event{
+				RequestID: string(submission.Task.ID),
+				Decision:  decision,
+			})
+			if auditErr != nil {
+				return result, fmt.Errorf("record protected task egress decision: %w", auditErr)
+			}
+		}
 		if err != nil {
 			return result, fmt.Errorf("authorize protected task egress: %w", err)
 		}

@@ -28,20 +28,20 @@ const (
 // Rule is trusted policy configuration. CredentialRefs contains identifiers,
 // never credential values.
 type Rule struct {
-	ID             string
-	Protocol       Protocol
-	Host           string
-	Ports          []int
-	CredentialRefs []string
+	ID             string   `json:"id"`
+	Protocol       Protocol `json:"protocol"`
+	Host           string   `json:"host"`
+	Ports          []int    `json:"ports"`
+	CredentialRefs []string `json:"credential_refs,omitempty"`
 }
 
 // Request describes the destination and credential identifiers required by an
 // execution. It intentionally carries no credential values.
 type Request struct {
-	Protocol       Protocol
-	Host           string
-	Port           int
-	CredentialRefs []string
+	Protocol       Protocol `json:"protocol"`
+	Host           string   `json:"host"`
+	Port           int      `json:"port"`
+	CredentialRefs []string `json:"credential_refs,omitempty"`
 }
 
 // Decision is the explainable result of an egress authorization attempt.
