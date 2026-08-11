@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/chenchunrun/SecOps/internal/computer"
 )
 
 // Manager owns service state, process handles, and logical port claims.
@@ -14,6 +17,7 @@ type Manager struct {
 	computers ComputerResolver
 	launcher  Launcher
 	readiness ReadinessVerifier
+	health    HealthVerifier
 	processes map[ID]Process
 }
 
@@ -29,6 +33,15 @@ func WithReadinessVerifier(verifier ReadinessVerifier) ManagerOption {
 	}
 }
 
+// WithHealthVerifier replaces the default TCP health verifier.
+func WithHealthVerifier(verifier HealthVerifier) ManagerOption {
+	return func(manager *Manager) {
+		if verifier != nil {
+			manager.health = verifier
+		}
+	}
+}
+
 func NewManager(store Store, computers ComputerResolver, launcher Launcher, options ...ManagerOption) (*Manager, error) {
 	if store == nil || computers == nil || launcher == nil {
 		return nil, ErrInvalidService
@@ -38,6 +51,7 @@ func NewManager(store Store, computers ComputerResolver, launcher Launcher, opti
 		computers: computers,
 		launcher:  launcher,
 		readiness: NewTCPReadinessVerifier(),
+		health:    NewTCPReadinessVerifier(),
 		processes: make(map[ID]Process),
 	}
 	for _, option := range options {
@@ -108,6 +122,9 @@ func (m *Manager) Start(ctx context.Context, submission Submission) (Service, er
 	}
 	m.processes[created.ID] = process
 	go m.monitor(created.ID, process)
+	if created.Spec.Health != nil {
+		go m.monitorHealth(created.ID, machine, process)
+	}
 	return created, nil
 }
 
@@ -226,6 +243,59 @@ func (m *Manager) monitor(id ID, process Process) {
 		service.State = StateStopped
 		service.Error = ""
 	}
+	_, _ = m.store.Update(context.Background(), service)
+}
+
+func (m *Manager) monitorHealth(id ID, machine computer.Computer, process Process) {
+	service, err := m.store.Get(context.Background(), id)
+	if err != nil || service.Spec.Health == nil {
+		return
+	}
+	check := *service.Spec.Health
+	ticker := time.NewTicker(check.Period)
+	defer ticker.Stop()
+	failures := 0
+	for range ticker.C {
+		m.mu.Lock()
+		currentProcess, exists := m.processes[id]
+		m.mu.Unlock()
+		if !exists || currentProcess != process {
+			return
+		}
+		service, err = m.store.Get(context.Background(), id)
+		if err != nil || service.State != StateRunning {
+			return
+		}
+		checkErr := m.health.CheckHealth(context.Background(), machine, service)
+		if checkErr == nil {
+			failures = 0
+			continue
+		}
+		failures++
+		if failures < check.FailureThreshold {
+			continue
+		}
+		m.failUnhealthy(id, process, failures, checkErr)
+		return
+	}
+}
+
+func (m *Manager) failUnhealthy(id ID, process Process, failures int, cause error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.processes[id] != process {
+		return
+	}
+	service, err := m.store.Get(context.Background(), id)
+	if err != nil || service.State != StateRunning {
+		return
+	}
+	delete(m.processes, id)
+	stopErr := process.Stop(context.Background())
+	service.State = StateFailed
+	service.Error = fmt.Errorf("health check failed %d consecutive times: %w", failures, errors.Join(cause, stopErr)).Error()
+	service.UpdatedAt = time.Now().UTC()
+	service.FinishedAt = service.UpdatedAt
 	_, _ = m.store.Update(context.Background(), service)
 }
 

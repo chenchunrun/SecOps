@@ -55,6 +55,7 @@ type Spec struct {
 	WorkingDirectory string          `json:"working_directory,omitempty"`
 	Ports            []Port          `json:"ports,omitempty"`
 	Readiness        *ReadinessProbe `json:"readiness,omitempty"`
+	Health           *HealthCheck    `json:"health,omitempty"`
 }
 
 // ReadinessProbe waits for a declared TCP port before a service is running.
@@ -63,6 +64,14 @@ type ReadinessProbe struct {
 	Host     string        `json:"host,omitempty"`
 	Timeout  time.Duration `json:"timeout"`
 	Interval time.Duration `json:"interval"`
+}
+
+// HealthCheck continuously probes a running service and requires consecutive
+// failures before automatic termination.
+type HealthCheck struct {
+	Probe            ReadinessProbe `json:"probe"`
+	Period           time.Duration  `json:"period"`
+	FailureThreshold int            `json:"failure_threshold"`
 }
 
 // LogPaths identify output evidence stored outside the service process.
@@ -109,6 +118,11 @@ type Launcher interface {
 // ReadinessVerifier validates that a launched service can accept traffic.
 type ReadinessVerifier interface {
 	WaitReady(ctx context.Context, machine computer.Computer, service Service) error
+}
+
+// HealthVerifier performs one bounded health check for a running service.
+type HealthVerifier interface {
+	CheckHealth(ctx context.Context, machine computer.Computer, service Service) error
 }
 
 type ComputerResolver interface {

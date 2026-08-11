@@ -233,23 +233,31 @@ func validateSpec(spec Spec) error {
 		claims[claim] = struct{}{}
 	}
 	if spec.Readiness != nil {
-		probePort := strings.TrimSpace(spec.Readiness.Port)
-		if probePort == "" || spec.Readiness.Timeout <= 0 || spec.Readiness.Interval <= 0 ||
-			strings.ContainsAny(strings.TrimSpace(spec.Readiness.Host), " /\\") {
+		if !validTCPProbe(spec.Ports, *spec.Readiness) {
 			return ErrInvalidService
 		}
-		found := false
-		for _, port := range spec.Ports {
-			if strings.TrimSpace(port.Name) == probePort && port.Protocol == ProtocolTCP {
-				found = true
-				break
-			}
-		}
-		if !found {
+	}
+	if spec.Health != nil {
+		if spec.Health.Period <= 0 || spec.Health.FailureThreshold <= 0 ||
+			!validTCPProbe(spec.Ports, spec.Health.Probe) {
 			return ErrInvalidService
 		}
 	}
 	return nil
+}
+
+func validTCPProbe(ports []Port, probe ReadinessProbe) bool {
+	probePort := strings.TrimSpace(probe.Port)
+	if probePort == "" || probe.Timeout <= 0 || probe.Interval <= 0 ||
+		strings.ContainsAny(strings.TrimSpace(probe.Host), " /\\") {
+		return false
+	}
+	for _, port := range ports {
+		if strings.TrimSpace(port.Name) == probePort && port.Protocol == ProtocolTCP {
+			return true
+		}
+	}
+	return false
 }
 
 func validateID(id ID) error {

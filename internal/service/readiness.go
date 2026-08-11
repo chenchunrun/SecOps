@@ -54,6 +54,15 @@ func (*TCPReadinessVerifier) WaitReady(ctx context.Context, _ computer.Computer,
 	}
 }
 
+// CheckHealth performs one bounded TCP health probe.
+func (v *TCPReadinessVerifier) CheckHealth(ctx context.Context, machine computer.Computer, service Service) error {
+	if service.Spec.Health == nil {
+		return nil
+	}
+	service.Spec.Readiness = &service.Spec.Health.Probe
+	return v.WaitReady(ctx, machine, service)
+}
+
 func readinessPort(ports []Port, name string) (int, bool) {
 	name = strings.TrimSpace(name)
 	for _, port := range ports {
