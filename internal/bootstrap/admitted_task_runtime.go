@@ -5,13 +5,32 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/chenchunrun/SecOps/internal/admission"
+	"github.com/chenchunrun/SecOps/internal/computer"
+	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/taskruntime"
 )
 
 func defaultAdmissionCapacity() admission.Resources {
 	return admission.Resources{Slots: 2, CPUUnits: 2, MemoryMB: 2048}
+}
+
+func admissionCapacityFor(cfg *config.Config, backend computer.Backend) admission.Resources {
+	capacity := defaultAdmissionCapacity()
+	if cfg == nil || cfg.Sandbox == nil || !strings.EqualFold(strings.TrimSpace(cfg.Sandbox.Mode), string(backend)) {
+		return capacity
+	}
+	configured := admission.Resources{
+		Slots:    cfg.Sandbox.CapacitySlots,
+		CPUUnits: cfg.Sandbox.CapacityCPUUnits,
+		MemoryMB: cfg.Sandbox.CapacityMemoryMB,
+	}
+	if configured == (admission.Resources{}) {
+		return capacity
+	}
+	return configured
 }
 
 func normalizeAdmissionDemand(demand admission.Resources) admission.Resources {

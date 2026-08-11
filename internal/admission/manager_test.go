@@ -176,3 +176,40 @@ func TestManagerRejectsUnknownComputerAndInvalidDemand(t *testing.T) {
 	})
 	require.ErrorIs(t, err, ErrInvalidRequest)
 }
+
+func TestManagerReconcileReleasesOnlyOrphanedLeases(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewFileStore(t.TempDir())
+	require.NoError(t, err)
+	manager, err := NewManager(store, []Profile{{
+		ComputerID: "local-default",
+		Capacity:   Resources{Slots: 2, CPUUnits: 2, MemoryMB: 512},
+	}})
+	require.NoError(t, err)
+	keep, err := manager.Acquire(context.Background(), Request{
+		LeaseID:    "lease-keep",
+		TaskID:     "task-keep",
+		ComputerID: "local-default",
+		Demand:     Resources{Slots: 1, CPUUnits: 1, MemoryMB: 256},
+	})
+	require.NoError(t, err)
+	orphan, err := manager.Acquire(context.Background(), Request{
+		LeaseID:    "lease-orphan",
+		TaskID:     "task-orphan",
+		ComputerID: "local-default",
+		Demand:     Resources{Slots: 1, CPUUnits: 1, MemoryMB: 256},
+	})
+	require.NoError(t, err)
+
+	released, err := manager.Reconcile(context.Background(), map[ID]struct{}{"task-keep": {}})
+	require.NoError(t, err)
+	require.Len(t, released, 1)
+	require.Equal(t, orphan.ID, released[0].ID)
+	persistedKeep, err := store.Get(context.Background(), keep.ID)
+	require.NoError(t, err)
+	require.Equal(t, StateActive, persistedKeep.State)
+	persistedOrphan, err := store.Get(context.Background(), orphan.ID)
+	require.NoError(t, err)
+	require.Equal(t, StateReleased, persistedOrphan.State)
+}

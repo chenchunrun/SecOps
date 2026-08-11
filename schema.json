@@ -931,6 +931,21 @@
           "type": "integer",
           "description": "Per-command sandbox timeout in milliseconds",
           "default": 120000
+        },
+        "capacity_slots": {
+          "type": "integer",
+          "description": "Maximum concurrent task slots for the configured Computer",
+          "default": 2
+        },
+        "capacity_cpu_units": {
+          "type": "integer",
+          "description": "CPU budget units for the configured Computer",
+          "default": 2
+        },
+        "capacity_memory_mb": {
+          "type": "integer",
+          "description": "Memory budget in MB for the configured Computer",
+          "default": 2048
         }
       },
       "additionalProperties": false,

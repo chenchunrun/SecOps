@@ -124,7 +124,7 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 	for _, machine := range manager.List() {
 		admissionProfiles = append(admissionProfiles, admission.Profile{
 			ComputerID: machine.ID(),
-			Capacity:   defaultAdmissionCapacity(),
+			Capacity:   admissionCapacityFor(cfg, machine.Backend()),
 		})
 	}
 	admissionManager, err := admission.NewManager(admissionStore, admissionProfiles)
@@ -152,6 +152,13 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 	}
 	if len(recovered) > 0 {
 		slog.Warn("Recovered interrupted durable tasks", "count", len(recovered))
+	}
+	releasedLeases, err := admissionManager.Reconcile(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile orphaned admission leases: %w", err)
+	}
+	if len(releasedLeases) > 0 {
+		slog.Warn("Released orphaned admission leases", "count", len(releasedLeases))
 	}
 	serviceStore, err := service.NewFileStore(filepath.Join(runtimeRoot, "services"))
 	if err != nil {

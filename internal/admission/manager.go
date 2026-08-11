@@ -154,6 +154,31 @@ func (m *Manager) Release(ctx context.Context, id ID) (Lease, error) {
 	return released, nil
 }
 
+func (m *Manager) Reconcile(ctx context.Context, activeTaskIDs map[ID]struct{}) ([]Lease, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	active, err := m.store.List(ctx, StateActive)
+	if err != nil {
+		return nil, fmt.Errorf("list admission leases for reconciliation: %w", err)
+	}
+	released := make([]Lease, 0)
+	for _, lease := range active {
+		if _, keep := activeTaskIDs[lease.TaskID]; keep {
+			continue
+		}
+		now := time.Now().UTC()
+		lease.State = StateReleased
+		lease.UpdatedAt = now
+		lease.ReleasedAt = now
+		lease, err = m.store.Update(ctx, lease)
+		if err != nil {
+			return released, fmt.Errorf("reconcile admission lease %s: %w", lease.ID, err)
+		}
+		released = append(released, lease)
+	}
+	return released, nil
+}
+
 func validateRequest(request Request) error {
 	if !idPattern.MatchString(string(request.LeaseID)) || !idPattern.MatchString(string(request.TaskID)) ||
 		!idPattern.MatchString(string(request.ComputerID)) || !validResources(request.Demand) {

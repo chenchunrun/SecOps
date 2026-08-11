@@ -313,13 +313,16 @@ type Audit struct {
 // Sandbox configures mandatory command isolation. It is only enforced when
 // governance_mode is 'strict'.
 type Sandbox struct {
-	Mode      string `json:"mode,omitempty" jsonschema:"description=Sandbox backend used for command execution under strict governance,enum=local,enum=docker,enum=ssh,default=docker"`
-	Image     string `json:"image,omitempty" jsonschema:"description=Container image for the docker sandbox backend,example=alpine:3.20"`
-	Host      string `json:"host,omitempty" jsonschema:"description=SSH host for the ssh sandbox backend"`
-	User      string `json:"user,omitempty" jsonschema:"description=SSH user for the ssh sandbox backend"`
-	KeyPath   string `json:"key_path,omitempty" jsonschema:"description=SSH private key path for the ssh sandbox backend"`
-	Network   string `json:"network,omitempty" jsonschema:"description=Docker network mode,default=none"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" jsonschema:"description=Per-command sandbox timeout in milliseconds,default=120000"`
+	Mode             string `json:"mode,omitempty" jsonschema:"description=Sandbox backend used for command execution under strict governance,enum=local,enum=docker,enum=ssh,default=docker"`
+	Image            string `json:"image,omitempty" jsonschema:"description=Container image for the docker sandbox backend,example=alpine:3.20"`
+	Host             string `json:"host,omitempty" jsonschema:"description=SSH host for the ssh sandbox backend"`
+	User             string `json:"user,omitempty" jsonschema:"description=SSH user for the ssh sandbox backend"`
+	KeyPath          string `json:"key_path,omitempty" jsonschema:"description=SSH private key path for the ssh sandbox backend"`
+	Network          string `json:"network,omitempty" jsonschema:"description=Docker network mode,default=none"`
+	TimeoutMs        int    `json:"timeout_ms,omitempty" jsonschema:"description=Per-command sandbox timeout in milliseconds,default=120000"`
+	CapacitySlots    int    `json:"capacity_slots,omitempty" jsonschema:"description=Maximum concurrent task slots for the configured Computer,default=2"`
+	CapacityCPUUnits int    `json:"capacity_cpu_units,omitempty" jsonschema:"description=CPU budget units for the configured Computer,default=2"`
+	CapacityMemoryMB int64  `json:"capacity_memory_mb,omitempty" jsonschema:"description=Memory budget in MB for the configured Computer,default=2048"`
 }
 
 type TrailerStyle string
