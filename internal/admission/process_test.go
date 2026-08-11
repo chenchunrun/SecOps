@@ -24,7 +24,7 @@ func TestManagersInSeparateProcessesDoNotOversubscribe(t *testing.T) {
 	commands := make([]*exec.Cmd, 0, contenders)
 	outputs := make([]bytes.Buffer, contenders)
 	for index := range contenders {
-		command := exec.Command(os.Args[0], "-test.run=^TestAdmissionProcessHelper$")
+		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestAdmissionProcessHelper$")
 		command.Env = append(os.Environ(),
 			"SECOPS_ADMISSION_HELPER=1",
 			"SECOPS_ADMISSION_ROOT="+root,
