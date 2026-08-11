@@ -29,7 +29,7 @@ type Store interface {
 type FileStore struct {
 	root        string
 	mu          sync.Mutex
-	coordinator *sync.Mutex
+	coordinator chan struct{}
 }
 
 func NewFileStore(root string) (*FileStore, error) {
@@ -43,10 +43,12 @@ func NewFileStore(root string) (*FileStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve admission store root: %w", err)
 	}
-	coordinator, _ := storeCoordinators.LoadOrStore(filepath.Clean(canonicalRoot), &sync.Mutex{})
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	coordinator, _ := storeCoordinators.LoadOrStore(filepath.Clean(canonicalRoot), gate)
 	return &FileStore{
 		root:        root,
-		coordinator: coordinator.(*sync.Mutex),
+		coordinator: coordinator.(chan struct{}),
 	}, nil
 }
 

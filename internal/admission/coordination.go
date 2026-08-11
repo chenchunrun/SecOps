@@ -14,8 +14,12 @@ const coordinationRetryInterval = 5 * time.Millisecond
 
 // Coordinate serializes compound store operations across processes.
 func (s *FileStore) Coordinate(ctx context.Context, action func() error) (err error) {
-	s.coordinator.Lock()
-	defer s.coordinator.Unlock()
+	select {
+	case <-s.coordinator:
+		defer func() { s.coordinator <- struct{}{} }()
+	case <-ctx.Done():
+		return fmt.Errorf("acquire local admission store lock: %w", context.Cause(ctx))
+	}
 
 	lock := flock.New(filepath.Join(s.root, ".admission.lock"))
 	locked, err := lock.TryLockContext(ctx, coordinationRetryInterval)
