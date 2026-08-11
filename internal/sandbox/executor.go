@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,8 +32,9 @@ type SandboxConfig struct {
 	TraceID        string   // Unique trace identifier for audit trail
 	// Execution mode: "local", "docker", "ssh"
 	Mode        string
-	DockerImage string // Docker image to use (for docker mode)
-	SSHTarget   string // SSH target user@host (for ssh mode)
+	DockerImage string            // Docker image to use (for docker mode)
+	SSHTarget   string            // SSH target user@host (for ssh mode)
+	Environment map[string]string `json:"-"` // Transient values; never persist or audit.
 }
 
 // ExecutionResult contains the outcome of a sandboxed command execution.
@@ -85,6 +87,8 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^\s*:\(\)`), // fork bomb: :(){ ... } or :()
 }
 
+var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // ValidateConfig checks the sandbox configuration for safety issues.
 func ValidateConfig(cfg *SandboxConfig) error {
 	if cfg == nil {
@@ -104,6 +108,11 @@ func ValidateConfig(cfg *SandboxConfig) error {
 	for _, port := range cfg.AllowedPorts {
 		if port < 1 || port > 65535 {
 			return fmt.Errorf("%w: allowed port %d must be between 1 and 65535", ErrConfigInvalid, port)
+		}
+	}
+	for name := range cfg.Environment {
+		if !environmentNamePattern.MatchString(name) {
+			return fmt.Errorf("%w: invalid environment variable name %q", ErrConfigInvalid, name)
 		}
 	}
 
@@ -180,8 +189,8 @@ func (e *LocalExecutor) buildCommand(ctx context.Context, cmd string, cfg Sandbo
 	shellCmd := exec.CommandContext(ctx, shell, "-c", cmd)
 
 	// Set environment constraints
-	env := os.Environ()
-	env = append(env, "HOME="+safeDir)
+	env := mergeEnvironment(os.Environ(), cfg.Environment)
+	env = mergeEnvironment(env, map[string]string{"HOME": safeDir})
 	shellCmd.Env = env
 
 	// Configure working directory to a safe location
@@ -302,6 +311,9 @@ func (e *DockerExecutor) buildDockerArgs(cmd string, cfg SandboxConfig) []string
 
 	// Disable privileged mode
 	args = append(args, "--cap-drop=ALL", "--security-opt=no-new-privileges")
+	for _, name := range sortedEnvironmentNames(cfg.Environment) {
+		args = append(args, "--env", name)
+	}
 
 	// Image and command
 	image := cfg.DockerImage
@@ -354,7 +366,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd string, cfg SandboxCon
 	execCmd := exec.CommandContext(ctx, dockerPath, args...)
 
 	execCmd.Dir = "/tmp"
-	execCmd.Env = []string{"HOME=/root", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	execCmd.Env = e.buildDockerEnvironment(cfg)
 
 	logEntry := e.dockerAuditLogEntry(cfg.TraceID, cmd, "started")
 	e.writeAuditLog(cfg.AuditLogPath, logEntry)
@@ -397,6 +409,44 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd string, cfg SandboxCon
 	e.writeAuditLog(cfg.AuditLogPath, completeEntry)
 
 	return result, nil
+}
+
+func (e *DockerExecutor) buildDockerEnvironment(cfg SandboxConfig) []string {
+	base := []string{"HOME=/root", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	return mergeEnvironment(base, cfg.Environment)
+}
+
+func mergeEnvironment(base []string, transient map[string]string) []string {
+	if len(transient) == 0 {
+		return append([]string(nil), base...)
+	}
+	names := make(map[string]struct{}, len(transient))
+	for name := range transient {
+		names[name] = struct{}{}
+	}
+	merged := make([]string, 0, len(base)+len(transient))
+	for _, value := range base {
+		name, _, found := strings.Cut(value, "=")
+		if found {
+			if _, replaced := names[name]; replaced {
+				continue
+			}
+		}
+		merged = append(merged, value)
+	}
+	for _, name := range sortedEnvironmentNames(transient) {
+		merged = append(merged, name+"="+transient[name])
+	}
+	return merged
+}
+
+func sortedEnvironmentNames(environment map[string]string) []string {
+	names := make([]string, 0, len(environment))
+	for name := range environment {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // dockerAuditLogEntry creates a structured audit log entry for docker execution.
