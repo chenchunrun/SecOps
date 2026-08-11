@@ -10,6 +10,7 @@ import (
 
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/service"
 	"github.com/chenchunrun/SecOps/internal/taskruntime"
 	"github.com/chenchunrun/SecOps/internal/workspace"
 )
@@ -20,10 +21,12 @@ const (
 )
 
 type ComputerRuntime struct {
-	Computers  *computer.Manager
-	Tasks      *taskruntime.Runtime
-	Workspaces *workspace.Manager
-	Recovered  []taskruntime.Task
+	Computers         *computer.Manager
+	Tasks             *taskruntime.Runtime
+	Workspaces        *workspace.Manager
+	Recovered         []taskruntime.Task
+	Services          *service.Manager
+	RecoveredServices []service.Service
 }
 
 func NewComputerRuntime(ctx context.Context, cfg *config.Config) (*ComputerRuntime, error) {
@@ -76,10 +79,31 @@ func newComputerRuntime(ctx context.Context, runtimeRoot string) (*ComputerRunti
 	if len(recovered) > 0 {
 		slog.Warn("Recovered interrupted durable tasks", "count", len(recovered))
 	}
+	serviceStore, err := service.NewFileStore(filepath.Join(runtimeRoot, "services"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize durable service store: %w", err)
+	}
+	serviceLauncher, err := service.NewLocalLauncher(filepath.Join(runtimeRoot, "service-logs"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize local service launcher: %w", err)
+	}
+	services, err := service.NewManager(serviceStore, manager, serviceLauncher)
+	if err != nil {
+		return nil, fmt.Errorf("initialize durable service manager: %w", err)
+	}
+	recoveredServices, err := services.Recover(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("recover durable services: %w", err)
+	}
+	if len(recoveredServices) > 0 {
+		slog.Warn("Recovered interrupted durable services", "count", len(recoveredServices))
+	}
 	return &ComputerRuntime{
-		Computers:  manager,
-		Tasks:      tasks,
-		Workspaces: workspaces,
-		Recovered:  recovered,
+		Computers:         manager,
+		Tasks:             tasks,
+		Workspaces:        workspaces,
+		Recovered:         recovered,
+		Services:          services,
+		RecoveredServices: recoveredServices,
 	}, nil
 }
