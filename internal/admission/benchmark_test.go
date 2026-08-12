@@ -2,6 +2,7 @@ package admission
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -101,6 +102,63 @@ func BenchmarkAdmissionStoreHistoryDepth(b *testing.B) {
 				}
 				b.StopTimer()
 				if err != nil {
+					b.Fatal(err)
+				}
+				if err := os.RemoveAll(root); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkSQLiteAdmissionStoreHistoryDepth(b *testing.B) {
+	for _, history := range []int{0, 100, 1000} {
+		b.Run(fmt.Sprintf("released-leases-%d", history), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ReportMetric(float64(history), "history_leases")
+			for range b.N {
+				b.StopTimer()
+				root, err := os.MkdirTemp("", "secops-admission-sqlite-benchmark-")
+				if err != nil {
+					b.Fatal(err)
+				}
+				path := filepath.Join(root, "admission.db")
+				db, err := sql.Open("sqlite", path)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000;`); err != nil {
+					b.Fatal(err)
+				}
+				store, err := NewSQLiteStore(context.Background(), db, path+".lock")
+				if err != nil {
+					b.Fatal(err)
+				}
+				seedReleasedLeases(b, store, history)
+				manager, err := NewManager(store, []Profile{{
+					ComputerID: computer.ID("benchmark"),
+					Capacity:   Resources{Slots: 1, CPUUnits: 1, MemoryMB: 1},
+				}})
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				b.StartTimer()
+				lease, err := manager.Acquire(context.Background(), Request{
+					LeaseID:    ID("measured-lease"),
+					TaskID:     ID("measured-task"),
+					ComputerID: computer.ID("benchmark"),
+					Demand:     Resources{Slots: 1, CPUUnits: 1, MemoryMB: 1},
+				})
+				if err == nil {
+					_, err = manager.Release(context.Background(), lease.ID)
+				}
+				b.StopTimer()
+				if err != nil {
+					b.Fatal(err)
+				}
+				if err := db.Close(); err != nil {
 					b.Fatal(err)
 				}
 				if err := os.RemoveAll(root); err != nil {
