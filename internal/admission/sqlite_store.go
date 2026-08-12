@@ -115,6 +115,42 @@ func (s *SQLiteStore) Create(ctx context.Context, lease Lease) (Lease, error) {
 	return lease, nil
 }
 
+func (s *SQLiteStore) importLease(ctx context.Context, lease Lease) error {
+	if !validLeaseIdentity(lease) || lease.Version < 1 || (lease.State != StateActive && lease.State != StateReleased) {
+		return ErrInvalidRequest
+	}
+	var releasedAt any
+	if !lease.ReleasedAt.IsZero() {
+		releasedAt = lease.ReleasedAt.UnixMilli()
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO admission_leases (
+        id, task_id, computer_id, slots, cpu_units, memory_mb, state,
+        created_at_ms, updated_at_ms, released_at_ms, version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		lease.ID, lease.TaskID, lease.ComputerID,
+		lease.Demand.Slots, lease.Demand.CPUUnits, lease.Demand.MemoryMB,
+		lease.State, lease.CreatedAt.UnixMilli(), lease.UpdatedAt.UnixMilli(), releasedAt, lease.Version,
+	)
+	if err != nil {
+		return fmt.Errorf("import sqlite admission lease: %w", err)
+	}
+	written, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect sqlite admission import: %w", err)
+	}
+	if written == 1 {
+		return nil
+	}
+	existing, err := s.Get(ctx, lease.ID)
+	if err != nil {
+		return err
+	}
+	if existing != lease {
+		return ErrLeaseConflict
+	}
+	return nil
+}
+
 func (s *SQLiteStore) Get(ctx context.Context, id ID) (Lease, error) {
 	if !idPattern.MatchString(string(id)) {
 		return Lease{}, ErrInvalidRequest
