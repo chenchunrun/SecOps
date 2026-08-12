@@ -314,6 +314,7 @@ type Audit struct {
 // governance_mode is 'strict'.
 type Sandbox struct {
 	Mode             string `json:"mode,omitempty" jsonschema:"description=Sandbox backend used for command execution under strict governance,enum=local,enum=docker,enum=ssh,default=docker"`
+	AdmissionStore   string `json:"admission_store,omitempty" jsonschema:"description=Durable admission lease storage backend,enum=file,enum=sqlite,default=file"`
 	Image            string `json:"image,omitempty" jsonschema:"description=Container image for the docker sandbox backend,example=alpine:3.20"`
 	Host             string `json:"host,omitempty" jsonschema:"description=SSH host for the ssh sandbox backend"`
 	User             string `json:"user,omitempty" jsonschema:"description=SSH user for the ssh sandbox backend"`

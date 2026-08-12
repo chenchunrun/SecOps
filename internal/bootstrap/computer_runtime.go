@@ -32,7 +32,7 @@ type ComputerRuntime struct {
 	VerificationStore   *verification.FileStore
 	VerificationMaker   *verification.Maker
 	VerificationChecker *verification.Checker
-	AdmissionStore      *admission.FileStore
+	AdmissionStore      admission.Store
 	Admission           *admission.Manager
 	Services            *service.Manager
 	RecoveredServices   []service.Service
@@ -116,7 +116,11 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 			KeyPath: strings.TrimSpace(cfg.Sandbox.KeyPath),
 		}
 	}
-	admissionStore, err := admission.NewFileStore(filepath.Join(runtimeRoot, "admission"))
+	admissionBackend := ""
+	if cfg != nil && cfg.Sandbox != nil {
+		admissionBackend = cfg.Sandbox.AdmissionStore
+	}
+	admissionStore, err := initializeAdmissionStore(ctx, runtimeRoot, admissionBackend)
 	if err != nil {
 		return nil, fmt.Errorf("initialize admission store: %w", err)
 	}
@@ -214,4 +218,31 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 		Services:            services,
 		RecoveredServices:   recoveredServices,
 	}, nil
+}
+
+func admissionStorePath(runtimeRoot string) string {
+	return filepath.Join(runtimeRoot, "admission")
+}
+
+func initializeAdmissionStore(ctx context.Context, runtimeRoot, backend string) (admission.Store, error) {
+	switch normalized := strings.ToLower(strings.TrimSpace(backend)); normalized {
+	case "", "file":
+		return admission.NewFileStore(admissionStorePath(runtimeRoot))
+	case "sqlite":
+		fileStore, err := admission.NewFileStore(admissionStorePath(runtimeRoot))
+		if err != nil {
+			return nil, fmt.Errorf("initialize migration source: %w", err)
+		}
+		sqliteStore, err := admission.OpenSQLiteStore(ctx, filepath.Join(runtimeRoot, "admission.db"))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := admission.MigrateFileStoreToSQLite(ctx, fileStore, sqliteStore); err != nil {
+			_ = sqliteStore.Close()
+			return nil, fmt.Errorf("migrate admission store to sqlite: %w", err)
+		}
+		return sqliteStore, nil
+	default:
+		return nil, fmt.Errorf("unsupported admission store %q", backend)
+	}
 }

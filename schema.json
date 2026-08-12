@@ -903,6 +903,15 @@
           "description": "Sandbox backend used for command execution under strict governance",
           "default": "docker"
         },
+        "admission_store": {
+          "type": "string",
+          "enum": [
+            "file",
+            "sqlite"
+          ],
+          "description": "Durable admission lease storage backend",
+          "default": "file"
+        },
         "image": {
           "type": "string",
           "description": "Container image for the docker sandbox backend",

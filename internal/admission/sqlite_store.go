@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/gofrs/flock"
+	_ "modernc.org/sqlite"
 )
 
 const sqliteStoreSchema = `
@@ -39,6 +41,40 @@ type SQLiteStore struct {
 }
 
 var _ Store = (*SQLiteStore)(nil)
+
+// OpenSQLiteStore opens an independently managed SQLite admission database.
+func OpenSQLiteStore(ctx context.Context, path string) (*SQLiteStore, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("open sqlite admission store: path is required")
+	}
+	canonicalPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve sqlite admission database path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(canonicalPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create sqlite admission database directory: %w", err)
+	}
+	db, err := sql.Open("sqlite", canonicalPath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite admission database: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("configure sqlite admission database: %w", err)
+	}
+	store, err := NewSQLiteStore(ctx, db, canonicalPath+".lock")
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+// Close closes the underlying SQLite database.
+func (s *SQLiteStore) Close() error {
+	return s.db.Close()
+}
 
 // NewSQLiteStore initializes an admission store on an existing database.
 func NewSQLiteStore(ctx context.Context, db *sql.DB, coordinationPath string) (*SQLiteStore, error) {
@@ -145,10 +181,22 @@ func (s *SQLiteStore) importLease(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return err
 	}
-	if existing != lease {
+	if !sqliteLeasesEqual(existing, lease) {
 		return ErrLeaseConflict
 	}
 	return nil
+}
+
+func sqliteLeasesEqual(left, right Lease) bool {
+	return left.ID == right.ID &&
+		left.TaskID == right.TaskID &&
+		left.ComputerID == right.ComputerID &&
+		left.Demand == right.Demand &&
+		left.State == right.State &&
+		left.CreatedAt.UnixMilli() == right.CreatedAt.UnixMilli() &&
+		left.UpdatedAt.UnixMilli() == right.UpdatedAt.UnixMilli() &&
+		left.ReleasedAt.UnixMilli() == right.ReleasedAt.UnixMilli() &&
+		left.Version == right.Version
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, id ID) (Lease, error) {

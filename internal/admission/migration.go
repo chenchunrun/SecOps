@@ -28,7 +28,7 @@ func MigrateFileStoreToSQLite(ctx context.Context, source *FileStore, target *SQ
 		for _, lease := range leases {
 			existing, err := target.Get(ctx, lease.ID)
 			if err == nil {
-				if existing != lease {
+				if !sqliteLeasesEqual(existing, lease) {
 					return fmt.Errorf("%w: migration target lease %q differs", ErrLeaseConflict, lease.ID)
 				}
 				result.Skipped++
