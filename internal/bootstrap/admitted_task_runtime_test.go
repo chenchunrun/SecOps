@@ -21,6 +21,7 @@ type admittedComputer struct {
 	result *computer.ExecutionResult
 	err    error
 	calls  int
+	onExec func()
 }
 
 func (c *admittedComputer) ID() computer.ID           { return c.id }
@@ -28,6 +29,9 @@ func (c *admittedComputer) Backend() computer.Backend { return computer.BackendL
 func (c *admittedComputer) State() computer.State     { return computer.StateActive }
 func (c *admittedComputer) Exec(_ context.Context, _ computer.ExecRequest) (*computer.ExecutionResult, error) {
 	c.calls++
+	if c.onExec != nil {
+		c.onExec()
+	}
 	return c.result, c.err
 }
 func (c *admittedComputer) Suspend(context.Context) error { return nil }
@@ -102,6 +106,41 @@ func TestComputerRuntimeReleasesLeaseAfterExecutionFailure(t *testing.T) {
 	require.NoError(t, err)
 	_, err = runtime.Admission.Release(context.Background(), lease.ID)
 	require.NoError(t, err)
+}
+
+func TestComputerRuntimePersistsAdmissionLeaseLifecycle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtime, err := newComputerRuntime(ctx, t.TempDir())
+	require.NoError(t, err)
+	task, err := runtime.Tasks.Submit(ctx, taskruntime.Submission{
+		ID:             "task-admission-lifecycle",
+		ComputerID:     DefaultLocalComputerID,
+		Request:        computer.ExecRequest{Command: "run"},
+		ResourceDemand: admission.Resources{Slots: 1, CPUUnits: 1, MemoryMB: 256},
+	})
+	require.NoError(t, err)
+	machine := &admittedComputer{
+		id:     DefaultLocalComputerID,
+		result: &computer.ExecutionResult{ExitCode: 0},
+		onExec: func() {
+			running, getErr := runtime.Tasks.Get(ctx, task.ID)
+			require.NoError(t, getErr)
+			require.Equal(t, taskruntime.StateRunning, running.State)
+			require.NotEmpty(t, running.AdmissionLeaseID)
+			require.Zero(t, running.AdmissionReleasedAt)
+		},
+	}
+
+	completed, err := runtime.RunTaskAdmitted(ctx, task.ID, admittedResolver{machine: machine})
+	require.NoError(t, err)
+	require.Equal(t, taskruntime.StateSucceeded, completed.State)
+	require.NotEmpty(t, completed.AdmissionLeaseID)
+	require.NotZero(t, completed.AdmissionReleasedAt)
+	lease, err := runtime.AdmissionStore.Get(ctx, completed.AdmissionLeaseID)
+	require.NoError(t, err)
+	require.Equal(t, admission.StateReleased, lease.State)
 }
 
 func TestRuntimeSchedulerExcludesComputerWithoutAdmissionCapacity(t *testing.T) {

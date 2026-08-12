@@ -5,7 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/chenchunrun/SecOps/internal/admission"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/workspace"
 	"github.com/stretchr/testify/require"
@@ -283,6 +285,46 @@ func TestRuntimePersistsWorkspaceIdentity(t *testing.T) {
 	persisted, err := reopened.Get(context.Background(), task.ID)
 	require.NoError(t, err)
 	require.Equal(t, workspace.ID("workspace-1"), persisted.WorkspaceID)
+}
+
+func TestRuntimePersistsAdmissionLeaseBindingAndRelease(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := NewFileStore(t.TempDir())
+	require.NoError(t, err)
+	runtime, err := New(store)
+	require.NoError(t, err)
+	task, err := runtime.Submit(ctx, Submission{
+		ID:         "task-admission-binding",
+		ComputerID: "computer-1",
+		Request:    computer.ExecRequest{Command: "run"},
+	})
+	require.NoError(t, err)
+
+	bound, err := runtime.BindAdmissionLease(ctx, task.ID, "lease-attempt-1")
+	require.NoError(t, err)
+	require.Equal(t, 1, bound.AdmissionAttempt)
+	require.Equal(t, admission.ID("lease-attempt-1"), bound.AdmissionLeaseID)
+	require.Zero(t, bound.AdmissionReleasedAt)
+	_, err = runtime.BindAdmissionLease(ctx, task.ID, "lease-conflict")
+	require.ErrorIs(t, err, ErrConflict)
+
+	releasedAt := time.Now().UTC().Truncate(time.Millisecond)
+	released, err := runtime.MarkAdmissionReleased(ctx, task.ID, "lease-attempt-1", releasedAt)
+	require.NoError(t, err)
+	require.Equal(t, releasedAt, released.AdmissionReleasedAt)
+	releasedAgain, err := runtime.MarkAdmissionReleased(ctx, task.ID, "lease-attempt-1", releasedAt.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, releasedAt, releasedAgain.AdmissionReleasedAt)
+
+	rebound, err := runtime.BindAdmissionLease(ctx, task.ID, "lease-attempt-2")
+	require.NoError(t, err)
+	require.Equal(t, 2, rebound.AdmissionAttempt)
+	require.Equal(t, admission.ID("lease-attempt-2"), rebound.AdmissionLeaseID)
+	require.Zero(t, rebound.AdmissionReleasedAt)
+	_, err = runtime.MarkAdmissionReleased(ctx, task.ID, "lease-attempt-1", releasedAt)
+	require.ErrorIs(t, err, ErrConflict)
 }
 
 type fakeResolver struct {

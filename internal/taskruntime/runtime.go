@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chenchunrun/SecOps/internal/admission"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/workspace"
 )
@@ -65,6 +66,66 @@ func (r *Runtime) Get(ctx context.Context, id ID) (Task, error) {
 	task, err := r.store.Get(ctx, id)
 	if err != nil {
 		return Task{}, fmt.Errorf("load durable task: %w", err)
+	}
+	return task, nil
+}
+
+// BindAdmissionLease durably associates the next admission attempt with a
+// pending task before backend execution begins.
+func (r *Runtime) BindAdmissionLease(ctx context.Context, id ID, leaseID admission.ID) (Task, error) {
+	if strings.TrimSpace(string(leaseID)) == "" {
+		return Task{}, fmt.Errorf("%w: admission lease id is required", ErrInvalidTask)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, err := r.store.Get(ctx, id)
+	if err != nil {
+		return Task{}, fmt.Errorf("load task for admission binding: %w", err)
+	}
+	if task.State != StatePending {
+		return task, fmt.Errorf("%w: task %s cannot bind admission from %s", ErrNotRunnable, id, task.State)
+	}
+	if task.AdmissionLeaseID != "" && task.AdmissionReleasedAt.IsZero() {
+		return task, fmt.Errorf("%w: task %s already has active admission lease %s", ErrConflict, id, task.AdmissionLeaseID)
+	}
+	task.AdmissionAttempt++
+	task.AdmissionLeaseID = leaseID
+	task.AdmissionReleasedAt = time.Time{}
+	task.UpdatedAt = time.Now().UTC()
+	task, err = r.store.Update(ctx, task)
+	if err != nil {
+		return Task{}, fmt.Errorf("persist task admission binding: %w", err)
+	}
+	return task, nil
+}
+
+// MarkAdmissionReleased records the external lease release on its task.
+func (r *Runtime) MarkAdmissionReleased(
+	ctx context.Context,
+	id ID,
+	leaseID admission.ID,
+	releasedAt time.Time,
+) (Task, error) {
+	if strings.TrimSpace(string(leaseID)) == "" || releasedAt.IsZero() {
+		return Task{}, fmt.Errorf("%w: released admission lease identity and time are required", ErrInvalidTask)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, err := r.store.Get(ctx, id)
+	if err != nil {
+		return Task{}, fmt.Errorf("load task for admission release: %w", err)
+	}
+	if task.AdmissionLeaseID != leaseID {
+		return task, fmt.Errorf("%w: task %s is bound to admission lease %s, not %s", ErrConflict, id, task.AdmissionLeaseID, leaseID)
+	}
+	if !task.AdmissionReleasedAt.IsZero() {
+		return task, nil
+	}
+	task.AdmissionReleasedAt = releasedAt.UTC()
+	task.UpdatedAt = time.Now().UTC()
+	task, err = r.store.Update(ctx, task)
+	if err != nil {
+		return Task{}, fmt.Errorf("persist task admission release: %w", err)
 	}
 	return task, nil
 }

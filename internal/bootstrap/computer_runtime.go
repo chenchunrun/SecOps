@@ -164,6 +164,20 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 	if len(releasedLeases) > 0 {
 		slog.Warn("Released orphaned admission leases", "count", len(releasedLeases))
 	}
+	for _, lease := range releasedLeases {
+		_, err := tasks.MarkAdmissionReleased(
+			ctx,
+			taskruntime.ID(lease.TaskID),
+			lease.ID,
+			lease.ReleasedAt,
+		)
+		if errors.Is(err, taskruntime.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reconcile task admission lease %s: %w", lease.ID, err)
+		}
+	}
 	serviceStore, err := service.NewFileStore(filepath.Join(runtimeRoot, "services"))
 	if err != nil {
 		return nil, fmt.Errorf("initialize durable service store: %w", err)

@@ -62,6 +62,9 @@ type Task struct {
 	Request                 computer.ExecRequest `json:"request"`
 	ResourceDemand          admission.Resources  `json:"resource_demand,omitempty"`
 	Attempt                 int                  `json:"attempt"`
+	AdmissionAttempt        int                  `json:"admission_attempt,omitempty"`
+	AdmissionLeaseID        admission.ID         `json:"admission_lease_id,omitempty"`
+	AdmissionReleasedAt     time.Time            `json:"admission_released_at,omitempty"`
 	Result                  *Result              `json:"result,omitempty"`
 	Error                   string               `json:"error,omitempty"`
 	VerificationID          string               `json:"verification_id,omitempty"`

@@ -52,6 +52,9 @@ func (r *ComputerRuntime) RunTaskAdmitted(
 	if err != nil {
 		return taskruntime.Task{}, err
 	}
+	if task.State != taskruntime.StatePending {
+		return r.Tasks.RunAssigned(ctx, id, resolver)
+	}
 	demand := normalizeAdmissionDemand(task.ResourceDemand)
 	lease, err := r.Admission.Acquire(ctx, admission.Request{
 		LeaseID:    taskAdmissionLeaseID(task),
@@ -79,16 +82,31 @@ func (r *ComputerRuntime) RunTaskAdmitted(
 	if err != nil {
 		return task, fmt.Errorf("admit durable task: %w", err)
 	}
+	bound, bindErr := r.Tasks.BindAdmissionLease(ctx, id, lease.ID)
+	if bindErr != nil {
+		_, releaseErr := r.Admission.Release(context.WithoutCancel(ctx), lease.ID)
+		return task, errors.Join(bindErr, releaseErr)
+	}
+	task = bound
 
 	executed, runErr := r.Tasks.RunAssigned(ctx, id, resolver)
-	_, releaseErr := r.Admission.Release(context.WithoutCancel(ctx), lease.ID)
-	if runErr != nil || releaseErr != nil {
-		return executed, errors.Join(runErr, releaseErr)
+	released, releaseErr := r.Admission.Release(context.WithoutCancel(ctx), lease.ID)
+	var recordErr error
+	if releaseErr == nil {
+		executed, recordErr = r.Tasks.MarkAdmissionReleased(
+			context.WithoutCancel(ctx),
+			id,
+			lease.ID,
+			released.ReleasedAt,
+		)
+	}
+	if runErr != nil || releaseErr != nil || recordErr != nil {
+		return executed, errors.Join(runErr, releaseErr, recordErr)
 	}
 	return executed, nil
 }
 
 func taskAdmissionLeaseID(task taskruntime.Task) admission.ID {
-	digest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", task.ID, task.Attempt+1)))
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", task.ID, task.AdmissionAttempt+1)))
 	return admission.ID(fmt.Sprintf("task-%x", digest[:12]))
 }
