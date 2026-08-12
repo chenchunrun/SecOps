@@ -68,6 +68,9 @@ builds:
         goarch: "386"
       - goos: windows
         goarch: arm
+      # modernc.org/libc does not compile for freebsd/386.
+      - goos: freebsd
+        goarch: "386"
     ldflags:
       - -s -w -X github.com/chenchunrun/SecOps/internal/version.Version={{.Version}}
     flags:
