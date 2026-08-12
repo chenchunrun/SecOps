@@ -12,7 +12,6 @@ import (
 
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/gofrs/flock"
-	_ "modernc.org/sqlite"
 )
 
 const sqliteStoreSchema = `
@@ -54,14 +53,9 @@ func OpenSQLiteStore(ctx context.Context, path string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Dir(canonicalPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create sqlite admission database directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", canonicalPath)
+	db, err := openSQLiteAdmissionDatabase(ctx, canonicalPath)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite admission database: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("configure sqlite admission database: %w", err)
+		return nil, err
 	}
 	store, err := NewSQLiteStore(ctx, db, canonicalPath+".lock")
 	if err != nil {
