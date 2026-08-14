@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -525,6 +526,10 @@ func TestSyslogExporter_Export_RejectsRemoteNetworkAddress(t *testing.T) {
 }
 
 func TestSyslogExporter_Export_UnixSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix domain syslog is not supported on Windows")
+	}
+
 	socketPath := fmt.Sprintf("/tmp/secops-audit-%d.sock", time.Now().UnixNano())
 	_ = os.Remove(socketPath)
 	defer os.Remove(socketPath)
