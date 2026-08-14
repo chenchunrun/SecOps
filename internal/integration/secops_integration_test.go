@@ -20,6 +20,21 @@ import (
 	"github.com/chenchunrun/SecOps/internal/security"
 )
 
+func verifiedIntegrationEvidence(source string) map[string]interface{} {
+	return map[string]interface{}{
+		agent.SecurityEvidenceMetadataKey: []agent.SecurityEvidence{{
+			ID:              "integration-evidence-1",
+			Source:          source,
+			CollectedAt:     time.Now().UTC(),
+			Verified:        true,
+			Findings:        []string{"Verified integration finding"},
+			Alerts:          []string{"Verified integration alert"},
+			Recommendations: []string{"Review and preserve the supporting evidence"},
+			Confidence:      0.85,
+		}},
+	}
+}
+
 func newTLSTestConfig(server *httptest.Server) *tls.Config {
 	roots := x509.NewCertPool()
 	roots.AddCert(server.Certificate())
@@ -63,6 +78,7 @@ func TestSecuritySystemIntegration_IncidentResponse(t *testing.T) {
 		Priority:  "critical",
 		Severity:  "critical",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedIntegrationEvidence("audit_event:unauthorized_access"),
 	}
 
 	secResponse := securityAgent.ProcessTask(securityTask)
@@ -201,6 +217,7 @@ func TestVulnerabilityScanAndResponse(t *testing.T) {
 		Title:     "Full Vulnerability Scan",
 		Type:      "vulnerability_scan",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedIntegrationEvidence("security_scan:test_fixture"),
 	}
 
 	// 执行扫描
@@ -353,6 +370,7 @@ func TestMultiAgentCoordination(t *testing.T) {
 		Title:     "Security Check on Memory Issue",
 		Type:      "threat_assessment",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedIntegrationEvidence("ops_agent:memory_observation"),
 	}
 
 	secResponse := securityAgent.ProcessTask(secTask)
@@ -464,6 +482,7 @@ func TestEndToEndSecurityIncident(t *testing.T) {
 		Priority:  "critical",
 		Severity:  "critical",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedIntegrationEvidence("audit_event:suspicious_activity"),
 	}
 
 	incidentResponse := securityAgent.ProcessTask(incidentTask)

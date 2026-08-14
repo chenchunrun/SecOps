@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
@@ -37,5 +38,8 @@ func TestConfigAgentToolDefaultsStayInSyncWithRuntimeCatalog(t *testing.T) {
 	require.ElementsMatch(t, expectedSecOpsTools, opsAgent.AllowedTools)
 
 	securityAgent := cfg.Agents[config.AgentSecurityExpertAgent]
-	require.ElementsMatch(t, expectedSecOpsTools, securityAgent.AllowedTools)
+	expectedSecurityTools := slices.DeleteFunc(slices.Clone(expectedSecOpsTools), func(tool string) bool {
+		return slices.Contains([]string{"bash", "fetch", "download"}, tool)
+	})
+	require.ElementsMatch(t, expectedSecurityTools, securityAgent.AllowedTools)
 }

@@ -47,23 +47,33 @@ func (s *FileAuditStore) SaveEvent(event *AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.mem.SaveEvent(event); err != nil {
-		return err
-	}
 	b, err := json.Marshal(event)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal audit event: %w", err)
 	}
 	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return fmt.Errorf("open audit file: %w", err)
 	}
-	defer f.Close()
 	if _, err := f.Write(append(b, '\n')); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write audit event: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("sync audit event: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close audit file: %w", err)
+	}
+	if err := s.mem.SaveEvent(event); err != nil {
 		return err
 	}
 	return nil
 }
+
+// IsDurable reports that successful writes are synchronized to a file.
+func (s *FileAuditStore) IsDurable() bool { return true }
 
 func (s *FileAuditStore) GetEvent(id string) (*AuditEvent, error) {
 	s.mu.RLock()

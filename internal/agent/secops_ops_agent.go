@@ -66,6 +66,20 @@ type AgentResponse struct {
 	Error           string                   `json:"error,omitempty"`
 }
 
+const SecurityEvidenceMetadataKey = "security_evidence"
+
+// SecurityEvidence is a verified, attributable input to a security conclusion.
+type SecurityEvidence struct {
+	ID              string    `json:"id"`
+	Source          string    `json:"source"`
+	CollectedAt     time.Time `json:"collected_at"`
+	Verified        bool      `json:"verified"`
+	Findings        []string  `json:"findings,omitempty"`
+	Alerts          []string  `json:"alerts,omitempty"`
+	Recommendations []string  `json:"recommendations,omitempty"`
+	Confidence      float64   `json:"confidence"`
+}
+
 type SecurityWorkflowSummary struct {
 	PrimaryTool      string   `json:"primary_tool"`
 	FollowupTools    []string `json:"followup_tools,omitempty"`
@@ -448,6 +462,13 @@ func NewSecurityExpertAgent(id string) *SecurityExpertAgent {
 // ProcessTask 处理任务
 func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 	startTime := time.Now()
+	if task == nil {
+		return &AgentResponse{
+			AgentRole: a.Role,
+			Status:    "failed",
+			Error:     "security task is required",
+		}
+	}
 
 	task.Status = "in_progress"
 	task.UpdatedAt = time.Now()
@@ -461,6 +482,16 @@ func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 		Alerts:          make([]string, 0),
 		Recommendations: make([]string, 0),
 		NextSteps:       make([]string, 0),
+	}
+	evidence := verifiedSecurityEvidence(task.Metadata)
+	if len(evidence) == 0 {
+		response.Status = "insufficient_evidence"
+		response.Reasoning = "No verified, attributable security evidence was provided"
+		response.NextSteps = []string{"Collect tool-backed evidence with source, timestamp, and verification status"}
+		task.Status = response.Status
+		task.Error = response.Reasoning
+		response.ResponseTime = int(time.Since(startTime).Milliseconds())
+		return response
 	}
 
 	// 根据任务类型处理
@@ -477,8 +508,11 @@ func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 		response.Status = "failed"
 		response.Error = "unknown task type"
 	}
-
 	if response.Status != "failed" {
+		applyVerifiedSecurityEvidence(response, evidence)
+	}
+
+	if response.Status == "completed" {
 		task.Status = "completed"
 		task.Result = response
 	} else {
@@ -501,6 +535,56 @@ func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 	response.ResponseTime = int(time.Since(startTime).Milliseconds())
 
 	return response
+}
+
+func verifiedSecurityEvidence(metadata map[string]interface{}) []SecurityEvidence {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	var candidates []SecurityEvidence
+	switch value := metadata[SecurityEvidenceMetadataKey].(type) {
+	case []SecurityEvidence:
+		candidates = value
+	case SecurityEvidence:
+		candidates = []SecurityEvidence{value}
+	case []*SecurityEvidence:
+		for _, item := range value {
+			if item != nil {
+				candidates = append(candidates, *item)
+			}
+		}
+	}
+
+	verified := make([]SecurityEvidence, 0, len(candidates))
+	for _, item := range candidates {
+		if !item.Verified || strings.TrimSpace(item.ID) == "" || strings.TrimSpace(item.Source) == "" || item.CollectedAt.IsZero() {
+			continue
+		}
+		if item.Confidence < 0 {
+			item.Confidence = 0
+		}
+		if item.Confidence > 1 {
+			item.Confidence = 1
+		}
+		verified = append(verified, item)
+	}
+	return verified
+}
+
+func applyVerifiedSecurityEvidence(response *AgentResponse, evidence []SecurityEvidence) {
+	response.Findings = nil
+	response.Alerts = nil
+	response.Recommendations = nil
+	confidenceTotal := 0.0
+	for _, item := range evidence {
+		response.Findings = append(response.Findings, item.Findings...)
+		response.Alerts = append(response.Alerts, item.Alerts...)
+		response.Recommendations = append(response.Recommendations, item.Recommendations...)
+		confidenceTotal += item.Confidence
+	}
+	response.ConfidenceScore = confidenceTotal / float64(len(evidence))
+	response.Reasoning = fmt.Sprintf("Assessment derived from %d verified evidence source(s)", len(evidence))
 }
 
 // handleVulnerabilityScan 处理漏洞扫描

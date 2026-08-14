@@ -662,6 +662,11 @@ func resolveSecOpsRuntimeTools(tools []string) []string {
 	return filterSlice(tools, secOpsRuntimeToolNames(), true)
 }
 
+func resolveSecurityExpertRuntimeTools(tools []string) []string {
+	resolved := resolveSecOpsRuntimeTools(tools)
+	return filterSlice(resolved, []string{"bash", "fetch", "download"}, false)
+}
+
 func filterSlice(data []string, mask []string, include bool) []string {
 	var filtered []string
 	for _, s := range data {
@@ -725,7 +730,7 @@ func (c *Config) SetupAgents() {
 			Description:  "An agent focused on vulnerability response, security audits, threat assessment, and incident response.",
 			Model:        SelectedModelTypeLarge,
 			ContextPaths: c.Options.ContextPaths,
-			AllowedTools: resolveSecOpsRuntimeTools(allowedTools),
+			AllowedTools: resolveSecurityExpertRuntimeTools(allowedTools),
 			AllowedMCP:   map[string][]string{},
 		},
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
@@ -16,6 +17,7 @@ import (
 	capregistry "github.com/chenchunrun/SecOps/internal/capability/registry"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/permission"
+	"github.com/chenchunrun/SecOps/internal/policy"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
 	"github.com/chenchunrun/SecOps/internal/security"
 	"github.com/stretchr/testify/require"
@@ -248,6 +250,35 @@ func TestEnforceRiskDecision_CriticalIsBlocked(t *testing.T) {
 	if !strings.Contains(err.Error(), "blocked execution") {
 		t.Fatalf("expected blocked execution error, got %v", err)
 	}
+}
+
+func TestEnforceRiskDecision_AnalystActiveProbeRequiresScopedAuthorization(t *testing.T) {
+	store := security.NewInMemoryEngagementAuthorizationStore()
+	security.SetGlobalEngagementAuthorizationStore(store)
+	t.Cleanup(func() { security.SetGlobalEngagementAuthorizationStore(nil) })
+
+	a := &Adapter{
+		tool:        &testNetworkScanTool{},
+		secopsPerms: permission.NewDefaultService(),
+		assessor:    security.NewRiskAssessor(),
+	}
+	withoutAuthorization := fantasy.ToolCall{ID: "call-no-auth", Input: `{"target":"api.example.com"}`}
+	require.Error(t, a.enforceRiskDecision(context.Background(), withoutAuthorization, "analyst", []string{"active_probe"}))
+
+	now := time.Now().UTC()
+	require.NoError(t, store.Put(security.EngagementAuthorization{
+		ID:           "auth-1",
+		Capability:   "redteam:execute",
+		Targets:      []string{"*.example.com"},
+		AuthorizedBy: "security-admin",
+		NotBefore:    now.Add(-time.Minute),
+		ExpiresAt:    now.Add(time.Hour),
+	}))
+	withAuthorization := fantasy.ToolCall{ID: "call-auth", Input: `{"authorization_id":"auth-1","target":"api.example.com"}`}
+	require.NoError(t, a.enforceRiskDecision(context.Background(), withAuthorization, "analyst", []string{"active_probe"}))
+
+	outOfScope := fantasy.ToolCall{ID: "call-out-of-scope", Input: `{"authorization_id":"auth-1","target":"evil.test"}`}
+	require.Error(t, a.enforceRiskDecision(context.Background(), outOfScope, "analyst", []string{"active_probe"}))
 }
 
 func TestEnforceRiskDecision_CriticalFromJSONCommandField(t *testing.T) {
@@ -654,6 +685,28 @@ func TestExecuteAndRespond_LowRiskSuccess(t *testing.T) {
 	if !strings.Contains(resp.Content, "\"ok\":\"true\"") {
 		t.Fatalf("unexpected success payload: %q", resp.Content)
 	}
+}
+
+func TestExecuteAndRespond_ActiveProbeFailsClosedWithoutDurableAudit(t *testing.T) {
+	lockSecOpsAuditStoreTest(t)
+	audit.SetGlobalStore(audit.NewInMemoryAuditStore())
+	audit.SetGlobalWAL(nil)
+	t.Cleanup(func() { audit.SetGlobalStore(audit.NewInMemoryAuditStore()) })
+
+	a := &Adapter{
+		tool:        &testNetworkScanTool{},
+		secopsPerms: permission.NewDefaultService(),
+		assessor:    security.NewRiskAssessor(),
+		registry:    capregistry.NewSecOpsRegistry(),
+	}
+	a.decider = policy.NewDefaultDecider(nil, secopsPolicyEvaluator{adapter: a})
+	ctx := context.WithValue(context.Background(), tools.AgentIDContextKey, "admin")
+
+	response, err := a.executeAndRespond(ctx, fantasy.ToolCall{ID: "call-audit-fail", Input: `{"target":"127.0.0.1"}`}, map[string]any{})
+
+	require.NoError(t, err)
+	require.True(t, response.IsError)
+	require.Contains(t, response.Content, "durable audit")
 }
 
 func TestRiskCandidatesFromInput(t *testing.T) {

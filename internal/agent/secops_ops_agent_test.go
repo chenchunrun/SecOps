@@ -6,6 +6,21 @@ import (
 	"time"
 )
 
+func verifiedSecurityEvidenceMetadata() map[string]interface{} {
+	return map[string]interface{}{
+		SecurityEvidenceMetadataKey: []SecurityEvidence{{
+			ID:              "test-evidence-1",
+			Source:          "verified-test-fixture",
+			CollectedAt:     time.Now().UTC(),
+			Verified:        true,
+			Findings:        []string{"Verified test finding"},
+			Alerts:          []string{"Verified test alert"},
+			Recommendations: []string{"Review verified evidence"},
+			Confidence:      0.8,
+		}},
+	}
+}
+
 func TestOpsAgent_NewOpsAgent(t *testing.T) {
 	agent := NewOpsAgent("ops-1")
 
@@ -210,6 +225,7 @@ func TestSecurityExpertAgent_ProcessTask_VulnerabilityScan(t *testing.T) {
 		Type:      "vulnerability_scan",
 		Priority:  "high",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedSecurityEvidenceMetadata(),
 	}
 
 	response := agent.ProcessTask(task)
@@ -231,6 +247,33 @@ func TestSecurityExpertAgent_ProcessTask_VulnerabilityScan(t *testing.T) {
 	}
 }
 
+func TestSecurityExpertAgent_ProcessTask_RequiresVerifiedEvidence(t *testing.T) {
+	agent := NewSecurityExpertAgent("sec-1")
+	task := &AgentTask{ID: "task-no-evidence", Type: "vulnerability_scan"}
+
+	response := agent.ProcessTask(task)
+
+	if response.Status != "insufficient_evidence" {
+		t.Fatalf("expected insufficient_evidence, got %q", response.Status)
+	}
+	if task.Status == "completed" {
+		t.Fatal("task without verified evidence must not be completed")
+	}
+	if len(response.Findings) != 0 || len(response.Alerts) != 0 || response.ConfidenceScore != 0 {
+		t.Fatalf("response fabricated unsupported conclusions: %#v", response)
+	}
+}
+
+func TestSecurityExpertAgent_ProcessTask_NilTaskFailsClosed(t *testing.T) {
+	agent := NewSecurityExpertAgent("sec-1")
+
+	response := agent.ProcessTask(nil)
+
+	if response.Status != "failed" || response.Error == "" {
+		t.Fatalf("expected structured failure for nil task, got %#v", response)
+	}
+}
+
 func TestSecurityExpertAgent_ProcessTask_SecurityAudit(t *testing.T) {
 	agent := NewSecurityExpertAgent("sec-1")
 
@@ -239,6 +282,7 @@ func TestSecurityExpertAgent_ProcessTask_SecurityAudit(t *testing.T) {
 		Title:     "Security Control Audit",
 		Type:      "security_audit",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedSecurityEvidenceMetadata(),
 	}
 
 	response := agent.ProcessTask(task)
@@ -261,6 +305,7 @@ func TestSecurityExpertAgent_ProcessTask_ThreatAssessment(t *testing.T) {
 		Type:      "threat_assessment",
 		Priority:  "high",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedSecurityEvidenceMetadata(),
 	}
 
 	response := agent.ProcessTask(task)
@@ -308,6 +353,7 @@ func TestSecurityExpertAgent_ProcessTask_IncidentResponse(t *testing.T) {
 		Priority:  "critical",
 		Severity:  "critical",
 		CreatedAt: time.Now(),
+		Metadata:  verifiedSecurityEvidenceMetadata(),
 	}
 
 	response := agent.ProcessTask(task)
@@ -435,6 +481,7 @@ func TestSecurityExpertAgent_TaskStatistics(t *testing.T) {
 			ID:        "task-" + string(rune(i)),
 			Type:      "vulnerability_scan",
 			CreatedAt: time.Now(),
+			Metadata:  verifiedSecurityEvidenceMetadata(),
 		}
 		agent.ProcessTask(task)
 	}

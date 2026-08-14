@@ -32,6 +32,12 @@ type ExportingAuditStore struct {
 	dropped       atomic.Uint64
 }
 
+// IsDurable inherits durability from the wrapped primary store.
+func (s *ExportingAuditStore) IsDurable() bool {
+	reporter, ok := s.base.(interface{ IsDurable() bool })
+	return ok && reporter.IsDurable()
+}
+
 // NewExportingAuditStore wraps a base store with asynchronous exporter fanout.
 func NewExportingAuditStore(base AuditStore, exportTimeout time.Duration, exporters ...SIEMExporter) (*ExportingAuditStore, error) {
 	return newExportingAuditStore(base, exportTimeout, defaultExportQueueSize, defaultExportWorkerCount, exporters...)

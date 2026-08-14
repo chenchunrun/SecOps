@@ -30,6 +30,9 @@ type SQLiteAuditStore struct {
 	allowDelete bool
 }
 
+// IsDurable reports that successful writes are committed to SQLite.
+func (s *SQLiteAuditStore) IsDurable() bool { return true }
+
 // NewSQLiteAuditStore creates a SQLite-backed audit store. The caller must
 // ensure the audit_events table exists (via goose migration).
 func NewSQLiteAuditStore(db *sql.DB) (*SQLiteAuditStore, error) {

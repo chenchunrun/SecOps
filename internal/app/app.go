@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/security"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/shell"
 	"github.com/chenchunrun/SecOps/internal/ui/anim"
@@ -120,6 +122,26 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	// Register runtime-global audit sink so tool-level audit events (e.g. remote
 	// policy denials) are persisted under the current app lifecycle.
 	audit.SetGlobalStore(app.AuditStore)
+	if cfg.Options != nil && strings.TrimSpace(cfg.Options.DataDirectory) != "" {
+		securityDir := filepath.Join(cfg.Options.DataDirectory, "security")
+		wal, walErr := audit.NewFileAuditStore(filepath.Join(securityDir, "audit.wal.jsonl"))
+		if walErr != nil {
+			slog.Warn("Failed to initialize durable audit WAL; high-risk execution will fail closed", "error", walErr)
+			audit.SetGlobalWAL(nil)
+		} else {
+			audit.SetGlobalWAL(wal)
+		}
+
+		authorizations, authErr := security.NewFileEngagementAuthorizationStore(
+			filepath.Join(securityDir, "engagement_authorizations.json"),
+		)
+		if authErr != nil {
+			slog.Warn("Failed to initialize engagement authorization store; active probes will fail closed", "error", authErr)
+			security.SetGlobalEngagementAuthorizationStore(security.NewInMemoryEngagementAuthorizationStore())
+		} else {
+			security.SetGlobalEngagementAuthorizationStore(authorizations)
+		}
+	}
 
 	// Under strict governance, force command execution through the configured
 	// sandbox so commands cannot run directly on the host.

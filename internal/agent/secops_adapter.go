@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -397,6 +398,20 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 	}
 
 	role := secOpsRoleFromContext(ctx)
+	if slices.Contains(riskTags, "active_probe") {
+		intent := audit.NewAuditEventBuilder(audit.EventTypeCommandStarted).
+			WithSession(tools.GetSessionFromContext(ctx)).
+			WithAction("secops_execution_intent").
+			WithResource("secops_tool", string(a.tool.Type()), "").
+			WithDetail("tool_call_id", call.ID).
+			WithDetail("role", role).
+			WithDetail("required_capabilities", caps).
+			WithDetail("policy_tags", riskTags).
+			Build()
+		if err := audit.RecordGlobalDurable(intent); err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("durable audit precondition failed: %v", err)), nil
+		}
+	}
 	if a.decider != nil {
 		decision, err := a.decider.Decide(ctx, policy.Request{
 			PolicyKind:   "secops",
@@ -430,7 +445,6 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 			return fantasy.NewTextErrorResponse(err.Error()), nil
 		}
 	}
-
 	startedAt := timeNowUTC()
 	result, err := a.tool.Execute(params)
 	a.recordExecutionAuditEvent(ctx, call, role, startedAt, err)
@@ -649,6 +663,9 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	if a.secopsPerms == nil || a.assessor == nil {
 		return nil
 	}
+	if err := enforceEngagementAuthorization(call, role, riskTags); err != nil {
+		return err
+	}
 
 	sessionID := tools.GetSessionFromContext(ctx)
 	if sessionID == "" {
@@ -737,6 +754,39 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	}
 
 	return nil
+}
+
+func enforceEngagementAuthorization(call fantasy.ToolCall, role string, riskTags []string) error {
+	if role != "analyst" || !slices.Contains(riskTags, "active_probe") {
+		return nil
+	}
+	var params map[string]any
+	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {
+		return fmt.Errorf("active security probe requires structured engagement authorization: %w", err)
+	}
+	authorizationID, _ := params["authorization_id"].(string)
+	target := engagementTargetFromParams(params)
+	if strings.TrimSpace(authorizationID) == "" || target == "" {
+		return fmt.Errorf("active security probe requires authorization_id and target")
+	}
+	if err := security.ValidateGlobalEngagementAuthorization(
+		authorizationID,
+		"redteam:execute",
+		target,
+		timeNowUTC(),
+	); err != nil {
+		return fmt.Errorf("active security probe authorization failed: %w", err)
+	}
+	return nil
+}
+
+func engagementTargetFromParams(params map[string]any) string {
+	for _, key := range []string{"remote_host", "target", "host", "domain", "url", "target_path"} {
+		if value, ok := params[key].(string); ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func mergeRiskTags(factors []string, tags []string) []string {
