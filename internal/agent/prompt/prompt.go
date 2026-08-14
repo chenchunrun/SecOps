@@ -13,6 +13,7 @@ import (
 
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/home"
+	"github.com/chenchunrun/SecOps/internal/security/promptguard"
 	"github.com/chenchunrun/SecOps/internal/shell"
 	"github.com/chenchunrun/SecOps/internal/skills"
 )
@@ -97,6 +98,9 @@ func (p *Prompt) Build(ctx context.Context, provider, model string, store *confi
 func processFile(filePath string) *ContextFile {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
+		return nil
+	}
+	if promptguard.ContainsInjection(string(content)) {
 		return nil
 	}
 	return &ContextFile{

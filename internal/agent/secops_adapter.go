@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chenchunrun/SecOps/internal/agent/tools"
@@ -31,6 +32,8 @@ type Adapter struct {
 	assessor    *security.RiskAssessor
 	decider     policy.Decider
 	registry    *capregistry.Registry
+	gateMu      sync.Mutex
+	gate        *toolCallGate
 }
 
 type secopsPolicyContext struct {
@@ -110,7 +113,18 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 	if err := a.tool.ValidateParams(params); err != nil {
 		return fantasy.NewTextErrorResponse(err.Error()), nil
 	}
-	return a.executeAndRespond(ctx, call, params)
+	return a.callGate().Do(ctx, call.ID, func() (fantasy.ToolResponse, error) {
+		return a.executeAndRespond(ctx, call, params)
+	})
+}
+
+func (a *Adapter) callGate() *toolCallGate {
+	a.gateMu.Lock()
+	defer a.gateMu.Unlock()
+	if a.gate == nil {
+		a.gate = newToolCallGate(1024)
+	}
+	return a.gate
 }
 
 var (
@@ -837,7 +851,13 @@ func (a *Adapter) assessRisk(input string) *security.RiskAssessment {
 			best = current
 		}
 	}
-	return best
+	descriptorBase := 0
+	if a.registry != nil {
+		if metadata, ok := a.registry.MetadataFor(string(a.tool.Type())); ok {
+			descriptorBase = capregistry.DescriptorBaseRisk(metadata)
+		}
+	}
+	return security.CombineRisk(descriptorBase, best)
 }
 
 func riskCandidatesFromInput(input string) []string {

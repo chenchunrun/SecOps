@@ -13,34 +13,14 @@ import (
 	"sync"
 
 	"github.com/charlievieth/fastwalk"
+	"github.com/chenchunrun/SecOps/internal/security/promptguard"
 	"gopkg.in/yaml.v3"
 )
-
-// injectionPatterns contains phrases that indicate an attempt to hijack the
-// system prompt via a malicious SKILL.md instructions body.  Any skill whose
-// instructions body matches one of these patterns is rejected during loading.
-var injectionPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)ignore\s+(all\s+)?(previous|prior|above)\s+instructions`),
-	regexp.MustCompile(`(?i)disregard\s+(all\s+)?(previous|prior|above)\s+instructions`),
-	regexp.MustCompile(`(?i)forget\s+(everything|all)\s+(you|I)`),
-	regexp.MustCompile(`(?i)(authorization|gate)\s+(already\s+)?(satisfied|granted|confirmed|bypassed)`),
-	regexp.MustCompile(`(?i)skip\s+(the\s+)?(authorization|auth|gate|confirmation)`),
-	regexp.MustCompile(`(?i)you\s+are\s+now\s+(DAN|unrestricted|jailbroken)`),
-	regexp.MustCompile(`(?i)developer\s+mode\s*(enabled|on|activated)`),
-	regexp.MustCompile(`(?i)proceed\s+(immediately|without\s+confirmation|without\s+authorization)`),
-	regexp.MustCompile(`(?i)bypass\s+(the\s+)?(restriction|control|gate|check|policy)`),
-	regexp.MustCompile(`(?i)new\s+(system\s+)?prompt\s*:`),
-}
 
 // containsInjectionPattern returns true if the skill instructions body
 // contains any known prompt-injection pattern.
 func containsInjectionPattern(instructions string) bool {
-	for _, re := range injectionPatterns {
-		if re.MatchString(instructions) {
-			return true
-		}
-	}
-	return false
+	return promptguard.ContainsInjection(instructions)
 }
 
 const (
@@ -91,8 +71,29 @@ func (s *Skill) Validate() error {
 	if len(s.Compatibility) > MaxCompatibilityLength {
 		errs = append(errs, fmt.Errorf("compatibility exceeds %d characters", MaxCompatibilityLength))
 	}
+	if !skillPromptSafe(s) {
+		errs = append(errs, errors.New("skill contains a prompt-injection pattern in a prompt-facing field"))
+	}
 
 	return errors.Join(errs...)
+}
+
+func skillPromptSafe(skill *Skill) bool {
+	if skill == nil {
+		return false
+	}
+	for _, value := range []string{
+		skill.Description,
+		skill.Compatibility,
+		skill.Instructions,
+		skill.Path,
+		skill.SkillFilePath,
+	} {
+		if promptguard.ContainsInjection(value) {
+			return false
+		}
+	}
+	return true
 }
 
 // Parse parses a SKILL.md file.
@@ -195,13 +196,19 @@ func Discover(paths []string) []*Skill {
 
 // ToPromptXML generates XML for injection into the system prompt.
 func ToPromptXML(skills []*Skill) string {
-	if len(skills) == 0 {
+	safeSkills := make([]*Skill, 0, len(skills))
+	for _, skill := range skills {
+		if skillPromptSafe(skill) {
+			safeSkills = append(safeSkills, skill)
+		}
+	}
+	if len(safeSkills) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 	sb.WriteString("<available_skills>\n")
-	for _, s := range skills {
+	for _, s := range safeSkills {
 		sb.WriteString("  <skill>\n")
 		fmt.Fprintf(&sb, "    <name>%s</name>\n", escape(s.Name))
 		fmt.Fprintf(&sb, "    <description>%s</description>\n", escape(s.Description))
