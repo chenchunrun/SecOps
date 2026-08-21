@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "parameters"],
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "parameters": { "type": "object" },
+    "authorization_scope": { "type": "string" }
+  }
+}

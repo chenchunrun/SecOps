@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "evidence_ids", "facts", "findings", "verification"],
+  "properties": {
+    "task_id": { "type": "string" },
+    "evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "facts": { "type": "array", "items": { "type": "object" } },
+    "inferences": { "type": "array", "items": { "type": "object" } },
+    "findings": { "type": "array", "items": { "type": "object" } },
+    "verification": { "type": "array", "items": { "type": "object" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

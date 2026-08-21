@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,6 +42,48 @@ func TestSkillManifestRejectsMissingCapabilitiesAndInvalidRisk(t *testing.T) {
 	_, err := LoadManifest(path)
 	require.ErrorContains(t, err, "required capability")
 	require.ErrorContains(t, err, "invalid base risk")
+}
+
+func TestCoreSecuritySkillManifestContracts(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	for _, name := range []string{
+		"phishing-analysis", "auth-log-analysis", "linux-ir", "code-audit",
+		"sca-analyzer", "prompt-injection-detect", "ttp-extractor", "redteam-intrusion-hunter",
+	} {
+		name := name
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			content, err := exec.CommandContext(t.Context(), "git", "show", "HEAD:skills/"+name+"/SKILL.md").Output()
+			require.NoError(t, err)
+			manifest, err := LoadManifestWithSkillContent(filepath.Join(root, "skills", name, "manifest.yaml"), content)
+			require.NoError(t, err)
+			require.Equal(t, name, manifest.Name)
+			require.NotEmpty(t, manifest.Capabilities.Required)
+			require.NotEmpty(t, manifest.Runtime.Platforms)
+		})
+	}
+}
+
+func TestRedTeamSkillFailsClosedWithoutSignedScope(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	content, err := exec.CommandContext(t.Context(), "git", "show", "HEAD:skills/redteam-intrusion-hunter/SKILL.md").Output()
+	require.NoError(t, err)
+	manifest, err := LoadManifestWithSkillContent(filepath.Join(root, "skills", "redteam-intrusion-hunter", "manifest.yaml"), content)
+	require.NoError(t, err)
+	_, err = manifest.AuthorizeExecution(ExecutionRequest{Platform: runtime.GOOS})
+	require.ErrorContains(t, err, "machine-verifiable")
+	risk, err := manifest.AuthorizeExecution(ExecutionRequest{Platform: runtime.GOOS, SignedScope: true})
+	require.NoError(t, err)
+	require.Equal(t, RiskHigh, risk)
+}
+
+func TestSkillExecutionRejectsUnsupportedPlatform(t *testing.T) {
+	t.Parallel()
+	manifest := &SkillManifest{Name: "test", Runtime: ManifestRuntime{Platforms: []string{"linux"}}}
+	_, err := manifest.AuthorizeExecution(ExecutionRequest{Platform: "plan9"})
+	require.ErrorContains(t, err, "does not support")
 }
 
 func writeManifestFixture(t *testing.T, extra string, transforms ...func(string) string) string {

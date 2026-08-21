@@ -1,0 +1,12 @@
+api_version: secops/v1
+name: redteam-intrusion-hunter
+version: 1.0.0
+description: Validate attack paths only within a signed authorization scope.
+roles: [security_expert]
+capabilities: {required: [recon:read, attack:validate, authorization:signed_scope]}
+risk: {base: high, parameter_rules: {exploit_execute: critical, destructive_action: critical}}
+runtime: {platforms: [darwin, linux, windows], network: {required: true, allowed_domains: []}, timeout: 15m, output_limit: 20971520}
+input_schema: ../schemas/security-task-input.json
+output_schema: ../schemas/security-task-output.json
+integrity: {skill_sha256: 4d298903aaa7640f883f471c14b31dd7a467b8a8ecee2c8fafb5007a7394804b}
+authorization: {required: true, scope_type: signed_target_scope}

@@ -24,17 +24,18 @@ const (
 )
 
 type SkillManifest struct {
-	APIVersion   string            `yaml:"api_version"`
-	Name         string            `yaml:"name"`
-	Version      string            `yaml:"version"`
-	Description  string            `yaml:"description"`
-	Roles        []string          `yaml:"roles"`
-	Capabilities ManifestCaps      `yaml:"capabilities"`
-	Risk         ManifestRisk      `yaml:"risk"`
-	Runtime      ManifestRuntime   `yaml:"runtime"`
-	InputSchema  string            `yaml:"input_schema"`
-	OutputSchema string            `yaml:"output_schema"`
-	Integrity    ManifestIntegrity `yaml:"integrity"`
+	APIVersion    string                `yaml:"api_version"`
+	Name          string                `yaml:"name"`
+	Version       string                `yaml:"version"`
+	Description   string                `yaml:"description"`
+	Roles         []string              `yaml:"roles"`
+	Capabilities  ManifestCaps          `yaml:"capabilities"`
+	Risk          ManifestRisk          `yaml:"risk"`
+	Runtime       ManifestRuntime       `yaml:"runtime"`
+	InputSchema   string                `yaml:"input_schema"`
+	OutputSchema  string                `yaml:"output_schema"`
+	Integrity     ManifestIntegrity     `yaml:"integrity"`
+	Authorization ManifestAuthorization `yaml:"authorization,omitempty"`
 }
 
 type ManifestCaps struct {
@@ -63,7 +64,26 @@ type ManifestIntegrity struct {
 	SkillSHA256 string `yaml:"skill_sha256"`
 }
 
+type ManifestAuthorization struct {
+	Required  bool   `yaml:"required"`
+	ScopeType string `yaml:"scope_type"`
+}
+
+type ExecutionRequest struct {
+	Platform         string
+	ActiveParameters map[string]bool
+	SignedScope      bool
+}
+
 func LoadManifest(path string) (*SkillManifest, error) {
+	return loadManifest(path, nil)
+}
+
+func LoadManifestWithSkillContent(path string, skillContent []byte) (*SkillManifest, error) {
+	return loadManifest(path, append([]byte(nil), skillContent...))
+}
+
+func loadManifest(path string, skillContent []byte) (*SkillManifest, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open skill manifest: %w", err)
@@ -75,7 +95,7 @@ func LoadManifest(path string) (*SkillManifest, error) {
 	if err := decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("decode skill manifest: %w", err)
 	}
-	if err := manifest.validate(filepath.Dir(path)); err != nil {
+	if err := manifest.validate(filepath.Dir(path), skillContent); err != nil {
 		return nil, err
 	}
 	return &manifest, nil
@@ -92,15 +112,29 @@ func (m *SkillManifest) EffectiveRisk(activeParameters map[string]bool) RiskLeve
 }
 
 func (m *SkillManifest) SupportsCurrentPlatform() bool {
-	for _, platform := range m.Runtime.Platforms {
-		if platform == runtime.GOOS {
+	return m.SupportsPlatform(runtime.GOOS)
+}
+
+func (m *SkillManifest) SupportsPlatform(platform string) bool {
+	for _, supported := range m.Runtime.Platforms {
+		if supported == platform {
 			return true
 		}
 	}
 	return false
 }
 
-func (m *SkillManifest) validate(root string) error {
+func (m *SkillManifest) AuthorizeExecution(request ExecutionRequest) (RiskLevel, error) {
+	if !m.SupportsPlatform(request.Platform) {
+		return "", fmt.Errorf("skill %s does not support platform %s", m.Name, request.Platform)
+	}
+	if m.Authorization.Required && !request.SignedScope {
+		return "", fmt.Errorf("skill %s requires machine-verifiable %s authorization", m.Name, m.Authorization.ScopeType)
+	}
+	return m.EffectiveRisk(request.ActiveParameters), nil
+}
+
+func (m *SkillManifest) validate(root string, skillContent []byte) error {
 	var errs []error
 	if m.APIVersion != "secops/v1" {
 		errs = append(errs, errors.New("api_version must be secops/v1"))
@@ -133,16 +167,23 @@ func (m *SkillManifest) validate(root string) error {
 	if m.Runtime.OutputLimit <= 0 {
 		errs = append(errs, errors.New("runtime output_limit must be positive"))
 	}
+	if m.Authorization.Required && strings.TrimSpace(m.Authorization.ScopeType) == "" {
+		errs = append(errs, errors.New("required authorization must declare scope_type"))
+	}
 	for _, schema := range []string{m.InputSchema, m.OutputSchema} {
 		if err := validateRelativeFile(root, schema); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	skillPath := filepath.Join(root, SkillFileName)
-	skill, err := os.ReadFile(skillPath)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("read skill content for integrity: %w", err))
-	} else {
+	skill := skillContent
+	if skill == nil {
+		var err error
+		skill, err = os.ReadFile(filepath.Join(root, SkillFileName))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("read skill content for integrity: %w", err))
+		}
+	}
+	if skill != nil {
 		digest := sha256.Sum256(skill)
 		actual := hex.EncodeToString(digest[:])
 		if !strings.EqualFold(m.Integrity.SkillSHA256, actual) {
@@ -153,10 +194,18 @@ func (m *SkillManifest) validate(root string) error {
 }
 
 func validateRelativeFile(root, value string) error {
-	if value == "" || filepath.IsAbs(value) || strings.HasPrefix(filepath.Clean(value), "..") {
+	if value == "" || filepath.IsAbs(value) {
 		return fmt.Errorf("invalid schema path %q", value)
 	}
-	data, err := os.ReadFile(filepath.Join(root, value))
+	trustedRoot, err := filepath.Abs(filepath.Dir(root))
+	if err != nil {
+		return fmt.Errorf("resolve trusted skill root: %w", err)
+	}
+	target, err := filepath.Abs(filepath.Join(root, value))
+	if err != nil || (target != trustedRoot && !strings.HasPrefix(target, trustedRoot+string(os.PathSeparator))) {
+		return fmt.Errorf("invalid schema path %q", value)
+	}
+	data, err := os.ReadFile(target)
 	if err != nil {
 		return fmt.Errorf("read schema %q: %w", value, err)
 	}

@@ -1,0 +1,11 @@
+api_version: secops/v1
+name: sca-analyzer
+version: 1.0.0
+description: Analyze dependency inventory and vulnerability reachability.
+roles: [security_expert, coder]
+capabilities: {required: [file:read, dependency:analyze]}
+risk: {base: low, parameter_rules: {dependency_update: high}}
+runtime: {platforms: [darwin, linux, windows], network: {required: true, allowed_domains: []}, timeout: 10m, output_limit: 20971520}
+input_schema: ../schemas/security-task-input.json
+output_schema: ../schemas/security-task-output.json
+integrity: {skill_sha256: cd34fb7af187b9a705edf8cf6d0b71b4bb59934b4cfcf737169855d0255488fb}

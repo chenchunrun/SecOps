@@ -1,0 +1,11 @@
+api_version: secops/v1
+name: ttp-extractor
+version: 1.0.0
+description: Extract ATT&CK technique hypotheses from evidence.
+roles: [security_expert]
+capabilities: {required: [content:read, attack:map]}
+risk: {base: low, parameter_rules: {external_lookup: medium}}
+runtime: {platforms: [darwin, linux, windows], network: {required: false, allowed_domains: []}, timeout: 5m, output_limit: 10485760}
+input_schema: ../schemas/security-task-input.json
+output_schema: ../schemas/security-task-output.json
+integrity: {skill_sha256: 95fac8094182c6dd8628db2c3e42f401419ffd567ceb904533e41544909e5ec3}

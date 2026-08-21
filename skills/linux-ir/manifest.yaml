@@ -1,0 +1,11 @@
+api_version: secops/v1
+name: linux-ir
+version: 1.0.0
+description: Collect and analyze Linux incident-response evidence.
+roles: [security_expert, ops_agent]
+capabilities: {required: [host:read, log:analyze]}
+risk: {base: medium, parameter_rules: {process_kill: critical, host_isolate: critical}}
+runtime: {platforms: [linux], network: {required: false, allowed_domains: []}, timeout: 10m, output_limit: 20971520}
+input_schema: ../schemas/security-task-input.json
+output_schema: ../schemas/security-task-output.json
+integrity: {skill_sha256: 6360016e4eccc1ff73985e5d0c8a92232fdd3f8810fbecef9d782f9825b2bf06}

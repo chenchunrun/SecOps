@@ -1,0 +1,11 @@
+api_version: secops/v1
+name: code-audit
+version: 1.0.0
+description: Review source code and produce evidence-backed findings.
+roles: [security_expert, coder]
+capabilities: {required: [file:read, code:analyze]}
+risk: {base: low, parameter_rules: {source_modify: high}}
+runtime: {platforms: [darwin, linux, windows], network: {required: false, allowed_domains: []}, timeout: 10m, output_limit: 20971520}
+input_schema: ../schemas/security-task-input.json
+output_schema: ../schemas/security-task-output.json
+integrity: {skill_sha256: 93b59dc123dfb9b505bf776c4030d5fc78ab3508b8e71bbdc2c931abf3931445}
