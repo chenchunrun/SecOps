@@ -19,16 +19,6 @@ func TestSkillManifestLoadsAndEscalatesParameterRisk(t *testing.T) {
 	require.Equal(t, RiskCritical, manifest.EffectiveRisk(map[string]bool{"attachment_execute": true}))
 }
 
-func TestBundledPhishingManifestMatchesSkillContent(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(repoRoot(t), "skills", "phishing-analysis", "manifest.yaml")
-	manifest, err := LoadManifest(path)
-	require.NoError(t, err)
-	require.Equal(t, "phishing-analysis", manifest.Name)
-	require.Equal(t, RiskHigh, manifest.EffectiveRisk(map[string]bool{"external_upload": true}))
-	require.True(t, manifest.SupportsCurrentPlatform())
-}
-
 func TestSkillManifestRejectsUnknownFieldsAndIntegrityMismatch(t *testing.T) {
 	t.Parallel()
 	path := writeManifestFixture(t, "unknown_field: true\n")

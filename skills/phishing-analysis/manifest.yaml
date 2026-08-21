@@ -26,4 +26,4 @@ runtime:
 input_schema: schemas/input.json
 output_schema: schemas/output.json
 integrity:
-  skill_sha256: 5c4166d55035a0285f2d404b7178d3c4aa1120224cf833c3b8dd4243693aa2bf
+  skill_sha256: 847754524619057de59d64fbfbb203fccb4fa8c41b641e31bdacc233c4920ed3
