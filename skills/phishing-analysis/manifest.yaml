@@ -1,0 +1,29 @@
+api_version: secops/v1
+name: phishing-analysis
+version: 1.0.0
+description: Analyze suspicious email without executing untrusted attachments.
+roles:
+  - security_expert
+capabilities:
+  required:
+    - file:read
+    - threat_intel:query
+risk:
+  base: medium
+  parameter_rules:
+    attachment_execute: critical
+    external_upload: high
+runtime:
+  platforms:
+    - darwin
+    - linux
+    - windows
+  network:
+    required: true
+    allowed_domains: []
+  timeout: 5m
+  output_limit: 10485760
+input_schema: schemas/input.json
+output_schema: schemas/output.json
+integrity:
+  skill_sha256: 5c4166d55035a0285f2d404b7178d3c4aa1120224cf833c3b8dd4243693aa2bf
