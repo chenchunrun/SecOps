@@ -11,6 +11,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/admission"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/config"
+	"github.com/chenchunrun/SecOps/internal/evidence"
 	"github.com/chenchunrun/SecOps/internal/service"
 	"github.com/chenchunrun/SecOps/internal/taskruntime"
 	"github.com/chenchunrun/SecOps/internal/verification"
@@ -32,6 +33,7 @@ type ComputerRuntime struct {
 	VerificationStore   *verification.FileStore
 	VerificationMaker   *verification.Maker
 	VerificationChecker *verification.Checker
+	EvidenceStore       *evidence.FileStore
 	AdmissionStore      admission.Store
 	Admission           *admission.Manager
 	Services            *service.Manager
@@ -73,6 +75,10 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 	verificationChecker, err := verification.NewChecker(verificationStore)
 	if err != nil {
 		return nil, fmt.Errorf("initialize verification checker: %w", err)
+	}
+	evidenceStore, err := evidence.NewFileStore(filepath.Join(runtimeRoot, "evidence"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize evidence store: %w", err)
 	}
 	manager := computer.NewManager()
 	local, err := computer.NewLocalComputer(DefaultLocalComputerID)
@@ -227,6 +233,7 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 		VerificationStore:   verificationStore,
 		VerificationMaker:   verificationMaker,
 		VerificationChecker: verificationChecker,
+		EvidenceStore:       evidenceStore,
 		AdmissionStore:      admissionStore,
 		Admission:           admissionManager,
 		Services:            services,
