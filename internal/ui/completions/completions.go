@@ -96,6 +96,18 @@ func (c *Completions) KeyMap() KeyMap {
 	return c.keyMap
 }
 
+// SetStyles updates the styles used by current and future completion items.
+func (c *Completions) SetStyles(normal, focused, match lipgloss.Style) {
+	c.normalStyle = normal
+	c.focusedStyle = focused
+	c.matchStyle = match
+	for i := 0; i < c.list.Len(); i++ {
+		if item, ok := c.list.ItemAt(i).(*CompletionItem); ok {
+			item.SetStyles(normal, focused, match)
+		}
+	}
+}
+
 // Open opens the completions with file items from the filesystem.
 func (c *Completions) Open(depth, limit int) tea.Cmd {
 	return func() tea.Msg {

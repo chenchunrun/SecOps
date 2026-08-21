@@ -35,6 +35,13 @@ type CompletionItem struct {
 	matchStyle   lipgloss.Style
 }
 
+// SetStyles updates the item palette and invalidates its rendered state.
+func (i *CompletionItem) SetStyles(normal, focused, match lipgloss.Style) {
+	i.normalStyle = normal
+	i.focusedStyle = focused
+	i.matchStyle = match
+}
+
 // NewCompletionItem creates a new completion item.
 func NewCompletionItem(text string, value any, normalStyle, focusedStyle, matchStyle lipgloss.Style) *CompletionItem {
 	return &CompletionItem{

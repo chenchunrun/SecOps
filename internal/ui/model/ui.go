@@ -154,6 +154,7 @@ type UI struct {
 	layout uiLayout
 
 	isTransparent bool
+	themeLocked   bool
 
 	focus uiFocusState
 	state uiState
@@ -312,6 +313,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		continueLastSession: continueLast,
 		runMode:             dialog.RunModeAuto,
 		agentMode:           dialog.AgentModeAuto,
+		themeLocked:         explicitThemeConfigured(os.Getenv("CRUSH_THEME")),
 	}
 
 	if cfg := com.Config(); cfg != nil && cfg.Options != nil {
@@ -363,7 +365,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 
 // Init initializes the UI model.
 func (m *UI) Init() tea.Cmd {
-	var cmds []tea.Cmd
+	cmds := []tea.Cmd{tea.RequestBackgroundColor}
 	if m.state == uiOnboarding {
 		if cmd := m.openModelsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -501,6 +503,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update terminal capabilities
 	m.caps.Update(msg)
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		if !m.themeLocked {
+			m.applyTheme(styles.ThemeForBackground(msg.IsDark()))
+		}
 	case tea.EnvMsg:
 		// Is this Windows Terminal?
 		if !m.sendProgressBar {
@@ -513,6 +519,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.FocusMsg:
 		m.notifyWindowFocused = true
+		cmds = append(cmds, tea.RequestBackgroundColor)
 	case tea.BlurMsg:
 		m.notifyWindowFocused = false
 	case pubsub.Event[notify.Notification]:
@@ -925,6 +932,36 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// should return all cmds anyway.
 	_ = m.attachments.Update(msg)
 	return m, tea.Batch(cmds...)
+}
+
+func (m *UI) applyTheme(theme styles.Theme) {
+	next := styles.DefaultStyles(theme)
+	*m.com.Styles = next
+	m.textarea.SetStyles(next.TextArea)
+	m.completions.SetStyles(next.Completions.Normal, next.Completions.Focused, next.Completions.Match)
+	m.attachments.SetRenderer(attachments.NewRenderer(
+		next.Attachments.Normal,
+		next.Attachments.Deleting,
+		next.Attachments.Image,
+		next.Attachments.Text,
+	))
+	m.todoSpinner.Style = next.Pills.TodoSpinner
+	m.status.RefreshStyles()
+	m.chat.InvalidateStyles()
+	m.header.logo = ""
+	m.header.compactLogo = next.Header.Charm.Render("Charm™") + " " +
+		styles.ApplyBoldForegroundGrad(&next, "SecOps", next.Secondary, next.Primary) + " "
+	m.sidebarLogo = ""
+	m.updateLayoutAndSize()
+}
+
+func explicitThemeConfigured(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "dark", "light":
+		return true
+	default:
+		return false
+	}
 }
 
 // setSessionMessages sets the messages for the current session in the chat

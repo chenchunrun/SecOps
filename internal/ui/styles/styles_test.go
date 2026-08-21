@@ -60,6 +60,24 @@ func TestDefaultStylesHelpHierarchy(t *testing.T) {
 	require.Equal(t, s.Help.ShortDesc.GetForeground(), s.Dialog.Help.ShortDesc.GetForeground())
 }
 
+func TestForegroundPaletteMaintainsReadableContrast(t *testing.T) {
+	t.Parallel()
+
+	forEachTheme(t, func(t *testing.T, _ Theme, s Styles, bg color.Color) {
+		assertContrastAtLeast(t, s.FgBase, bg, minReadableContrast)
+		assertContrastAtLeast(t, s.FgMuted, bg, minReadableContrast)
+		assertContrastAtLeast(t, s.FgHalfMuted, bg, minReadableContrast)
+		assertContrastAtLeast(t, s.FgSubtle, bg, minReadableContrast)
+	})
+}
+
+func TestThemeForBackground(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, ThemeDark, ThemeForBackground(true))
+	require.Equal(t, ThemeLight, ThemeForBackground(false))
+}
+
 func TestDefaultStylesInteractiveContrast(t *testing.T) {
 	t.Parallel()
 

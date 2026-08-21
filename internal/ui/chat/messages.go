@@ -164,6 +164,11 @@ func (c *cachedMessageItem) clearCache() {
 	c.height = 0
 }
 
+// InvalidateCache forces the message to render with the current theme.
+func (c *cachedMessageItem) InvalidateCache() {
+	c.clearCache()
+}
+
 // focusableMessageItem is a base struct for message items that can be focused.
 type focusableMessageItem struct {
 	focused bool
