@@ -17,6 +17,7 @@ type State string
 
 const (
 	StatePending     State = "pending"
+	StatePaused      State = "paused"
 	StateRunning     State = "running"
 	StateVerifying   State = "verifying"
 	StateInterrupted State = "interrupted"
@@ -80,7 +81,7 @@ type Task struct {
 
 func (s State) valid() bool {
 	switch s {
-	case StatePending, StateRunning, StateVerifying, StateInterrupted, StateSucceeded, StateFailed, StateCancelled:
+	case StatePending, StatePaused, StateRunning, StateVerifying, StateInterrupted, StateSucceeded, StateFailed, StateCancelled:
 		return true
 	default:
 		return false
