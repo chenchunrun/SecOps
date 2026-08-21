@@ -42,10 +42,12 @@ func (f *fakeController) Pause(_ context.Context, id string) error {
 	f.calls = append(f.calls, "pause:"+id)
 	return nil
 }
+
 func (f *fakeController) Resume(_ context.Context, id string) error {
 	f.calls = append(f.calls, "resume:"+id)
 	return nil
 }
+
 func (f *fakeController) Cancel(_ context.Context, id string) error {
 	f.calls = append(f.calls, "cancel:"+id)
 	return nil
