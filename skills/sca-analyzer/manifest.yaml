@@ -8,4 +8,4 @@ risk: {base: low, parameter_rules: {dependency_update: high}}
 runtime: {platforms: [darwin, linux, windows], network: {required: true, allowed_domains: []}, timeout: 10m, output_limit: 20971520}
 input_schema: ../schemas/security-task-input.json
 output_schema: ../schemas/security-task-output.json
-integrity: {skill_sha256: cd34fb7af187b9a705edf8cf6d0b71b4bb59934b4cfcf737169855d0255488fb}
+integrity: {skill_sha256: c71a3eb6a66e6b1915e345737c9c06de8f95bcd31735e25ecfe8830733223d44}

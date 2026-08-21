@@ -8,4 +8,4 @@ risk: {base: medium, parameter_rules: {process_kill: critical, host_isolate: cri
 runtime: {platforms: [linux], network: {required: false, allowed_domains: []}, timeout: 10m, output_limit: 20971520}
 input_schema: ../schemas/security-task-input.json
 output_schema: ../schemas/security-task-output.json
-integrity: {skill_sha256: 6360016e4eccc1ff73985e5d0c8a92232fdd3f8810fbecef9d782f9825b2bf06}
+integrity: {skill_sha256: 1994b27d298f45df7ae71b930981f8d4ced25a3649870ca7e8e27e06d758cb4b}
