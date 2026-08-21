@@ -3,7 +3,7 @@ name: office-report
 description: "Office 文档创建、编辑和分析。支持 tracked changes、comments、格式保留和文本提取。用于：(1) 创建新文档，(2) 修改或编辑内容，(3) 处理修订标记，(4) 添加批注，或其他文档任务"
 license: Proprietary. LICENSE.txt has complete terms
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   builtin: true
 ---
 
@@ -219,6 +219,155 @@ Example - Changing "30 days" to "60 days" in a sentence:
      grep "replacement phrase" verification.md  # Should find it
      ```
    - Check that no unintended changes were introduced
+
+
+## 安全映射
+
+### ATT&CK 战术与技术映射
+
+| 战术 | 技术 | ID | Office 文档关联 |
+|------|------|-----|----------------|
+| Initial Access | Phishing | T1566 | .docx/.xlsx 钓鱼附件作为初始载荷 |
+| Initial Access | Spearphishing Attachment | T1566.001 | 恶意 Office 文档邮件附件 |
+| Execution | User Execution | T1204 | 诱导用户打开恶意 Office 文档 |
+| Execution | Command and Scripting Interpreter | T1059 | Office 宏触发脚本执行 |
+| Defense Evasion | Obfuscated Files or Information | T1027 | Office 文档中隐藏的宏代码和混淆载荷 |
+| Defense Evasion | Process Injection | T1055 | Office 文档注入到系统进程 |
+| Credential Access | Credentials from Password Stores | T1555 | 文档中嵌入的凭证窃取宏 |
+| Collection | Data from Information Repositories | T1213 | 通过文档共享平台收集文档 |
+| Exfiltration | Exfiltration Over Web Service | T1567 | 文档通过云服务外泄 |
+| Impact | Data Encrypted for Impact | T1486 | 勒索软件通过 Office 文档传播 |
+
+### OWASP Top 10 映射
+
+| OWASP 类别 | CWE | Office 文档风险 |
+|-----------|------|----------------|
+| A01 Broken Access Control | CWE-862 | 文档权限控制缺失导致未授权访问 |
+| A03 Injection | CWE-94 | 宏代码注入和代码执行 |
+| A05 Security Misconfiguration | CWE-16 | Office 安全默认设置不当（宏启用） |
+| A08 Software and Data Integrity Failures | CWE-506 | 文档完整性验证缺失，嵌入恶意内容 |
+| A09 Security Logging and Monitoring Failures | CWE-778 | 文档操作审计日志不足 |
+
+### CVE 参考表
+
+| CVE | 描述 | 影响 |
+|-----|------|------|
+| CVE-2023-36884 | Office RCE 漏洞 | 远程代码执行 |
+| CVE-2023-21716 | Word RTF RCE | 远程代码执行 |
+| CVE-2022-30190 | Follina MSDT RCE | 通过 Office 触发 |
+| CVE-2021-44444 | MSHTML RCE | 通过 Office 文档触发 |
+| CVE-2017-11882 | Equation Editor RCE | 经典 Office 漏洞 |
+
+### Sigma 检测规则
+
+**规则1: Office 宏执行检测**
+```yaml
+title: Suspicious Office Macro Execution
+status: experimental
+description: 检测 Office 文档宏代码执行行为
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    ParentImage|endswith:
+      - winword.exe
+      - excel.exe
+      - powerpnt.exe
+    Image|endswith:
+      - powershell.exe
+      - cmd.exe
+      - wscript.exe
+      - mshta.exe
+  condition: selection
+level: high
+tags:
+  - attack.t1204.002
+  - attack.t1059
+  - attack.t1566.001
+```
+
+**规则2: Office 文档子进程异常**
+```yaml
+title: Office Application Spawning Unusual Child Process
+status: experimental
+description: Office 应用程序生成异常子进程，可能为文档漏洞利用
+detection:
+  selection:
+    ParentImage|endswith:
+      - winword.exe
+      - excel.exe
+      - powerpnt.exe
+      - outlook.exe
+    Image|endswith:
+      - rundll32.exe
+      - regsvr32.exe
+      - certutil.exe
+  condition: selection
+level: critical
+tags:
+  - attack.t1204.002
+  - attack.t1055
+  - attack.t1027
+```
+
+### IOC 采集指引
+
+| IOC 类型 | 采集方法 | Office 关联 |
+|---------|---------|-------------|
+| 文件哈希 | 计算文档 MD5/SHA256 | 识别恶意文档变体 |
+| 宏代码 | 提取 VBA 宏源码 | 匹配已知恶意宏 |
+| 嵌入URL | 解析文档中的超链接/宏URL | C2 通信地址 |
+| 元数据 | 提取作者/公司/创建时间 | 归因分析 |
+| OLE对象 | 解析嵌入对象 | 检测漏洞利用载荷 |
+
+### 合规标准参考
+
+| 标准 | 适用场景 | Office 文档要求 |
+|------|---------|---------------|
+| GDPR Art. 32 | 数据保护 | 含个人数据的文档需加密和访问控制 |
+| PIPL 第51条 | 个人信息保护 | 文档中的个人信息需脱敏处理 |
+| ISO 27001 A.8.3 | 信息分类 | 文档需按密级标记和管理 |
+| ISO 27001 A.5.12 | 信息分类 | 文档分类与标记 |
+| PCI DSS 3.4 | 卡数据保护 | 含卡数据的文档需加密存储 |
+| NIST SP 800-53 AC-3 | 访问控制 | 文档访问权限执行 |
+| NIST SP 800-53 AU-2 | 审计事件 | 文档操作需记录审计日志 |
+| NIST SP 800-171 3.1.1 | CUI 保护 | 非联邦系统中保护 CUI 文档 |
+
+### 跨技能工作流
+
+**工作流1: 钓鱼文档分析**
+```
+mail-attachment-downloader → 下载可疑 Office 文档
+→ office-report: 提取宏代码和嵌入对象
+→ url-analysis: 分析文档中的 URL
+→ ttp-extractor: 提取攻击技术
+→ pdf-report: 生成分析报告
+```
+
+**工作流2: 文档取证**
+```
+windows-ir/linux-ir: 发现可疑 Office 文档
+→ office-report: 解包分析 XML 结构
+→ office-malware-analyzer: 深度恶意行为分析
+→ pdf-report: 生成取证报告
+```
+
+**工作流3: 合规文档处理**
+```
+data-desensitize: 识别文档中的敏感信息
+→ office-report: 执行文档修改和版本追踪
+→ pdf-report: 生成合规审计报告
+```
+
+### 误报排除指南
+
+| 场景 | 排除方法 |
+|------|----------|
+| 合法宏文档 | 检查数字签名和宏来源 |
+| 企业模板 | 对比已知模板哈希 |
+| 共享文档协作 | 验证 OneDrive/SharePoint 同步日志 |
+| 自动化报告生成 | 确认生成脚本来源可信 |
 
 
 ## Converting Documents to Images

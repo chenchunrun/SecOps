@@ -2,7 +2,7 @@
 name: asset-monitor
 description: 企业攻击面资产发现、持续监控与安全基线检测。当用户要求"监控域名"、"资产发现"、"子域名枚举"、"攻击面测绘"、"资产变更"、"扫描资产"、"查看资产"、"EASM"、"两高一弱"、"高危漏洞检测"、"高危端口检测"、"弱口令检测"、"安全基线检测"、"暴露面分析"时使用此技能。
 metadata:
-  version: 4.2.0
+  version: 4.3.0
   builtin: true
 ---
 
@@ -429,6 +429,234 @@ asm_acknowledge_change: id=xxx  // 处理后确认
 | 可疑域名 | `domain-analysis` |
 | 外部 IP | `ip-analysis` |
 | Web 服务 | `url-analysis` |
+
+---
+
+---
+
+## ATT&CK 技术映射表
+
+资产监控作为攻击面管理（ASM）技能，覆盖攻击者的侦察和初始访问阶段。
+
+| 战术 | 技术 | 子技术 | 资产监控关联 |
+|------|------|--------|-------------|
+| Reconnaissance | T1595 | Active Scanning | 检测对资产的端口扫描和服务探测 |
+| Reconnaissance | T1595.001 | Scanning IP Blocks | 监控 CIDR 范围内的扫描活动 |
+| Reconnaissance | T1595.002 | Vulnerability Scanning | 检测针对暴露资产的漏洞扫描 |
+| Reconnaissance | T1592 | Gather Victim Host Info | 资产指纹信息（OS/服务/版本）被攻击者收集 |
+| Reconnaissance | T1592.001 | Hardware | 资产硬件信息暴露 |
+| Reconnaissance | T1592.002 | Software | 资产软件版本信息暴露 |
+| Reconnaissance | T1592.004 | Client Configurations | 客户端配置信息泄露 |
+| Reconnaissance | T1590 | Gather Victim Host Information | 子域名/IP/端口等基础设施侦察 |
+| Reconnaissance | T1590.001 | Domains | 子域名枚举监控 |
+| Reconnaissance | T1590.002 | DNS | DNS 解析历史和子域名发现 |
+| Reconnaissance | T1590.004 | Mail | 邮件服务器资产发现 |
+| Reconnaissance | T1590.005 | IP Addresses | IP 资产发现和变更监控 |
+| Reconnaissance | T1589 | Gather Victim Identity Info | 通过 ICP 备案查询获取企业身份信息 |
+| Initial Access | T1190 | Exploit Public-Facing Application | 暴露面资产被利用入口 |
+| Initial Access | T1566 | Phishing | 邮件系统资产暴露作为钓鱼目标 |
+| Discovery | T1046 | Network Service Discovery | 高危端口扫描和服务发现 |
+| Discovery | T1082 | System Information Discovery | 资产指纹和版本信息收集 |
+| Defense Evasion | T1036 | Masquerading | 资产伪装检测（非标准端口/服务不匹配） |
+| Defense Evasion | T1105 | Ingress Tool Transfer | 检测可疑文件传输到暴露资产 |
+| Exfiltration | T1567 | Exfiltration Over Web Service | 数据通过暴露的 Web 资产外传 |
+
+### ATT&CK 缓解措施
+
+| Mitigation ID | 名称 | 资产监控关联 |
+|--------------|------|-------------|
+| M1056 | Precompromise | 资产发现和攻击面缩减（Attack Surface Reduction） |
+| M1041 | Encrypt Sensitive Information | 敏感资产加密通信（HTTPS） |
+| M1042 | Disable or Remove Unnecessary Services | 关闭不必要的高危端口和服务 |
+| M1035 | Limit Access to Resource Over Network | 资产访问控制（IP 白名单/WAF） |
+| M1032 | Multi-factor Authentication | 管理后台和多因子认证 |
+
+---
+
+## OWASP Top 10 映射表
+
+攻击面资产暴露与 Web 安全风险交叉映射。
+
+| OWASP 类别 | CWE | ATT&CK | 资产监控关联 |
+|------------|-----|--------|-------------|
+| A01 — Broken Access Control | CWE-284 | T1190 | 管理后台暴露（admin.* 子域名） |
+| A02 — Cryptographic Failures | CWE-319 | T1040 | 资产明文协议暴露（HTTP/Telnet/FTP） |
+| A03 — Injection | CWE-89 | T1190 | 存在漏洞的 Web 应用资产 |
+| A04 — Insecure Design | CWE-209 | T1592 | 资产信息泄露（错误信息/banner） |
+| A05 — Security Misconfiguration | CWE-16 | T1036 | 默认凭证/配置错误的服务暴露 |
+| A06 — Vulnerable & Outdated Components | CWE-1035 | T1592.002 | 过时软件版本和服务暴露 |
+| A07 — Identification & Authentication Failures | CWE-287 | T1566 | 弱口令和认证缺失资产 |
+| A08 — Software & Data Integrity Failures | CWE-506 | T1190 | 未签名/不可信的代码部署 |
+| A09 — Security Logging & Monitoring Failures | CWE-778 | T1595 | 资产变更和扫描行为缺乏监控 |
+| A10 — SSRF | CWE-918 | T1190 | 内网资产被 SSRF 利用 |
+
+---
+
+## Sigma 检测规则
+
+### 规则 1: 高危端口暴露检测
+
+```yaml
+title: 高危端口暴露到公网
+id: 5a3c2d8e-1b2c-4d5e-9f01-a2b3c4d5e6f7
+status: experimental
+description: 检测防火墙日志中暴露在公网的高危端口（SSH/RDP/数据库等）
+author: asset-monitor
+logsource:
+    product: firewall
+    service: connection
+detection:
+    selection:
+        action: accept
+        dst_port:
+            - 22
+            - 23
+            - 445
+            - 1433
+            - 3306
+            - 3389
+            - 5432
+            - 6379
+            - 27017
+            - 9200
+    condition: selection
+falsepositives:
+    - 合法运维管理访问（需验证白名单）
+level: high
+tags:
+    - attack.reconnaissance
+    - attack.discovery
+    - attack.t1595
+    - attack.t1046
+    - owasp.a05.2021
+```
+
+### 规则 2: 子域名异常变更检测
+
+```yaml
+title: 新增可疑子域名告警
+id: 7e8f9a0b-1c2d-4e3f-8a90-b1c2d3e4f5a6
+status: experimental
+description: 检测 DNS 日志中新增的包含高危关键词的子域名（可能是影子资产或攻击者注册）
+author: asset-monitor
+logsource:
+    product: dns
+    service: query
+detection:
+    selection_new:
+        event_type: answer
+        answer_type: A
+    filter_high_risk:
+        query:
+            contains:
+                - admin
+                - dev
+                - test
+                - staging
+                - uat
+                - git
+                - jenkins
+                - vpn
+                - sslvpn
+                - backup
+                - internal
+    condition: selection_new and filter_high_risk
+falsepositives:
+    - 业务部门合法新增子域名
+    - DNS 缓存残留记录
+level: medium
+timeframe: 24h
+tags:
+    - attack.reconnaissance
+    - attack.t1590.001
+    - attack.t1590.002
+    - owasp.a05.2021
+```
+
+---
+
+## CVE 参考表
+
+资产监控需要关注的典型 CVE 暴露场景。
+
+| CVE | 漏洞名称 | 影响资产类型 | 检测方法 |
+|-----|---------|-------------|----------|
+| CVE-2021-44228 | Log4Shell (Log4j RCE) | Java Web 应用 | `cyberspace-search: hostname="*.com" && vuln="Log4Shell"` |
+| CVE-2022-22965 | Spring4Shell (Spring RCE) | Spring Framework 应用 | `cyberspace-search: hostname="*.com" && vuln="Spring4Shell"` |
+| CVE-2017-0144 | EternalBlue (MS17-010) | Windows SMB (445) | `cyberspace-search: port=445 && vuln!=""` |
+| CVE-2019-0708 | BlueKeep (RDP RCE) | Windows RDP (3389) | `cyberspace-search: port=3389 && vuln!=""` |
+| CVE-2021-26855 | ProxyLogon (Exchange) | Exchange 邮件服务器 | `cyberspace-search: hostname="*mail*" && vuln!=""` |
+
+---
+
+## IOC 采集指引
+
+资产监控过程中提取的 IOC 应标准化存储并转发到下游分析技能。
+
+| IOC 类型 | 采集来源 | 格式 | 优先级 | 处置 |
+|---------|---------|------|--------|------|
+| 恶意 IP | 端口扫描源 IP / 资产访问日志 | IPv4/IPv6 | 🔴 高 | 转发 → `ip-analysis` |
+| 可疑域名 | 新增子域名 / DNS 变更 | FQDN | 🟡 中 | 转发 → `domain-analysis` |
+| 恶意 URL | Web 应用漏洞扫描结果 | HTTP/HTTPS URL | 🔴 高 | 转发 → `url-analysis` |
+| 暴露端口 | 端口扫描结果 | IP:Port | 🔴 高 | 记录 → `asm_create_assets` |
+| 服务 Banner | 资产指纹识别 | 字符串 | 🟡 中 | 记录 → `attributes.banner` |
+| SSL 证书信息 | 证书监控 | PEM/Subject/Issuer | 🟡 中 | 记录 → `attributes.certificate` |
+| CVE 标识 | 漏洞扫描结果 | CVE-YYYY-NNNNN | 🔴 高 | 转发 → `researching-vulnerabilities` |
+| ICP 备案 | 企业资产关联 | JSON | 🟢 低 | 记录 → `target.attributes` |
+| 资产指纹 | 服务版本识别 | Server/Version 字符串 | 🟡 中 | 记录 → `attributes.service` |
+| 变更记录 | 资产对比 | JSON (added/removed/changed) | 🟡 中 | 记录 → `asm_list_changes` |
+
+---
+
+## 合规标准参考
+
+| 标准 | 章节 | 资产监控关联 |
+|------|------|-------------|
+| ISO 27001 | A.8.1 资产管理 | 资产清单和分类是 ISMS 基础 |
+| ISO 27001 | A.12.5 运行软件技术漏洞 | 暴露面漏洞检测和修复验证 |
+| ISO 27001 | A.13.1 网络安全管理 | 高危端口暴露和网络分段验证 |
+| NIST SP 800-53 | RA-3 风险评估 | 资产风险评估和暴露面分析 |
+| NIST SP 800-53 | CM-8 信息系统资产清单 | 资产发现和持续监控 |
+| NIST SP 800-53 | SC-7 边界保护 | 高危端口暴露检测和访问控制 |
+| NIST SP 800-40 | 补丁管理 | 漏洞资产识别和修复优先级 |
+| NIST CSF | Identify (ID.AM) | 资产识别是网络安全框架基础 |
+| GDPR | Art.32 | 安全措施需要资产可见性和暴露面管理 |
+| PIPL | 第五十五条 | 重要数据资产的安全风险评估 |
+| 等保2.0 | 第八章 网络通信安全 | 资产发现和高危端口检测是网络边界安全基础 |
+| 等保2.0 | 第九章 环境安全 | 资产清单和攻击面管理是环境安全基线 |
+
+---
+
+## 跨技能工作流
+
+### 工作流 1: 资产发现 → 深度分析
+
+```
+asset-monitor (发现资产)
+  ├→ domain-analysis (可疑域名深度分析)
+  ├→ ip-analysis (恶意 IP 关联分析)
+  ├→ url-analysis (Web 服务 URL 分析)
+  └→ researching-vulnerabilities (漏洞研究和验证)
+```
+
+### 工作流 2: 资产变更 → 应急响应
+
+```
+asset-monitor (检测变更)
+  ├→ traffic-analysis (关联流量异常)
+  ├→ linux-ir / windows-ir / macos-ir (主机应急响应)
+  └→ ttp-extractor (提取攻击者 TTP)
+```
+
+### 工作流 3: 暴露面报告 → 安全评估
+
+```
+asset-monitor (攻击面报告)
+  ├→ asset-discovery (补充资产发现)
+  ├→ code-audit (暴露 Web 应用代码审计)
+  ├→ pdf-report (生成评估报告)
+  └→ data-desensitize (报告脱敏处理)
+```
 
 ---
 

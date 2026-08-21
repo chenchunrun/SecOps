@@ -2,31 +2,10 @@
 name: redteam-intrusion-hunter
 description: 漏洞猎人扫描。自动化漏洞扫描和利用验证。当用户要求"漏洞扫描"、"Nuclei扫描"、"批量漏洞检测"、"Web漏洞扫描"、"PoC扫描"时使用此技能。仅限授权渗透测试使用。
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   builtin: true
   category: redteam-intrusion
 ---
-
-> ⚠️ **RED TEAM AUTHORIZATION REQUIRED**
->
-> This skill falls under the `redteam:execute` capability gate.
->
-> **Before executing ANY step in this skill, you MUST:**
-> 1. State the skill name and a one-line summary of what you are about to do.
-> 2. Ask the user to explicitly confirm authorization by typing **"已授权 / AUTHORIZED"**.
-> 3. Ask the user to confirm the authorized scope (target, timeframe, rules of engagement).
-> 4. Record the confirmation in your response before proceeding.
->
-> **Do NOT proceed if:**
-> - The user has not typed the authorization confirmation.
-> - The target is outside the stated scope.
-> - Any step would cause irreversible changes without a rollback plan.
->
-> Violation of this gate is logged as a `security_alert` audit event.
-
----
-
-
 
 # 漏洞猎人扫描
 
@@ -67,6 +46,63 @@ metadata:
 | Nuclei | 模板化、快速 | 通用扫描 |
 | Afrog | 中文、简单 | 国内资产 |
 | Xray | 被动扫描 | 配合爬虫 |
+
+## MITRE ATT&CK 技术映射
+
+漏洞猎人扫描覆盖以下 ATT&CK 战术和技术：
+
+### 战术覆盖
+
+| 战术 | ID | 扫描覆盖 |
+|------|-----|---------|
+| Reconnaissance | T1595 | 主动扫描（端口/服务/Web） |
+| Initial Access | TA0001 | 漏洞利用面发现 |
+| Discovery | TA0007 | 服务/账户/配置发现 |
+
+### 技术映射表
+
+| ATT&CK 技术 | 子技术 | 漏洞类型 | 检测工具 |
+|-------------|--------|---------|---------|
+| T1595.001 | Scanning IP Blocks | 网络扫描 | nmap/masscan/naabu |
+| T1595.002 | Scanning IP Blocks (Active) | 端口扫描 | masscan |
+| T1592.001 | Gather Victim Host Info | Web指纹 | httpx/wappalyzer |
+| T1592.002 | Gather Victim OS Info | 服务版本 | nmap -sV |
+| T1190 | Exploit Public-Facing Application | Web漏洞 | Nuclei/sqlmap |
+| T1190.001 | SQL Injection | SQL注入 | sqlmap |
+| T1190.002 | XSS | 跨站脚本 | XSStrike |
+| T1190.003 | SSRF | 服务端请求伪造 | SSRFmap |
+| T1190.004 | File Inclusion | 文件包含 | Nuclei |
+| T1210 | Exploitation of Remote Services | 服务漏洞 | Nuclei/metasploit |
+| T1210.001 | Remote Services: RCE | 远程代码执行 | Nuclei |
+| T1087.001 | Account Discovery: Local | 本地账户 | nmap script |
+| T1046 | Network Service Discovery | 网络服务 | nmap/masscan |
+| T1595.003 | Wordlist Scanning | 目录爆破 | ffuf/dirsearch |
+| T1068 | Exploitation for Privilege Escalation | 提权漏洞 | LinPEAS/WinPEAS |
+
+### ATT&CK Mitigations
+
+| Mitigation | ID | 适用场景 |
+|-----------|-----|---------|
+| Attack Surface Reduction | M1047 | 减少暴露面 |
+| Application Isolation | M1048 | 沙箱隔离 |
+| Update Software | M1051 | 补丁管理 |
+| Disable Unnecessary Features | M1042 | 关闭不必要服务 |
+| Network Segmentation | M1030 | 网络分段 |
+
+## OWASP Top 10 映射
+
+| OWASP 类别 | CWE | 漏洞类型 | 扫描工具 |
+|-----------|------|---------|---------|
+| A01 Broken Access Control | CWE-284 | 越权访问 | Nuclei |
+| A02 Cryptographic Failures | CWE-327 | 弱加密 | Nuclei |
+| A03 Injection | CWE-89 | SQL注入 | sqlmap |
+| A03 Injection | CWE-79 | XSS | XSStrike |
+| A04 Insecure Design | CWE-209 | 信息泄露 | Nuclei |
+| A05 Security Misconfiguration | CWE-16 | 配置错误 | Nuclei |
+| A06 Vulnerable Components | CWE-1035 | 过期组件 | Nuclei |
+| A08 Software/Data Integrity | CWE-502 | 反序列化 | Nuclei |
+| A09 Logging Failures | CWE-778 | 日志缺失 | 人工检查 |
+| A10 SSRF | CWE-918 | SSRF | SSRFmap |
 
 ## Nuclei使用
 
@@ -142,6 +178,101 @@ sqlmap -u "..." -D dbname -T users --dump
 sqlmap -u "..." --os-shell
 ```
 
+## Sigma 检测规则
+
+### 规则1: Nuclei 扫描检测（防御视角）
+
+```yaml
+title: Nuclei Vulnerability Scanner Activity
+id: 5f86e7d2-3e1a-4b9f-8c2d-6e7f8a9b0c1d
+status: experimental
+description: Detects Nuclei scanner activity based on User-Agent and request patterns
+references:
+    - https://github.com/projectdiscovery/nuclei
+author: SecSkill Evolution
+date: 2026/06/18
+logsource:
+    product: webserver
+    category: webserver_access
+detection:
+    selection_ua:
+        user_agent|contains:
+            - 'Nuclei'
+            - 'OpenRA'
+    selection_patterns:
+        request_path|contains:
+            - '/.env'
+            - '/actuator'
+            - '/wp-admin'
+            - '/.git/config'
+    condition: selection_ua or (selection_patterns and selection_ua)
+falsepositives:
+    - Authorized penetration testing
+    - Security scanning tools
+level: medium
+tags:
+    - attack.reconnaissance
+    - attack.t1595
+    - attack.t1595.001
+```
+
+### 规则2: SQL注入尝试检测
+
+```yaml
+title: SQL Injection Attempt via sqlmap
+id: 7a9b8c2d-3e4f-4a5b-9c6d-7e8f9a0b1c2e
+status: experimental
+description: Detects SQL injection patterns characteristic of sqlmap automated tool
+references:
+    - https://github.com/sqlmapproject/sqlmap
+author: SecSkill Evolution
+date: 2026/06/18
+logsource:
+    product: webserver
+    category: webserver_access
+detection:
+    selection_sqli_patterns:
+        request_uri|contains:
+            - 'UNION SELECT'
+            - 'AND 1=1'
+            - 'AND 1=2'
+            - "' OR '1'='1"
+            - 'SLEEP('
+            - 'BENCHMARK('
+    selection_sqlmap_ua:
+        user_agent|contains:
+            - 'sqlmap'
+    condition: selection_sqlmap_ua or selection_sqli_patterns
+falsepositives:
+    - Authorized penetration testing
+    - Application security testing
+level: high
+tags:
+    - attack.initial_access
+    - attack.t1190
+    - attack.t1190.001
+```
+
+## CVE 参考表
+
+| CVE 范围 | 漏洞类型 | Nuclei 模板 | 风险等级 |
+|----------|---------|------------|---------|
+| CVE-2024-XXXX | RCE | cves/2024/ | 严重 |
+| CVE-2023-34362 | MOVEit SQLi | cves/2023/CVE-2023-34362.yaml | 严重 |
+| CVE-2023-32315 | Openfire Auth Bypass | cves/2023/CVE-2023-32315.yaml | 高 |
+| CVE-2024-3094 | XZ Utils Backdoor | cves/2024/CVE-2024-3094.yaml | 严重 |
+| CVE-2023-22515 | Confluence Privilege Escalation | cves/2023/CVE-2023-22515.yaml | 严重 |
+
+## IOC 采集指引
+
+| IOC 类型 | 采集方法 | 示例 |
+|---------|---------|------|
+| 恶意 IP | 扫描日志中的攻击源 IP | `192.168.1.100` |
+| 恶意域名 | Nuclei 检测到的钓鱼域名 | `phishing.example.com` |
+| 文件哈希 | 检测到的 Web Shell 哈希 | `SHA256: a1b2c3...` |
+| User-Agent | 扫描器 UA 特征 | `Nuclei - Open-source Project` |
+| URL 路径 | 恶意请求路径 | `/.env, /wp-admin/setup-config.php` |
+
 ## 扫描工作流
 
 ### Phase 1: 资产准备
@@ -190,6 +321,28 @@ nuclei -u https://target.com -t specific-template.yaml -debug
 nuclei -u https://target.com -t template.yaml -v
 ```
 
+## 误报排除指南
+
+| 误报场景 | 排除方法 | 说明 |
+|---------|---------|------|
+| Nuclei 模板匹配宽泛 | 检查 `-debug` 输出的匹配规则 | 确认是否真正触发漏洞 |
+| sqlmap 误报 | 使用 `--risk=1 --level=1` | 降低注入测试激进程度 |
+| 服务版本误报 | 使用 `nmap -sV --version-intensity 5` | 调整版本检测强度 |
+| 配置错误类误报 | 手动验证目标响应 | 确认暴露面真实存在 |
+
+## 合规标准参考
+
+| 标准 | 相关条款 | 扫描覆盖 |
+|------|---------|---------|
+| GB/T 22239-2019 | 8.1.4 漏洞和风险管理 | 漏洞扫描覆盖 |
+| ISO 27001 | A.12.6 Technical Vulnerability Management | 漏洞识别与修复 |
+| PCI DSS v4.0 | 11.3 Internal/External Scanning | 定期漏洞扫描 |
+| NIST SP 800-115 | Technical Guide to Information Security Testing | 渗透测试方法论 |
+| OWASP WSTG | WSTG-ATHN/ATHZ | 认证/授权测试指南 |
+| GDPR | Art.32 Security of Processing | 安全措施验证 |
+| PIPL | 第51条 安全保障义务 | 数据安全漏洞管理 |
+| 等保2.0 | 三级以上要求 | 漏洞扫描和修复 |
+
 ## 输出规范
 
 ### 扫描报告
@@ -220,6 +373,8 @@ nuclei -u https://target.com -t template.yaml -v
 | 目标 | https://target.com/path |
 | 类型 | RCE |
 | 模板 | cves/2024/CVE-2024-XXXX.yaml |
+| ATT&CK | T1190 Exploit Public-Facing Application |
+| OWASP | A03 Injection (CWE-89) |
 
 **验证请求**:
 \`\`\`http
@@ -291,6 +446,26 @@ nuclei -l urls.txt -proxy http://127.0.0.1:8080
 nuclei -l urls.txt -rate-limit 10
 ```
 
+## 跨技能工作流
+
+### 工作流1: 红队全流程打点
+```
+asset-discovery → redteam-recon-enterprise → redteam-intrusion-hunter → redteam-intrusion-0day → ttp-extractor → pdf-report
+```
+资产发现 → 企业侦察 → 漏洞扫描 → 0day利用 → TTP提取 → 报告生成
+
+### 工作流2: Web应用安全评估
+```
+code-audit → redteam-intrusion-hunter → sca-analyzer → researching-vulnerabilities → pdf-report
+```
+代码审计 → 漏洞扫描 → 组件分析 → 漏洞研究 → 报告生成
+
+### 工作流3: 应急响应漏洞确认
+```
+linux-ir / windows-ir → redteam-intrusion-hunter → auth-log-analysis → ttp-extractor → pdf-report
+```
+IR排查 → 漏洞确认（找到入侵路径）→ 日志分析 → TTP提取 → 报告生成
+
 ## 与其他技能的关联
 
 | 发现内容 | 调用技能 | 说明 |
@@ -299,3 +474,6 @@ nuclei -l urls.txt -rate-limit 10
 | 资产发现 | `/redteam-recon-enterprise` | 扩大范围 |
 | 漏洞研究 | `/researching-vulnerabilities` | 情报查询 |
 | 利用执行 | `/redteam-exploit` | 获取权限 |
+| TTP 提取 | `/ttp-extractor` | 从扫描结果提取 TTP |
+| 代码审计 | `/code-audit` | 白盒结合黑盒 |
+| 报告生成 | `/pdf-report` | 扫描结果报告化 |

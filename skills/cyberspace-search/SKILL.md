@@ -6,7 +6,7 @@ description: |
   "绕过CDN"、"查C段"、"同C段"、"证书关联"、"图标搜索"、"IOC关联"、"动态DNS"、
   "僵尸网络"、"恶意软件家族"时使用此技能。
 metadata:
-  version: 2.2.0
+  version: 2.3.0
   builtin: true
 ---
 
@@ -182,6 +182,150 @@ domain="linkpc.net"    # 98+ 关联资产
 ```
 
 ---
+
+## 安全映射
+
+### ATT&CK 战术与技术映射
+
+| 战术 | 技术 | ID | 网空搜索关联 |
+|------|------|-----|-------------|
+| Reconnaissance | Active Scanning | T1595 | 通过网空搜索进行主动资产扫描 |
+| Reconnaissance | Scanning IP Blocks | T1595.001 | C段扫描和IP段发现 |
+| Reconnaissance | Gather Victim Host Info | T1592 | 收集目标主机信息（端口/服务/证书） |
+| Reconnaissance | Gather Victim Identity Info | T1589 | 通过证书/域名关联收集身份信息 |
+| Reconnaissance | Search Open Technical Databases | T1596 | 查询公开技术数据库（类似网空搜索） |
+| Reconnaissance | Search Open Technical Databases — DNS | T1596.002 | DNS记录查询和关联 |
+| Reconnaissance | Search Open Technical Databases — WHOIS | T1596.001 | WHOIS查询和关联 |
+| Reconnaissance | Search Open Technical Databases — Digital Certificates | T1596.003 | SSL证书搜索和关联 |
+| Reconnaissance | Search Open Websites/Domains | T1593 | 开放网络资源搜索 |
+| Discovery | Network Service Discovery | T1046 | 端口和服务发现 |
+| Command and Control | Encrypted Channel | T1573 | C2基础设施证书特征搜索 |
+| Initial Access | External Remote Services | T1133 | 远程服务入口发现 |
+| Defense Evasion | Hidden Marking | T1027 | 隐蔽C2基础设施识别 |
+| Collection | Data from Information Repositories | T1213 | 公开信息仓库收集 |
+
+### OWASP Top 10 映射
+
+| OWASP 类别 | CWE | 网空搜索关联 |
+|-----------|------|-------------|
+| A01 Broken Access Control | CWE-200 | 信息暴露导致未授权访问 |
+| A04 Insecure Design | CWE-209 | 暴露敏感系统信息 |
+| A05 Security Misconfiguration | CWE-16 | 服务配置错误（开放端口/默认凭证） |
+| A06 Vulnerable & Outdated Components | CWE-1035 | 过时服务版本和服务指纹 |
+| A08 Software and Data Integrity Failures | CWE-506 | 恶意基础设施检测 |
+
+### CVE 参考表
+
+| CVE | 描述 | 网空搜索应用 |
+|-----|------|-------------|
+| CVE-2021-44228 | Log4Shell | 搜索 Java 应用+443端口潜在目标 |
+| CVE-2023-46604 | Apache ActiveMQ RCE | 搜索 61616 端口开放服务 |
+| CVE-2024-21887 | Ivanti Connect Secure RCE | 搜索 Ivanti 设备特征证书 |
+| CVE-2023-23375 | Microsoft Power Platform RCE | 搜索特定端口和特征 |
+| CVE-2022-26134 | Atlassian Confluence OGNL RCE | 搜索 Confluence 实例 |
+
+### Sigma 检测规则
+
+**规则1: C2 基础设施搜索检测**
+```yaml
+title: Suspicious Cyberspace Search for C2 Infrastructure
+status: experimental
+description: 检测通过网空搜索API查询已知C2基础设施特征
+detection:
+  selection:
+    EventType: "api_call"
+    CommandLine|contains:
+      - "ssl=\"6ECE5ECE4192683D2D84E25B0BA7E04F9CB7EB7C\""
+      - "port=\"50050\""
+      - "iconhash:\"f3418a443e7d841097c714d69ec4bcb8\""
+  condition: selection
+level: medium
+tags:
+  - attack.t1595
+  - attack.t1596.003
+```
+
+**规则2: 大规模资产测绘行为检测**
+```yaml
+title: Bulk Asset Discovery via Cyberspace Search
+status: experimental
+description: 检测大规模网空资产测绘行为，可能为攻击侦察阶段
+detection:
+  selection:
+    EventType: "api_call"
+    QueryType|contains:
+      - "cidr="
+      - "hostname=*."
+    Count|gt: 50
+  condition: selection and Count > 50
+level: low
+tags:
+  - attack.t1595.001
+  - attack.t1592
+```
+
+### IOC 采集指引
+
+| IOC 类型 | 采集方法 | 网空搜索应用 |
+|---------|---------|-------------|
+| IP 地址 | 搜索结果提取 | C2服务器/钓鱼站点IP |
+| SSL证书指纹 | ssl语法搜索 | C2证书关联 |
+| 域名 | hostname语法搜索 | 恶意域名和子域名 |
+| 端口 | port语法筛选 | 异常端口开放服务 |
+| 图标哈希 | iconhash语法 | 同源钓鱼站点 |
+| 响应体特征 | body语法搜索 | Webshell/后门特征 |
+| DNS记录 | 域名关联查询 | DNS绑定和CDN绕过 |
+
+### 合规标准参考
+
+| 标准 | 适用场景 | 网空搜索关联 |
+|------|---------|-------------|
+| GDPR Art. 32 | 数据安全 | 发现暴露的个人数据服务 |
+| ISO 27001 A.8.9 | 技术漏洞管理 | 资产测绘发现暴露的漏洞服务 |
+| ISO 27001 A.5.7 | 威胁情报 | 威胁狩猎数据源 |
+| NIST SP 800-53 RA-3 | 风险评估 | 资产风险评估数据源 |
+| NIST SP 800-53 SC-5 | 拒绝服务防护 | C2基础设施发现 |
+| PCI DSS 11.2 | 内外部扫描 | 外部攻击面发现 |
+| NIST CSF Identify | 资产识别 | 资产发现和分类 |
+| NIST SP 800-40 | 补丁管理 | 暴露服务版本识别 |
+
+### 跨技能工作流
+
+**工作流1: C2 追踪与威胁狩猎**
+```
+流量分析/linux-ir: 发现可疑C2 IP
+→ cyberspace-search: C2基础设施全网搜索
+→ domain-analysis: 关联域名分析
+→ ip-analysis: IP威胁情报
+→ ttp-extractor: 提取攻击技术
+→ pdf-report: 生成威胁狩猎报告
+```
+
+**工作流2: 攻击面管理**
+```
+asset-discovery: 内部资产清单
+→ cyberspace-search: 外部暴露面搜索
+→ brand-impersonation: 品牌仿冒检测
+→ pdf-report: 生成攻击面报告
+```
+
+**工作流3: 钓鱼基础设施追踪**
+```
+phishing-analysis: 发现钓鱼站点
+→ cyberspace-search: 图标哈希/证书关联搜索
+→ url-analysis: URL分析
+→ ttp-extractor: 攻击技术提取
+```
+
+### 误报排除指南
+
+| 场景 | 排除方法 |
+|------|----------|
+| CDN IP | 检查是否为已知CDN服务商IP段 |
+| 共享主机 | 同IP多个域名可能是虚拟主机而非C2 |
+| 云服务 | AWS/Azure/GCP IP段排除 |
+| 历史数据 | 搜索结果可能过期，需端口验证确认存活 |
+
 
 ## 参考文件
 

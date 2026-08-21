@@ -2,7 +2,7 @@
 name: dns-cache-detection
 description: 当用户要求"DNS缓存探测"、"检测DNS缓存威胁"、"DNS威胁狩猎"、"检测企业DNS恶意访问"、"C2域名检测"、"央企DNS检测"、"检测内网威胁"时使用此技能。
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   builtin: true
 ---
 
@@ -667,6 +667,257 @@ python scripts/test_v2.py --verbose
 
 **免责声明**: 本技能仅用于授权的安全测试和研究目的。使用者需遵守相关法律法规，对使用本技能产生的任何后果负责。
 
-**版本**: 2.0.0
-**更新时间**: 2026-01-07
+---
+
+## ATT&CK 技术映射表
+
+DNS缓存探测威胁检测覆盖攻击者的 C2 通信和命令控制阶段。
+
+| 战术 | 技术 | 子技术 | DNS缓存检测关联 |
+|------|------|--------|----------------|
+| Command and Control | T1071 | Application Layer Protocol | DNS作为C2通道的检测 |
+| Command and Control | T1071.004 | DNS | DNS隧道和DNS C2通信检测（核心） |
+| Command and Control | T1568 | Dynamic Resolution | C2域名动态解析检测 |
+| Command and Control | T1568.002 | Domain Generation Algorithms | DGA域名DNS查询检测 |
+| Command and Control | T1105 | Ingress Tool Transfer | 通过DNS下载恶意载荷的缓存痕迹 |
+| Command and Control | T1573 | Encrypted Channel | DoH/DoT加密DNS通信规避检测 |
+| Command and Control | T1573.002 | Asymmetric Cryptography | DNS over HTTPS/TLS加密C2 |
+| Defense Evasion | T1567 | Exfiltration Over Web Service | DNS作为数据外传通道检测 |
+| Defense Evasion | T1567.004 | Exfiltration Over Webhook | DNS外传到C2 Webhook |
+| Exfiltration | T1048 | Exfiltration Over Alternative Protocol | DNS TXT记录数据外传 |
+| Exfiltration | T1048.001 | Exfiltration Over Symmetric Encrypted Non-C2 Protocol | DoH加密外传 |
+| Discovery | T1046 | Network Service Discovery | 内网DNS服务器枚举 |
+| Discovery | T1018 | Remote System Discovery | 通过DNS缓存发现内网主机活动 |
+| Reconnaissance | T1590 | Gather Victim Host Information | DNS缓存暴露内网通信目标 |
+| Reconnaissance | T1590.002 | DNS | DNS配置和历史暴露攻击面 |
+| Reconnaissance | T1592 | Gather Victim Host Info | DNS缓存泄露主机访问行为 |
+| Initial Access | T1566 | Phishing | 钓鱼链接触发的DNS解析缓存 |
+| Initial Access | T1190 | Exploit Public-Facing Application | 漏洞利用载荷的DNS下载痕迹 |
+| Execution | T1106 | Native API | 恶意程序调用DNS API通信 |
+| Persistence | T1547 | Boot or Logon Autostart Execution | DNS C2持久化通信的周期性缓存 |
+
+### ATT&CK 缓解措施
+
+| Mitigation ID | 名称 | DNS缓存检测关联 |
+|--------------|------|----------------|
+| M1037 | Filter Network Traffic | DNS过滤和RPZ响应策略 |
+| M1031 | Network Intrusion Prevention | DNS层威胁拦截（RPZ/DoH拦截） |
+| M1021 | Restrict Web-Based Network Content | DNS黑名单和域名分类过滤 |
+| M1057 | Data Loss Prevention | DNS外传数据检测和阻断 |
+| M1041 | Encrypt Sensitive Information | DNS通信加密（DoH/DoT）虽保护隐私但需监控 |
+
+---
+
+## OWASP Top 10 映射表
+
+DNS威胁检测与Web安全的交叉映射。
+
+| OWASP 类别 | CWE | ATT&CK | DNS缓存检测关联 |
+|------------|-----|--------|----------------|
+| A01 — Broken Access Control | CWE-284 | T1071.004 | 内网主机未授权访问恶意DNS域名 |
+| A02 — Cryptographic Failures | CWE-319 | T1573.002 | DNS明文查询暴露通信目标，需DoH/DoT加密 |
+| A03 — Injection | CWE-89 | T1568.002 | DGA域名注入DNS缓存规避黑名单 |
+| A04 — Insecure Design | CWE-209 | T1590.002 | DNS配置泄露内部网络拓扑信息 |
+| A05 — Security Misconfiguration | CWE-16 | T1046 | DNS服务器递归查询开放导致放大攻击 |
+| A06 — Vulnerable & Outdated Components | CWE-1035 | T1071 | 过时DNS软件版本存在已知漏洞 |
+| A07 — Identification & Authentication Failures | CWE-287 | T1071.004 | DNS域传送(AXFR)未授权区域复制 |
+| A08 — Software & Data Integrity Failures | CWE-506 | T1568 | DNS响应投毒（DNS Cache Poisoning） |
+| A09 — Security Logging & Monitoring Failures | CWE-778 | T1048 | DNS查询日志缺失导致外传不可追溯 |
+| A10 — SSRF | CWE-918 | T1071.004 | 利用DNS重绑定发起SSRF攻击 |
+
+---
+
+## Sigma 检测规则
+
+### 规则1: DNS C2 通信检测（缓存探测发现）
+
+```yaml
+title: DNS缓存探测发现C2域名命中
+id: d3f4a5b6-7c8d-4e9f-0a1b-2c3d4e5f6a7b
+status: experimental
+description: TruffleHunter DNS缓存探测检测到内网主机访问已知C2域名
+description: 检测DNS日志中已知C2域名的解析请求或防火墙日志中的C2 IP通信
+author: dns-cache-detection
+logsource:
+    product: dns
+    service: query
+detection:
+    selection_c2_domain:
+        query|endswith:
+            - accesserdsc.com
+            - aiaggregator.com
+            - allocatinow.sbs
+    condition: selection_c2_domain
+falsepositives:
+    - 安全研究分析（需白名单）
+    - 威胁情报采集系统
+level: critical
+tags:
+    - attack.command_and_control
+    - attack.t1071.004
+    - attack.t1568
+    - owasp.a05.2021
+```
+
+### 规则2: DNS隧道数据外传检测
+
+```yaml
+title: DNS隧道数据外传行为检测
+id: e4a5b6c7-8d9e-4f0a-1b2c-3d4e5f6a7b8c
+status: experimental
+description: 检测DNS日志中的隧道外传行为（超长子域名+高频TXT查询+可疑TLD）
+description: 基于DNS查询模式检测数据外传行为
+author: dns-cache-detection
+logsource:
+    product: dns
+    service: query
+detection:
+    selection_long_subdomain:
+        query|re: .*[a-zA-Z0-9]{40,}.*
+    selection_txt_highfreq:
+        record_type: TXT
+        query|endswith:
+            - .xyz
+            - .top
+            - .click
+            - .tk
+            - .ml
+            - .ga
+            - .cf
+    condition: selection_long_subdomain or selection_txt_highfreq
+falsepositives:
+    - 合法SDK的DNS验证记录（需白名单）
+    - CDN健康检查
+level: high
+timeframe: 5m
+tags:
+    - attack.exfiltration
+    - attack.t1048
+    - attack.t1567
+    - attack.t1071.004
+    - owasp.a09.2021
+```
+
+---
+
+## YARA 规则
+
+### 规则1: DNS隧道恶意软件特征
+
+```yara
+rule DNS_Tunneling_Malware_Feature {
+    meta:
+        description = "检测使用DNS隧道的恶意软件特征（dnscat2/iodine/Cobalt Strike DNS Beacon）"
+        author = "dns-cache-detection"
+        date = "2026-06-22"
+    strings:
+        $dnscat2 = "dnscat2" nocase
+        $iodine = "iodine" nocase
+        $dns_beacon = "dns_beacon" nocase
+        $base32_pattern = /[A-Z2-7]{30,}/
+        $hex_pattern = /[0-9a-f]{32,}/
+    condition:
+        any of ($dnscat2, $iodine, $dns_beacon) or $base32_pattern or $hex_pattern
+}
+```
+
+### 规则2: DNS C2配置文件特征
+
+```yara
+rule DNS_C2_Config_Patterns {
+    meta:
+        description = "检测DNS C2配置文件和硬编码域名"
+        author = "dns-cache-detection"
+        date = "2026-06-22"
+    strings:
+        $c2_domain_1 = "accesserdsc.com" nocase
+        $c2_domain_2 = "aiaggregator.com" nocase
+        $dns_tunnel = ".tunnel." nocase
+        $dga_pattern = /[a-z0-9]{8,20}\.(xyz|top|click|tk|ml|ga|cf)/
+    condition:
+        any of them
+}
+```
+
+---
+
+## CVE 参考表
+
+| CVE | 漏洞名称 | DNS缓存检测关联 |
+|-----|---------|----------------|
+| CVE-2020-1350 | SIGRed (DNS BIND RCE) | DNS服务器漏洞影响缓存完整性 |
+| CVE-2017-3143 | BIND TSIG缺陷 | DNS服务器认证绕过影响探测可信度 |
+| CVE-2018-5740 | BIND Denial of Service | DNS服务器可用性影响检测结果 |
+| CVE-2021-25215 | BIND DNS over TCP RCE | TCP DNS通信漏洞影响检测面 |
+| CVE-2023-28287 | Windows Server DNS RCE | Windows DNS服务器漏洞风险 |
+
+---
+
+## IOC 采集指引
+
+| IOC 类型 | 采集来源 | 格式 | 优先级 | 处置 |
+|---------|---------|------|--------|------|
+| C2 域名 | DNS缓存探测命中 | FQDN | 🔴 高 | 转发 → `domain-analysis` |
+| C2 IP | 域名解析结果 | IPv4/IPv6 | 🔴 高 | 转发 → `ip-analysis` |
+| DNS 隧道域名 | 高频TXT查询/超长子域名 | FQDN | 🔴 高 | 转发 → `url-analysis` |
+| DGA 域名 | 域名生成算法特征 | FQDN Pattern | 🟡 中 | 记录 → IOC库 |
+| 受感染主机IP | DNS日志关联 | IPv4 Internal | 🔴 高 | 转发 → `linux-ir` / `windows-ir` / `macos-ir` |
+| DNS服务器指纹 | 版本和配置探测 | String | 🟡 中 | 记录 → 资产属性 |
+| 威胁类别标签 | IOC分类(C2/钓鱼/矿池) | String | 🟡 中 | 记录 → 威胁标签 |
+| 检测时间戳 | 缓存TTL计算 | ISO8601 | 🟢 低 | 记录 → 检测报告 |
+
+---
+
+## 合规标准参考
+
+| 标准 | 章节 | DNS缓存检测关联 |
+|------|------|----------------|
+| ISO 27001 | A.12.5 运行软件技术漏洞 | DNS服务器漏洞检测和修补 |
+| ISO 27001 | A.13.1 网络安全管理 | DNS作为网络基础设施安全监控 |
+| NIST SP 800-53 | SC-7 边界保护 | DNS层流量过滤和威胁检测 |
+| NIST SP 800-53 | SI-4 信息系统监控 | DNS查询监控和异常检测 |
+| NIST SP 800-53 | SC-8 传输保密性 | DNS通信加密(DoH/DoT)评估 |
+| NIST SP 800-137 | 信息安全持续监控 | DNS缓存持续监控是网络层持续监控的核心组件 |
+| NIST CSF | Detect (DE.CM) | DNS威胁检测是持续监控的核心能力 |
+| GDPR | Art.32 | DNS日志可能包含个人数据，需安全处理 |
+| 等保2.0 | 第八章 网络通信安全 | DNS安全是网络通信安全的核心组件 |
+| 等保2.0 | 第九章 环境安全 | DNS服务器安全基线和持续监控 |
+
+---
+
+## 跨技能工作流
+
+### 工作流1: DNS检测 → 威胁分析
+
+```
+dns-cache-detection (检测C2命中)
+  ├→ domain-analysis (C2域名深度分析)
+  ├→ ip-analysis (C2服务器IP关联分析)
+  ├→ url-analysis (C2 URL分析)
+  └→ ttp-extractor (提取攻击者TTP)
+```
+
+### 工作流2: DNS检测 → 应急响应
+
+```
+dns-cache-detection (发现受感染主机)
+  ├→ linux-ir / windows-ir / macos-ir (主机应急响应)
+  ├→ traffic-analysis (关联流量异常)
+  └→ phishing-analysis (钓鱼攻击关联)
+```
+
+### 工作流3: DNS检测 → 情报沉淀
+
+```
+dns-cache-detection (检测报告)
+  ├→ asset-monitor (更新资产风险标记)
+  ├→ researching-vulnerabilities (DNS漏洞关联)
+  ├→ pdf-report (生成威胁报告)
+  └→ data-desensitize (报告脱敏处理)
+```
+
+---
+
+**版本**: 2.1.0
+**更新时间**: 2026-06-22
 **维护者**: DNS Security Research Team

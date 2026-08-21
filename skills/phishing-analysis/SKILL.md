@@ -2,7 +2,7 @@
 name: phishing-analysis
 description: 对可疑邮件进行全面钓鱼威胁分析，包括邮件头验证、规避技术检测、IOC 提取、二维码/附件分析和组织归因。当用户要求分析邮件、检测社会工程攻击、检查邮件安全性或进行威胁狩猎时使用此技能。
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   builtin: true
 ---
 
@@ -493,6 +493,285 @@ python scripts/analyze_email.py suspicious.eml --output-dir ./attachments
 10. **组织归因**（参考 `threat-actor-attribution.md`）
 11. 分析存在的问题
 12. 结论
+
+## ATT&CK 战术覆盖表
+
+钓鱼分析在 ATT&CK 框架中覆盖以下战术层：
+
+| 战术 | 技术 ID | 技术名称 | 检测方法 |
+|------|---------|---------|---------|
+| Reconnaissance | T1589.004 | Gather Victim Host Info | 发件人指纹分析、X-Mailer 头检测 |
+| Reconnaissance | T1590.002 | Gather Victim Domain Info | 目标域名侦察、DNS 配置探测 |
+| Resource Development | T1583.001 | Acquire Infrastructure: Domains | 钓鱼域名注册检测、新域名告警 |
+| Resource Development | T1584.001 | Compromise Infrastructure: Domains | 被盗用合法域名发信 |
+| Resource Development | T1587.001 | Develop Capabilities: Malware | 宏文档/EXE 载荷开发特征 |
+| Initial Access | T1566.001 | Spearphishing Attachment | 附件分析、宏检测 |
+| Initial Access | T1566.002 | Spearphishing Link | URL 分析、钓鱼页面检测 |
+| Initial Access | T1566.003 | Spearphishing via Service | 社交平台钓鱼检测 |
+| Initial Access | T1566.004 | Spearphishing Voice | 语音钓鱼话术识别 |
+| Initial Access | T1566.005 | Spearphishing SMS | 短信钓鱼模式检测 |
+| Execution | T1204.001 | User Execution: Link | 用户点击链接行为 |
+| Execution | T1204.002 | User Execution: File | 用户执行恶意附件 |
+| Credential Access | T1552.001 | Credentials In Files | 钓鱼页面收集凭证 |
+| Defense Evasion | T1027.002 | Software Packing | 附件混淆/加壳检测 |
+| Defense Evasion | T1036.005 | Match Legitimate Name | 伪装合法文件名 |
+| Command and Control | T1071.001 | Web Protocols | C2 通信检测 |
+| Exfiltration | T1567.002 | Exfiltration to Cloud Storage | 数据外传至云存储 |
+
+### ATT&CK Mitigations
+
+| Mitigation ID | 名称 | 钓鱼防御应用 |
+|--------------|------|-------------|
+| M1017 | User Training | 安全意识培训、钓鱼模拟演练 |
+| M1031 | Network Intrusion Prevention | URL 过滤、邮件网关沙箱 |
+| M1021 | Restrict Web-Based Content | 外部链接重写、SafeLinks |
+| M1041 | Encrypt Sensitive Information | TLS 加密、防止 SSL 剥离 |
+| M1054 | Software Configuration | SPF/DKIM/DMARC 配置 |
+| M1047 | Audit Account Permissions | 最小权限原则、MFA 强制 |
+
+---
+
+## OWASP Top 10 + CWE 映射（钓鱼分析视角）
+
+钓鱼攻击与 OWASP Top 10 应用安全风险及 CWE 的映射关系：
+
+| OWASP 类别 | CWE ID | 漏洞名称 | 钓鱼场景 | ATT&CK 映射 |
+|-----------|--------|---------|---------|------------|
+| A01:2021 Broken Access Control | CWE-287 | Improper Authentication | 钓鱼页面收割凭证导致越权访问 | T1552.001 |
+| A01:2021 Broken Access Control | CWE-639 | Authorization Bypass | OAuth 钓鱼获取授权码绕过 | T1566.002 |
+| A03:2021 Injection | CWE-79 | XSS | 钓鱼邮件中嵌入 XSS 载荷 | T1059.007 |
+| A04:2021 Insecure Design | CWE-602 | Client-Side Enforcement | 钓鱼页面绕过前端验证 | T1566.002 |
+| A05:2021 Security Misconfiguration | CWE-16 | Configuration | SPF/DKIM/DMARC 配置缺陷 | T1584.001 |
+| A06:2021 Vulnerable Components | CWE-1035 | Outdated Components | 邮件客户端漏洞被钓鱼利用 | T1204.002 |
+| A07:2021 Auth Failures | CWE-307 | Excessive Auth Attempts | 暴力破解伪装成合法登录 | T1110 |
+| A07:2021 Auth Failures | CWE-521 | Weak Password Requirements | 弱密码策略导致凭证易被爆破 | T1552 |
+| A08:2021 Software/Data Integrity | CWE-345 | Insufficient Verification | 附件签名验证缺失 | T1204.002 |
+| A09:2021 Logging Failures | CWE-778 | Insufficient Logging | 钓鱼点击未被记录、审计盲区 | T1070 |
+| A10:2021 SSRF | CWE-918 | SSRF | 钓鱼链接触发服务端请求 | T1190 |
+
+---
+
+## Sigma 检测规则
+
+### Sigma 规则 1: 钓鱼邮件附件检测
+
+```yaml
+title: Suspicious Phishing Email with Malicious Attachment Patterns
+id: b3c4d5e6-7f89-0123-abcd-ef2345678901
+status: experimental
+description: >
+    Detects phishing emails with high-risk attachment types combined with
+    urgency/authority social engineering patterns.
+references:
+    - https://attack.mitre.org/techniques/T1566/001/
+    - https://attack.mitre.org/techniques/T1204/002/
+author: SecSkill Evolution
+date: 2026/06/24
+logsource:
+    product: gateway
+    service: email
+detection:
+    selection_attachment:
+        attachment|endswith:
+            - '.xlsm'
+            - '.docm'
+            - '.lnk'
+            - '.iso'
+            - '.img'
+            - '.hta'
+            - '.js'
+            - '.vbs'
+    selection_keywords:
+        subject|contains:
+            - 'urgent'
+            - 'account suspended'
+            - 'verify'
+            - 'invoice'
+            - '紧急'
+            - '账户异常'
+            - '验证'
+            - '发票'
+    selection_new_domain:
+        sender_domain_age: '<7d'
+    condition: selection_attachment and (selection_keywords or selection_new_domain)
+falsepositives:
+    - Legitimate business communications with macros
+level: high
+tags:
+    - attack.initial_access
+    - attack.t1566.001
+    - attack.t1204.002
+    - attack.t1656
+```
+
+### Sigma 规则 2: 凭证收割钓鱼页面访问检测
+
+```yaml
+title: Potential Credential Phishing via Suspicious Login Form
+id: c4d5e6f7-8a90-1234-abcd-ef3456789012
+status: experimental
+description: >
+    Detects users navigating to newly registered domains with login form
+    patterns, indicating potential credential phishing.
+references:
+    - https://attack.mitre.org/techniques/T1566/002/
+    - https://attack.mitre.org/techniques/T1552/001/
+author: SecSkill Evolution
+date: 2026/06/24
+logsource:
+    product: proxy
+    service: web
+detection:
+    selection_new_domain:
+        url_domain_age: '<30d'
+    selection_login_pattern:
+        url|contains:
+            - 'login'
+            - 'signin'
+            - 'account'
+            - 'verify'
+            - 'secure'
+            - 'update'
+    selection_typosquatting:
+        url_domain|contains:
+            - 'login-'
+            - 'secure-'
+            - 'verify-'
+            - 'account-'
+    selection_dynamic_dns:
+        url_domain|endswith:
+            - '.duckdns.org'
+            - '.ydns.eu'
+            - '.linkpc.net'
+            - '.ddns.net'
+            - '.no-ip.org'
+    condition: (selection_new_domain or selection_typosquatting or selection_dynamic_dns) and selection_login_pattern
+falsepositives:
+    - Legitimate services with similar URL patterns
+    - New legitimate service launches
+level: high
+tags:
+    - attack.initial_access
+    - attack.t1566.002
+    - attack.credential_access
+    - attack.t1552.001
+```
+
+---
+
+## YARA 规则
+
+### YARA 规则 1: 钓鱼邮件宏文档检测
+
+```yara
+rule Phishing_Malicious_Office_Document {
+    meta:
+        description = "Detects phishing Office documents with macro execution patterns"
+        author = "SecSkill Evolution"
+        date = "2026-06-24"
+        reference = "ATT&CK T1566.001, T1204.002"
+    strings:
+        $ole_header = { D0 CF 11 E0 A1 B1 1A E1 }
+        $vba_autoopen = "AutoOpen" ascii nocase
+        $vba_documentopen = "Document_Open" ascii nocase
+        $vba_workbookopen = "Workbook_Open" ascii nocase
+        $powershell = "powershell" ascii nocase
+        $cmd_exec = "cmd.exe" ascii nocase
+        $wscript = "WScript.Shell" ascii nocase
+        $download1 = "MSXML2.XMLHTTP" ascii nocase
+        $download2 = "WinHttp.WinHttpRequest" ascii nocase
+        $shell_pattern = "/c " ascii
+        $encoded_ps = "-enc " ascii nocase
+        $base64_flag = "base64" ascii nocase
+    condition:
+        $ole_header at 0 and (
+            any of ($vba_*) and
+            (1 of ($powershell, $cmd_exec, $wscript)) and
+            (1 of ($download*, $shell_pattern, $encoded_ps, $base64_flag))
+        )
+}
+```
+
+### YARA 规则 2: 钓鱼 Kit 页面特征检测
+
+```yara
+rule Phishing_Kit_Landing_Page {
+    meta:
+        description = "Detects phishing kit landing pages with credential harvesting forms"
+        author = "SecSkill Evolution"
+        date = "2026-06-24"
+        reference = "ATT&CK T1566.002, T1552.001"
+    strings:
+        $form_password = "type=\"password\"" ascii nocase
+        $form_email = "type=\"email\"" ascii nocase
+        $form_action = "action=" ascii nocase
+        $post_method = "method=\"post\"" ascii nocase
+        $brand_office = "office365" ascii nocase
+        $brand_outlook = "outlook" ascii nocase
+        $brand_google = "google" ascii nocase
+        $brand_microsoft = "microsoft" ascii nocase
+        $brand_apple = "apple" ascii nocase
+        $brand_amazon = "amazon" ascii nocase
+        $harvest_php = "$POST[" ascii
+        $harvest_get = "$GET[" ascii
+        $harvest_request = "$_REQUEST[" ascii
+        $redirect_js = "window.location" ascii
+        $obfuscated_eval = "eval(atob(" ascii
+    condition:
+        ($form_password and $form_action) and
+        (1 of ($brand_*)) and
+        (1 of ($harvest_*, $redirect_js))
+}
+```
+
+---
+
+## CVE 参考表
+
+钓鱼攻击中高频利用的 CVE 及其检测方法：
+
+| CVE ID | 漏洞名称 | CVSS | ATT&CK | 钓鱼场景 |
+|--------|---------|------|--------|--------|
+| CVE-2023-23397 | Outlook Elevation of Privilege | 9.8 | T1566.001 | 零点击 Outlook 预览窗格 RCE、提醒弹窗绕过 |
+| CVE-2023-36884 | Office/Windows HTML RCE | 8.3 | T1566.001 | 恶意 Office 文档通过 HTML 协议远程加载执行 |
+| CVE-2022-30190 | Follina (MSDT RCE) | 7.8 | T1566.001 | Word 文档通过 ms-msdt: 协议执行任意代码 |
+| CVE-2022-41040 | Exchange Server EoP (ProxyNotShell) | 8.8 | T1566.002 | 钓鱼链接指向存在该漏洞的 Exchange 服务器 |
+| CVE-2021-40444 | MSHTML RCE | 8.8 | T1566.001 | Word 文档加载恶意 ActiveX 控件下载执行 |
+| CVE-2021-26855 | Exchange ProxyLogon SSRF | 9.8 | T1566.002 | 钓鱼邮件配合 Exchange SSRF 实现账号接管 |
+| CVE-2020-0674 | IE Scripting Engine RCE | 8.8 | T1566.002 | 钓鱼页面利用 IE 漏洞远程执行代码 |
+
+---
+
+## 合规标准参考表
+
+| 标准 | 相关章节 | 钓鱼分析要求 |
+|------|---------|-------------|
+| ISO/IEC 27001 | A.6.3 | 安全意识培训、反钓鱼测试 |
+| ISO/IEC 27035 | 4.3.1 | 安全事件检测与告警、邮件威胁分类 |
+| NIST SP 800-61 | 3.2 | 钓鱼事件分类、应急响应流程 |
+| NIST SP 800-177 | Section 4 | 可信邮件认证 (SPF/DKIM/DMARC) 部署指南 |
+| NIST SP 800-53 | SI-4 | 入侵检测系统配置、邮件网关监控 |
+| 等保2.0 第八章 | 8.1.3 | 入侵防范、恶意代码检测、邮件过滤 |
+| 等保2.0 第九章 | 9.1.4 | 安全审计、邮件日志留存与分析 |
+| GDPR | Art.32(1)(b) | 安全措施、数据泄露检测与通知 |
+| GDPR | Art.33 | 72 小时内报告数据泄露 (钓鱼导致) |
+| PIPL | 第55条 | 个人信息处理安全评估、钓鱼事件应急 |
+| PCI DSS | 12.6 | 安全意识计划 (含钓鱼防范培训) |
+| SOC 2 | CC7.3 | 安全事件检测、钓鱼响应有效性 |
+
+---
+
+## 跨技能生态工作流
+
+| 场景 | 上游技能 → 本技能 → 下游技能 | 数据流 |
+|------|-------------------------------|--------|
+| 邮件威胁狩猎 | email-osint → **phishing-analysis** → domain-analysis | 邮箱情报 → 邮件分析 → 域名深度调查 |
+| 附件攻击链 | mail-attachment-downloader → **phishing-analysis** → office-malware-analyzer | 附件下载 → 邮件分析 → 宏文档逆向 |
+| 钓鱼URL追踪 | url-analysis → **phishing-analysis** → ip-analysis | URL 分析 → 钓鱼判定 → C2 基础设施 |
+| 钓鱼演练 | redteam-intrusion-social → **phishing-analysis** → pdf-report | 红队钓鱼 → 检测分析 → 演练报告 |
+| 凭证泄露检测 | auth-log-analysis → **phishing-analysis** → ttp-extractor | 异常登录 → 钓鱼归因 → TTP 提取 |
+
+---
 
 ## 附加资源
 

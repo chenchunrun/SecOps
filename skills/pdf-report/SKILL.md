@@ -2,8 +2,10 @@
 name: pdf-report
 description: 生成专业的 PDF 报告文档，支持封面页、多级标题、表格、图片、页眉页脚等功能。当用户需要将分析结果、报告内容输出为 PDF 格式时使用此技能。
 metadata:
-  version: 1.0.0
+  version: 1.2.0
   builtin: true
+  attck_version: v16.1
+  owasp_version: "2025"
 ---
 
 # PDF Report - PDF 报告生成
@@ -289,6 +291,156 @@ python -c "from PyPDF2 import PdfReader; print('PyPDF2 OK')"
 4. **表格宽度**: 表格会自动适应页面宽度，列宽按比例分配
 5. **页码**: 页码从正文页开始计数，封面页不显示页码
 
+## 安全报告技术框架映射
+
+### MITRE ATT&CK 报告集成
+
+生成的 PDF 报告应包含 ATT&CK 技术引用，以标准化威胁描述：
+
+| ATT&CK 元素 | 报告中的位置 | 格式示例 |
+|------------|------------|--------|
+| **Tactic** | 执行摘要、结论 | `Credential Access` |
+| **Technique ID** | 威胁情报章节 | `T1110.001 (Brute Force: Password Guessing)` |
+| **Sub-technique** | 详细分析章节 | `T1110.004 (Credential Stuffing)` |
+| **Detection** | 检测与响应章节 | Sigma 规则引用、日志源建议 |
+| **Mitigation** | 建议章节 | 对应 ATT&CK Mitigation ID |
+
+报告模板中的 ATT&CK 映射表格式：
+```python
+attck_table = [
+    ["ATT&CK ID", "战术", "技术", "检测状态"],
+    ["T1110.001", "Credential Access", "Password Guessing", "已检测"],
+    ["T1110.004", "Credential Access", "Credential Stuffing", "已检测"],
+    ["T1078", "Defense Evasion", "Valid Accounts", "部分覆盖"],
+]
+manager.add_table(4, 4, attck_table, caption="ATT&CK 技术映射表")
+```
+
+### OWASP 2025 报告维度
+
+安全评估类报告应包含 OWASP 维度分析：
+
+| OWASP 类别 | 报告章节 | 说明 |
+|-----------|---------|------|
+| A01: Broken Access Control | 访问控制评估 | 权限模型分析结果 |
+| A07: Authentication Failures | 认证安全评估 | 登录安全分析结果 |
+| A09: Logging & Monitoring | 日志审计 | SIEM 覆盖度评估 |
+
+### Sigma 规则引用
+
+报告中引用 Sigma 检测规则，提供可操作的检测建议：
+```python
+sigma_ref = (
+    "检测规则: Sigma rule auth_credential_stuffing (ATT&CK T1110.004)\n"
+    "SIEM 集成: Splunk / Elastic Security / Microsoft Sentinel"
+)
+manager.add_content(sigma_ref, first_line_indent=False)
+```
+
+### YARA 规则引用
+
+报告中引用 YARA 规则，提供恶意样本检测建议：
+```python
+yara_ref = (
+    "YARA 规则: WebShell_Generic_Windows (ATT&CK T1505.003)\n"
+    "YARA 规则: Windows_Backdoor_Features (ATT&CK T1547)\n"
+    "部署位置: EDR / 文件服务器 / Web 服务器"
+)
+manager.add_content(yara_ref, first_line_indent=False)
+```
+
+### CVE 参考表
+
+安全报告应在威胁情报章节包含相关 CVE 引用：
+
+| CVE ID | 受影响系统 | CVSS | 报告建议位置 |
+|--------|-----------|------|-------------|
+| CVE-2024-3094 | XZ Utils 后门 | 10.0 | 供应链风险评估报告 |
+| CVE-2024-21413 | Outlook RCE | 9.8 | 钓鱼邮件分析报告 |
+| CVE-2023-23397 | Outlook 提权 | 9.8 | 钓鱼邮件分析报告 |
+| CVE-2021-34527 | PrintNightmare | 8.8 | Windows IR 报告 |
+| CVE-2020-1472 | Zerologon | 10.0 | 域渗透 IR 报告 |
+| CVE-2019-0708 | BlueKeep | 9.8 | RDP 暴露面评估报告 |
+| CVE-2021-30860 | FORCEDENTRY | 9.8 | 移动设备 IR 报告 |
+| CVE-2023-20198 | Cisco IOS XE | 10.0 | 网络设备评估报告 |
+
+### IOC 标准格式
+
+报告中 IOC 应遵循标准格式化规范：
+
+| IOC 类型 | 报告格式 | 示例 |
+|---------|---------|------|
+| IP 地址 | 方括号转义 | `45.33[.]32[.]156` |
+| URL | 防点击格式 | `hxxp://example[.]com/path` |
+| 域名 | 方括号转义 | `evil[.]example[.]com` |
+| 哈希 | 完整展示 | `a1b2c3d4e5f6...` |
+| 邮箱 | 方括号转义 | `attacker[.]user[@]evil[.]com` |
+
+## 合规与标准参考
+
+| 标准/框架 | 报告章节要求 | 说明 |
+|-----------|------------|------|
+| **GDPR** | 数据事件报告 | 个人数据泄露事件 72 小时报告要求 |
+| **PIPL** | 个人信息保护 | 数据处理活动记录 |
+| **ISO 27001** | ISMS 审计报告 | A.16 事件管理 |
+| **PCI DSS** | 合规审计报告 | Req 10: 日志监控 |
+| **NIST CSF** | 风险评估报告 | Detect/Respond/Recover |
+
+## 跨技能报告模板
+
+不同安全场景推荐使用对应的报告模板：
+
+| 场景 | 上游技能 | 报告重点 | ATT&CK 覆盖 |
+|------|---------|---------|------------|
+| **IP 威胁分析** | `ip-analysis` | 情报汇总、信誉评分 | T1078 |
+| **钓鱼邮件分析** | `phishing-analysis` | 邮件头、URL、附件 | T1566 |
+| **认证日志分析** | `auth-log-analysis` | 暴力破解、不可能旅行 | T1110, T1078 |
+| **恶意软件分析** | `binary-reverse-engineering` | 行为分析、IOCs | T1059, T1218 |
+| **应急响应** | `linux-ir` / `windows-ir` | 时间线、影响范围 | 多战术 |
+| **代码审计** | `code-audit` | 漏洞清单、修复建议 | OWASP 2025 |
+| **URL/域名分析** | `url-analysis` / `domain-analysis` | DNS、SSL、信誉 | T1566.002 |
+
+## 报告质量检查清单
+
+### 内容完整性
+- [ ] 封面信息完整（标题、作者、日期、机构）
+- [ ] 执行摘要包含关键发现和风险等级
+- [ ] 正文章节结构清晰、逻辑连贯
+- [ ] ATT&CK 技术映射表（安全报告）
+- [ ] OWASP 维度分析（应用安全报告）
+- [ ] IOC 列表使用标准转义格式
+
+### 格式规范
+- [ ] 表格和图片有编号说明文字
+- [ ] 页眉文本已设置
+- [ ] 页码从正文开始
+- [ ] 文件名包含日期和主题
+- [ ] 敏感信息已脱敏处理
+
+### 安全合规
+- [ ] IOC 转义（防误点）
+- [ ] 敏感数据脱敏（GDPR/PIPL）
+- [ ] 报告分级标识（公开/内部/机密）
+- [ ] 附录包含检测规则（Sigma/YARA）
+
 ## 相关参考
 
-- [references/report-format.md](references/report-format.md) - 报告格式规范
+- [references/report-format.md](references/report-format.md) - 报告格式规范（结构、排版、样式）
+
+## 关联技能
+
+| 关系 | 技能 | 说明 |
+|------|------|------|
+| **数据来源** | `ip-analysis` | IP 分析结果 → 威胁报告 |
+| **数据来源** | `phishing-analysis` | 钓鱼分析 → 钓鱼报告 |
+| **数据来源** | `auth-log-analysis` | 认证日志分析 → 登录安全报告 |
+| **数据来源** | `linux-ir` / `windows-ir` | IR 取证 → 事件响应报告 |
+| **数据来源** | `code-audit` | 代码审计 → 漏洞报告 |
+| **数据来源** | `url-analysis` / `domain-analysis` | URL 分析 → 威胁报告 |
+| **输出格式** | `office-report` | Office 格式替代输出 |
+
+## AI 建议
+
+- 生成报告前，先用 `ttp-extractor` 从分析结果中归纳 ATT&CK 技术映射
+- IOC 列表建议同时输出 STIX 2.1 格式，方便威胁情报共享
+- 大规模事件报告可分章节由不同分析技能填充

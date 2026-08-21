@@ -2,7 +2,7 @@
 name: macos-ir
 description: macOS 入侵检查与应急响应。当用户要求"macOS入侵检查"、"Mac应急响应"、"Mac后门检测"、"LaunchAgent检查"、"Mac持久化检测"、"Mac异常进程"时使用此技能。
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   builtin: true
 ---
 
@@ -387,23 +387,6 @@ $VR query "SELECT FullPath, Mtime FROM glob(globs='/Users/*/.ssh/authorized_keys
 
 ---
 
-## ATT&CK 映射表
-
-| 战术 | 技术 ID | 技术名称 | 检测查询 |
-|------|---------|----------|----------|
-| 执行 | T1059.002 | AppleScript | osascript 进程 |
-| 执行 | T1059.004 | Unix Shell | bash/zsh -c 参数 |
-| 持久化 | T1543.001 | Launch Agent | LaunchAgents 目录 |
-| 持久化 | T1543.004 | Launch Daemon | LaunchDaemons 目录 |
-| 持久化 | T1547.015 | Login Items | backgrounditems.btm |
-| 权限提升 | T1548.004 | Elevated Execution | sudo/osascript 滥用 |
-| 防御规避 | T1553.001 | Gatekeeper Bypass | xattr quarantine |
-| 防御规避 | T1574.004 | Dylib Hijacking | DYLD_INSERT_LIBRARIES |
-| 凭据访问 | T1555.001 | Keychain | security 命令 |
-| 凭据访问 | T1555.003 | Browser Credentials | Login Data 文件 |
-
----
-
 ## 高危指标速查
 
 | 检查项 | 高危特征 | ATT&CK | 说明 |
@@ -454,6 +437,272 @@ $VR query "SELECT FullPath, Size, Mtime FROM glob(globs=['/Users/*/.zsh_history'
 
 # MRU 最近使用记录
 $VR query "SELECT FullPath, Mtime FROM glob(globs='/Users/*/Library/Application Support/com.apple.sharedfilelist/*.sfl2')"
+```
+
+---
+
+## ATT&CK 映射表（扩展）
+
+| 战术 | 技术 ID | 子技术 | 技术名称 | 检测查询 |
+|------|---------|--------|----------|----------|
+| Initial Access | T1566 | T1566.001 | 钓鱼附件 | QuarantineEventsV2下载记录 |
+| Initial Access | T1190 | - | 漏洞利用 | 公网服务暴露检测 |
+| Execution | T1059 | T1059.002 | AppleScript | osascript 进程检测 |
+| Execution | T1059 | T1059.004 | Unix Shell | bash/zsh -c 参数分析 |
+| Execution | T1059 | T1059.008 | Python | python -c / python交互式 |
+| Execution | T1106 | - | Native API | Darwin API 调用监控 |
+| Execution | T1129 | - | Shared Modules | dylib 加载检测 |
+| Persistence | T1543 | T1543.001 | Launch Agent | LaunchAgents 目录监控 |
+| Persistence | T1543 | T1543.004 | Launch Daemon | LaunchDaemons 目录监控 |
+| Persistence | T1547 | T1547.002 | Authorization Plugin | SecurityAgentPlugins 目录 |
+| Persistence | T1547 | T1547.006 | Kernel Extensions | /Library/Extensions/*.kext |
+| Persistence | T1547 | T1547.015 | Login Items | backgrounditems.btm |
+| Persistence | T1136 | T1136.001 | Create Account | dscl 用户创建检测 |
+| Privilege Escalation | T1548 | T1548.004 | Elevated Execution | sudo/osascript 滥用 |
+| Defense Evasion | T1553 | T1553.001 | Gatekeeper Bypass | xattr quarantine 移除 |
+| Defense Evasion | T1562 | T1562.001 | Disable Tools | SIP/XProtect 状态 |
+| Defense Evasion | T1574 | T1574.004 | Dylib Hijacking | DYLD_INSERT_LIBRARIES |
+| Defense Evasion | T1574 | T1574.006 | Shared Modules | 可疑 dylib 注入 |
+| Defense Evasion | T1027 | T1027.002 | Software Packing | UPX/加壳二进制检测 |
+| Defense Evasion | T1036 | T1036.005 | Match Legitimate Name | 进程名伪装 |
+| Defense Evasion | T1564 | T1564.001 | Hidden Files | 点开头文件检测 |
+| Credential Access | T1555 | T1555.001 | Keychain | security 命令滥用 |
+| Credential Access | T1555 | T1555.003 | Browser Credentials | Login Data 文件访问 |
+| Credential Access | T1110 | T1110.001 | Password Guessing | 暴力破解检测 |
+| Credential Access | T1539 | - | Steal Web Session Cookie | Cookie 数据库窃取 |
+| Discovery | T1046 | - | Network Service Discovery | 端口扫描行为 |
+| Discovery | T1082 | - | System Information | system_profiler 滥用 |
+| Discovery | T1087 | T1087.001 | Local Account | dscl 用户枚举 |
+| Command and Control | T1071 | T1071.001 | Web Protocols | HTTPS C2 通信 |
+| Command and Control | T1571 | - | Non-Standard Port | 非标准端口外连 |
+| Command and Control | T1573 | T1573.002 | Asymmetric Crypto | DoH/DoT 加密通信 |
+| Exfiltration | T1567 | T1567.002 | Exfiltration to Cloud | 云存储外传 |
+| Exfiltration | T1041 | - | Exfiltration Over C2 Channel | C2 通道数据外传 |
+| Impact | T1485 | - | Data Destruction | rm -rf / 数据销毁 |
+| Impact | T1490 | - | Inhibit System Recovery | TimeMachine 破坏 |
+
+### ATT&CK 缓解措施
+
+| Mitigation ID | 名称 | macOS IR 关联 |
+|--------------|------|---------------|
+| M1047 | Audit | 统一日志和进程审计 |
+| M1049 | Antimalware Scanning | XProtect 和第三方AV扫描 |
+| M1052 | User Account Management | 最小权限和用户隔离 |
+| M1051 | Update Software | macOS 和应用安全更新 |
+| M1028 | OS Configuration | SIP/Gatekeeper/TCC 安全配置 |
+| M1018 | Account Management | 用户账户生命周期管理 |
+
+---
+
+## OWASP Top 10 映射表
+
+macOS 应急响应与 Web 安全风险的交叉映射。
+
+| OWASP 类别 | CWE | ATT&CK | macOS IR 关联 |
+|------------|-----|--------|---------------|
+| A01 — Broken Access Control | CWE-284 | T1548 | sudo 滥用和权限提升检测 |
+| A02 — Cryptographic Failures | CWE-319 | T1553 | Gatekeeper 绕过导致明文恶意软件执行 |
+| A03 — Injection | CWE-89 | T1059.002 | osascript 命令注入 |
+| A04 — Insecure Design | CWE-209 | T1082 | system_profiler 信息泄露 |
+| A05 — Security Misconfiguration | CWE-16 | T1562 | SIP/Gatekeeper/TCC 安全配置 |
+| A06 — Vulnerable & Outdated Components | CWE-1035 | T1190 | 过时 macOS 版本和应用漏洞 |
+| A07 — Identification & Authentication Failures | CWE-287 | T1555 | Keychain 和浏览器凭据窃取 |
+| A08 — Software & Data Integrity Failures | CWE-506 | T1574 | dylib 劫持和代码签名绕过 |
+| A09 — Security Logging & Monitoring Failures | CWE-778 | T1046 | 统一日志配置不足 |
+| A10 — SSRF | CWE-918 | T1071 | macOS 作为 SSRF 跳板检测 |
+
+---
+
+## Sigma 检测规则
+
+### 规则1: macOS LaunchAgent 持久化检测
+
+```yaml
+title: macOS LaunchAgent 可疑持久化创建
+id: 6b7c8d9e-0f1a-4b2c-8d3e-5f6a7b8c9d0e
+status: experimental
+description: 检测 macOS 系统中可疑的 LaunchAgent/LaunchDaemon 创建（含恶意特征）
+author: macos-ir
+logsource:
+    product: macos
+    service: unified_log
+detection:
+    selection_plist_create:
+        event_type: plist_create
+        path_contains:
+            - LaunchAgents
+            - LaunchDaemons
+    filter_legitimate:
+        process:
+            - installer
+            - package_script
+    condition: selection_plist_create and not filter_legitimate
+falsepositives:
+    - 软件安装和更新（需白名单）
+level: medium
+tags:
+    - attack.persistence
+    - attack.t1543.001
+    - attack.t1543.004
+    - owasp.a05.2021
+```
+
+### 规则2: macOS osascript 凭据窃取检测
+
+```yaml
+title: macOS osascript 密码钓鱼检测
+id: 8c9d0e1f-2a3b-4c5d-9e6f-7a8b9c0d1e2f
+status: experimental
+description: 检测使用 osascript 弹出假密码对话框窃取凭据的行为（Cuckoo/Atomic/Banshee Stealer 特征）
+author: macos-ir
+logsource:
+    product: macos
+    service: process_creation
+detection:
+    selection_osascript_password:
+        Image|endswith: /osascript
+        CommandLine|contains:
+            - display dialog
+            - hidden answer
+            - password
+            - System Preferences
+            - System Settings
+    condition: selection_osascript_password
+falsepositives:
+    - 合法管理员脚本（需验证）
+level: critical
+tags:
+    - attack.credential_access
+    - attack.t1555.001
+    - attack.execution
+    - attack.t1059.002
+    - owasp.a07.2021
+```
+
+---
+
+## YARA 规则
+
+### 规则1: macOS Stealer 恶意软件特征
+
+```yara
+rule macOS_Stealer_Family {
+    meta:
+        description = "检测 macOS Stealer 家族恶意软件（Cuckoo/Atomic/Banshee）特征"
+        author = "macos-ir"
+        date = "2026-06-22"
+    strings:
+        $osascript_password = "display dialog" ascii nocase
+        $hidden_answer = "hidden answer" ascii nocase
+        $pw_dat = "pw.dat" ascii nocase
+        $keychain_dump = "dump-keychain" ascii nocase
+        $chrome_login = "Login Data" ascii nocase
+        $system_profiler = "system_profiler" ascii nocase
+    condition:
+        3 of ($osascript_password, $hidden_answer, $pw_dat, $keychain_dump, $chrome_login, $system_profiler)
+}
+```
+
+### 规则2: macOS Dylib 注入特征
+
+```yara
+rule macOS_Dylib_Injection {
+    meta:
+        description = "检测 macOS dylib 注入和劫持特征"
+        author = "macos-ir"
+        date = "2026-06-22"
+    strings:
+        $dyld_insert = "DYLD_INSERT_LIBRARIES" ascii
+        $dylib_hijack = "@rpath" ascii
+        $load_dylib = "dlopen" ascii nocase
+        $objc_msgSend = "objc_msgSend" ascii
+        $proxy_dylib = "__proxy" ascii
+    condition:
+        $dyld_insert or ($load_dylib and $proxy_dylib)
+}
+```
+
+---
+
+## CVE 参考表
+
+| CVE | 漏洞名称 | macOS IR 关联 |
+|-----|---------|---------------|
+| CVE-2024-3080 | AppleAVD 整数溢出 RCE | 内核驱动漏洞影响全 macOS |
+| CVE-2024-23222 | WebKit 任意代码执行 | Safari 零点击漏洞 |
+| CVE-2023-41990 |_triangulation 行动 | 三角测量行动植入物 |
+| CVE-2023-32434 | 内核整数溢出 | 三角测量行动利用链 |
+| CVE-2023-32435 | WebKit 内存损坏 | 三角测量行动利用链 |
+| CVE-2022-22675 | AppleAVD 内存损坏 | 零点击漏洞 |
+| CVE-2021-30860 | FORCEDENTRY | 零点击 IM 投资 |
+
+---
+
+## IOC 采集指引
+
+| IOC 类型 | 采集来源 | 格式 | 优先级 | 处置 |
+|---------|---------|------|--------|------|
+| C2 IP | 进程外连连接 | IPv4/IPv6 | 🔴 高 | 转发 → `ip-analysis` |
+| C2 域名 | DNS 查询日志 | FQDN | 🔴 高 | 转发 → `domain-analysis` |
+| 恶意 URL | 命令行参数/Quarantine记录 | HTTP URL | 🔴 高 | 转发 → `url-analysis` |
+| 可疑文件 | /tmp ~/Downloads | 文件路径 | 🔴 高 | 转发 → `binary-reverse-engineering` |
+| 恶意 LaunchAgent | plist 文件 | Plist XML | 🔴 高 | 提取 → IOC 库 |
+| C2 端口 | 网络连接 | Port Number | 🟡 中 | 记录 → 检测报告 |
+| 进程树 | pslist 输出 | JSON | 🟡 中 | 记录 → 取证报告 |
+| SSH 公钥 | authorized_keys | SSH Key | 🟡 中 | 检查 → 后门公钥 |
+| 用户账户 | dscl 输出 | Username | 🟡 中 | 检查 → 异常账户 |
+| Crash Reporter | /Library/Logs/DiagnosticReports | Log File | 🟢 低 | 记录 → 崩溃分析 |
+
+---
+
+## 合规标准参考
+
+| 标准 | 章节 | macOS IR 关联 |
+|------|------|---------------|
+| ISO 27001 | A.16.1 事件管理 | macOS 安全事件响应流程 |
+| ISO 27001 | A.12.2 恶意软件防护 | macOS 恶意软件检测和清除 |
+| NIST SP 800-53 | IR-4 事件处理 | macOS 入侵事件处理流程 |
+| NIST SP 800-53 | SI-4 信息系统监控 | macOS 统一日志监控 |
+| NIST SP 800-61 | 计算机安全事件处理指南 | macOS 事件响应方法论 |
+| NIST SP 800-86 | 集成取证技术 | macOS 取证数据采集和保存 |
+| NIST CSF | Detect & Respond | macOS 威胁检测和响应 |
+| GDPR | Art.33 | 安全事件 72h 通报要求 |
+| PIPL | 第五十七条 | 安全事件应急响应和通报 |
+| 等保2.0 | 第十章 安全运维管理 | 终端安全事件响应和处置 |
+| 等保2.0 | 第八章 网络通信安全 | macOS 终端网络安全监控 |
+
+---
+
+## 跨技能工作流
+
+### 工作流1: macOS IR → 深度分析
+
+```
+macos-ir (检测入侵迹象)
+  ├→ ip-analysis (C2 IP 关联分析)
+  ├→ domain-analysis (C2 域名分析)
+  ├→ url-analysis (C2 URL 分析)
+  └→ binary-reverse-engineering (恶意二进制分析)
+```
+
+### 工作流2: macOS IR → 关联调查
+
+```
+macos-ir (主机取证)
+  ├→ traffic-analysis (关联流量异常)
+  ├→ auth-log-analysis (认证日志关联)
+  ├→ dns-cache-detection (DNS 缓存探测)
+  └→ ttp-extractor (提取攻击者 TTP)
+```
+
+### 工作流3: macOS IR → 报告闭环
+
+```
+macos-ir (事件调查)
+  ├→ phishing-analysis (钓鱼攻击关联)
+  ├→ asset-monitor (资产风险标记)
+  ├→ pdf-report (生成事件报告)
+  └→ data-desensitize (报告脱敏处理)
 ```
 
 ---

@@ -3,7 +3,7 @@ name: domain-analysis
 description: |
   对域名进行综合威胁分析，包括 WHOIS 查询、域名年龄风险评估、DNS 记录检查、DGA 检测、同形字攻击识别、CDN 检测和 ICP 备案查询。作为 WHOIS/域名年龄的权威来源，url-analysis 等技能应调用本技能获取域名注册信息。当用户要求分析域名安全性、查询域名注册信息、检测可疑域名或评估钓鱼风险时使用此技能。
 metadata:
-  version: 2.1.0
+  version: 2.2.0
   builtin: true
 ---
 
@@ -433,6 +433,203 @@ dig TXT _dmarc.<domain>
 - `traffic-analysis` - 分析流量中的域名
 
 ---
+
+## MITRE ATT&CK 技术映射
+
+域名分析覆盖攻击者从侦察到命令控制的完整攻击链：
+
+| 战术 | 技术 ID | 技术名称 | 域名分析关联 |
+|------|---------|---------|------------|
+| Reconnaissance | T1591.002 | Gather Victim Host Information: DNS | DNS 记录查询揭示目标基础设施 |
+| Reconnaissance | T1592.002 | Gather Victim Host Information: Software | DNS TXT/SOA 记录泄露服务版本 |
+| Reconnaissance | T1590.002 | Gather Victim Host Information: DNS | 侦察目标域名 DNS 配置弱点 |
+| Reconnaissance | T1566.002.001 | Spearphishing Link: Spearphishing Link | 钓鱼域名注册行为检测 |
+| Command and Control | T1071.001 | Application Layer Protocol: Web Protocols | C2 域名通过 HTTP/HTTPS 通信 |
+| Command and Control | T1071.004 | Application Layer Protocol: DNS | DNS 隧道/DGA 域名检测 |
+| Command and Control | T1568.001 | Dynamic Resolution: Fast Flux DNS | Fast-Flux 域名网络检测 |
+| Command and Control | T1568.002 | Dynamic Resolution: Domain Generation Algorithms | DGA 算法域名识别 |
+| Initial Access | T1566.001 | Spearphishing Attachment | 钓鱼域名邮件附件溯源 |
+| Initial Access | T1566.002 | Spearphishing Link | 钓鱼链接域名分析 |
+| Defense Evasion | T1027.001 | Obfuscated Files or Information: Binary Obfuscation | DGA 域名混淆特征 |
+| Credential Access | T1584.001 | Compromise Infrastructure: Domains | 被攻陷域名基础设施检测 |
+| Persistence | T1547.001 | Boot or Logon Autostart Execution: Registry Run Keys | C2 域名持久化信道 |
+| Exfiltration | T1041 | Exfiltration Over C2 Channel | C2 域名数据外传信道 |
+| Resource Development | T1583.001 | Acquire Infrastructure: Domains | 恶意域名注册行为识别 |
+
+### ATT&CK Mitigations
+
+| Mitigation ID | 名称 | 域名分析应用 |
+|--------------|------|------------|
+| M1041 | Encrypt Sensitive Information | DNSSEC 验证 |
+| M1057 | Data Loss Prevention | 域名外传检测 |
+| M1031 | Network Intrusion Prevention | DNS 黑名单/域名阻断 |
+| M1021 | Restrict Web-Based Content | 恶意域名过滤 |
+| M1047 | Audit | DNS 查询日志审计 |
+
+## OWASP / CWE 映射
+
+| OWASP 类别 | CWE ID | 域名安全关联 |
+|-----------|--------|------------|
+| A01:2021 Broken Access Control | CWE-200 | WHOIS 信息泄露 |
+| A02:2021 Cryptographic Failures | CWE-295 | DNSSEC 配置缺失 |
+| A04:2021 Insecure Design | CWE-209 | SPF/DMARC 缺失导致邮件仿冒 |
+| A05:2021 Security Misconfiguration | CWE-16 | DNS 记录配置错误 |
+| A06:2021 Vulnerable Components | CWE-1357 | 域名指向脆弱服务 |
+| A07:2021 Identification and Auth Failures | CWE-287 | 域名验证绕过 |
+| A08:2021 Software and Data Integrity Failures | CWE-345 | DNS 劫持/缓存投毒 |
+| A09:2021 Security Logging Failures | CWE-778 | DNS 查询日志缺失 |
+| A10:2021 SSRF | CWE-918 | DNS Rebinding 攻击 |
+
+## CVE 参考
+
+| CVE ID | 漏洞名称 | 域名分析关联 |
+|--------|---------|------------|
+| CVE-2020-1350 | SIGRed (Windows DNS) | DNS 缓存投毒风险 |
+| CVE-2021-25200 | Windows DNS Server Heap Overflow | DNS 解析可靠性影响 |
+| CVE-2023-50164 | Apache Struts2 OGNL Injection | 钓鱼域名+RCE链 |
+| CVE-2024-1080 | Command Injection | 恶意域名重定向链 |
+| CVE-2023-46604 | Apache ActiveMQ RCE | C2 域名回连检测 |
+
+## Sigma 检测规则
+
+### 规则 1: 可疑 DNS 查询模式检测
+
+```yaml
+title: Suspicious DNS Query Pattern - DGA Characteristics
+id: 5a3f8e21-6b4c-4d8e-9f2a-7c3b1d6e8f01
+status: experimental
+description: 检测具有 DGA 特征的高熵域名查询
+references:
+  - https://attack.mitre.org/techniques/T1568/002/
+author: Domain Analysis Skill
+date: 2026/06/24
+tags:
+  - attack.command_and_control
+  - attack.t1568.002
+logsource:
+  product: dns
+  service: dns-query
+detection:
+  selection:
+    query:
+      - "*.xyz"
+      - "*.top"
+      - "*.click"
+      - "*.tk"
+      - "*.ml"
+      - "*.ga"
+      - "*.cf"
+  condition: selection
+falsepositives:
+  - 合法使用新 TLD 的服务
+  - CDN 动态调度
+level: low
+```
+
+### 规则 2: Fast-Flux 域名网络检测
+
+```yaml
+title: Fast-Flux Domain Network Indicator
+id: 5a3f8e21-6b4c-4d8e-9f2a-7c3b1d6e8f02
+status: experimental
+description: 检测短时间内 A 记录频繁变化的域名
+references:
+  - https://attack.mitre.org/techniques/T1568/001/
+author: Domain Analysis Skill
+date: 2026/06/24
+tags:
+  - attack.command_and_control
+  - attack.t1568.001
+logsource:
+  product: dns
+  service: dns-query
+detection:
+  selection:
+    record_type: "A"
+  timeframe: 1h
+  condition: selection | count(query) by src_ip > 10
+falsepositives:
+  - CDN/GSLB 正常调度
+  - 负载均衡
+level: medium
+```
+
+## YARA 规则
+
+```yara
+rule Suspicious_Domain_Pattern_DGA
+{
+    meta:
+        description = "检测 DGA 域名特征模式"
+        author = "Domain Analysis Skill"
+        date = "2026-06-24"
+        reference = "T1568.002"
+    strings:
+        $high_entropy_1 = /[a-z]{15,}\.(xyz|top|click|tk|ml|ga|cf)/
+        $high_entropy_2 = /[a-z0-9]{12,}\.(ru|cn|su)/
+        $consonant_cluster = /[bcdfghjklmnpqrstvwzx]{5,}/
+    condition:
+        $high_entropy_1 or $high_entropy_2 or $consonant_cluster
+}
+
+rule Homograph_Domain_Punycode
+{
+    meta:
+        description = "检测 Punycode 同形字攻击域名"
+        author = "Domain Analysis Skill"
+        date = "2026-06-24"
+        reference = "T1566.002"
+    strings:
+        $punycode = /xn--[a-z0-9-]+/
+        $mixed_script = /xn--(.*)(0cct|.*[a-z]-[a-z]{2})/
+    condition:
+        $punycode and $mixed_script
+}
+```
+
+## IOC 采集指引
+
+| IOC 类型 | 采集方法 | 存储格式 |
+|---------|---------|--------|
+| 恶意域名 | WHOIS + 威胁情报 | domain, registrar, created, score |
+| 解析 IP | DNS A/AAAA 记录 | ip, domain, first_seen, last_seen |
+| NS 记录 | DNS NS 查询 | ns_domain, domain, isp |
+| MX 记录 | DNS MX 查询 | mx_domain, domain, mail_server |
+| 关联 URL | 威胁情报关联 | url, domain, first_seen |
+| 子域名 | 枚举/被动DNS | subdomain, domain, ip |
+| C2 域名标签 | 情报源标签 | domain, tag, source, confidence |
+| DGA 家族 | DGA 算法匹配 | domain, family, algorithm |
+
+## 合规标准映射
+
+| 标准 | 相关条款 | 域名安全要求 |
+|------|---------|------------|
+| GDPR | Art.32 | 域名注册数据安全保护 |
+| PIPL | 第十三条 | 域名相关个人信息处理合法性 |
+| ISO 27001 | A.8.8 | 技术漏洞管理中的 DNS 安全 |
+| ISO 27001 | A.5.34 | 隐私和 PII 保护中的 WHOIS 数据 |
+| PCI DSS v4.0 | 11.5.1 | DNS 配置变更监控 |
+| NIST CSF 2.0 | DE.CM-02 | 恶意域名检测与监测 |
+| NIST CSF 2.0 | PR.AC-05 | DNS 访问控制 |
+| 等保2.0 | 第八章 | 网络通信安全中的 DNS 安全 |
+| 等保2.0 | 第九章 | 域名系统环境安全 |
+
+## 跨技能工作流
+
+### 工作流 1: 钓鱼域名溯源
+```
+phishing-analysis → domain-analysis (域名提取) → ip-analysis (解析IP) → url-analysis (完整URL) → ttp-extractor (提取TTP) → pdf-report
+```
+
+### 工作流 2: C2 基础设施检测
+```
+traffic-analysis (异常流量) → domain-analysis (域名分析) → dns-cache-detection (DNS缓存) → ip-analysis (IP信誉) → ttp-extractor → office-report
+```
+
+### 工作流 3: 品牌保护/反钓鱼
+```
+brand-impersonation (品牌监控) → domain-analysis (可疑域名) → url-analysis (钓鱼页面) → data-desensitize (PII脱敏) → pdf-report
+```
 
 ## 参考文件
 

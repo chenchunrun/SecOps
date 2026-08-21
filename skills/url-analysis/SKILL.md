@@ -2,7 +2,7 @@
 name: url-analysis
 description: 对可疑 URL 进行双模式安全分析，包括快速研判、钓鱼检测、重定向追踪、同形字攻击识别、规避技术检测、黑产组织归因、威胁情报补充和威胁扩线。当用户提供可疑链接、要求检查 URL 安全性、分析钓鱼页面或追溯攻击来源时使用此技能。
 metadata:
-  version: 2.17.0
+  version: 2.18.0
   builtin: true
 ---
 
@@ -211,8 +211,259 @@ python <SKILL_DIR>/scripts/url_analyze.py "<URL>" --fetch
 - [references/env-config.md](references/env-config.md) - 环境变量配置
 - [references/threat-actors.md](references/threat-actors.md) - 归因参考资料
 
+## MITRE ATT&CK 技术映射
+
+URL 分析覆盖攻击生命周期多个阶段，以下为 ATT&CK v16 技术映射：
+
+| 战术 | 技术 | 子技术 | URL 分析中的表现 |
+|------|------|--------|------------------|
+| Initial Access | T1566 | Phishing | 钓鱼 URL 是初始访问的最常见载体 |
+| Initial Access | T1566.002 | Spearphishing Link | 定向钓鱼链接（区别于附件钓鱼） |
+| Initial Access | T1190 | Exploit Public-Facing Application | URL 指向已知漏洞利用页面 |
+| Execution | T1059 | Command and Scripting Interpreter | URL 参数中嵌入命令注入载荷 |
+| Execution | T1059.007 | JavaScript | 恶意 JS 通过 URL 触发执行 |
+| Defense Evasion | T1027 | Obfuscated Files or Information | URL 编码/混淆规避检测 |
+| Defense Evasion | T1036 | Masquerading | 仿冒合法域名（typosquatting/homoglyph） |
+| Defense Evasion | T1036.005 | Match Legitimate Name or Location | 路径伪装合法站点（如 `/login.php`） |
+| Command and Control | T1071 | Application Layer Protocol | URL 作为 C2 通信通道（HTTP/HTTPS） |
+| Command and Control | T1071.001 | Web Protocols | C2 通过 Web 协议回传数据 |
+| Command and Control | T1105 | Ingress Tool Transfer | URL 用于下载恶意工具/载荷 |
+| Defense Evasion | T1090 | Proxy | URL 通过代理链隐藏真实 C2 |
+| Defense Evasion | T1090.004 | Domain Fronting | CDN 域前置隐藏真实目的地 |
+| Credential Access | T1552 | Unsecured Credentials | URL 指向伪造登录页窃取凭证 |
+| Credential Access | T1552.001 | Credentials In Files | 钓鱼页面表单收割用户密码 |
+| Exfiltration | T1567 | Exfiltration Over Web Service | 数据通过 URL 参数外传到外部服务 |
+| Exfiltration | T1567.002 | Exfiltration to Cloud Storage | 数据上传到云存储 URL |
+| Reconnaissance | T1595 | Active Scanning | URL 扫描探测 Web 应用弱点 |
+| Reconnaissance | T1595.002 | Vulnerability Scanning | URL 指纹识别和漏洞扫描 |
+
+### ATT&CK 缓解措施
+
+| Mitigation | 相关技术 | URL 分析中的作用 |
+|------------|----------|------------------|
+| M1041 — Encrypt Sensitive Information | T1552 | 检测页面是否使用 HTTPS 保护凭证传输 |
+| M1053 — Software Update | T1190 | 识别 URL 是否指向已知漏洞利用目标 |
+| M1031 — Network Intrusion Prevention | T1071, T1105 | URL 情报集成到 IPS/IPS 规则 |
+| M1021 — Restrict Web-Based Content | T1566 | URL 过滤和分类阻断恶意链接 |
+
+## OWASP Top 10 + CWE 映射
+
+| OWASP 2025 | CWE | 与 URL 分析的关系 |
+|-----------|------|------------------|
+| A01 Broken Access Control | CWE-639 | URL 路径遍历/IDOR 检测 |
+| A03 Injection | CWE-89 | URL 参数 SQL 注入特征检测 |
+| A03 Injection | CWE-79 | URL 参数 XSS 注入检测 |
+| A04 Insecure Design | CWE-209 | URL 暴露错误信息/堆栈跟踪 |
+| A05 Security Misconfiguration | CWE-16 | URL 暴露管理面板/默认页面 |
+| A07 Identification & Authentication Failures | CWE-287 | 钓鱼 URL 仿冒登录页面 |
+| A08 Software & Data Integrity Failures | CWE-829 | URL 指向未签名/篡改的下载资源 |
+| A10 SSRF | CWE-918 | URL 参数中嵌入内网地址（SSRF 探测） |
+
+## Sigma 检测规则
+
+### 规则 1: 恶意 URL 访问检测（Proxy 日志）
+
+```yaml
+title: 检测用户访问已知恶意 URL
+type: detect
+status: stable
+logsource:
+  product: proxy
+  category: webserver
+detection:
+  selection:
+    c-uri|contains:
+      - "/wp-admin/"
+      - "/.env"
+      - "/phpmyadmin/"
+      - "/admin/login"
+    c-useragent:
+      - "curl/*"
+      - "python-requests/*"
+      - "Go-http-client/*"
+  filter_legitimate:
+    c-uri-status:
+      - 200
+    src_ip:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+  condition: selection and not filter_legitimate
+fields:
+  - src_ip
+  - dst_host
+  - c-uri
+  - c-useragent
+  - c-uri-status
+falsepositives:
+  - 内部管理员访问自有管理面板
+  - 自动化健康检查工具
+level: medium
+tags:
+  - attack.initial_access
+  - attack.t1566
+  - attack.reconnaissance
+  - attack.t1595
+```
+
+### 规则 2: URL 重定向链异常检测（Web Proxy）
+
+```yaml
+title: 检测可疑多重重定向链（可能钓鱼/C2）
+type: detect
+status: experimental
+logsource:
+  product: proxy
+  category: webserver
+detection:
+  selection_redirect_chain:
+    c-uri|contains:
+      - "redirect="
+      - "url="
+      - "next="
+      - "return_to="
+      - "goto="
+  suspicious_destination:
+    dst_host:
+      - "*.tk"
+      - "*.ml"
+      - "*.ga"
+      - "*.cf"
+      - "*.gq"
+  new_domain_age:
+    dst_ip: "*"
+  condition: selection_redirect_chain and suspicious_destination
+fields:
+  - src_ip
+  - dst_host
+  - c-uri
+  - c-uri-status
+  - c-referer
+falsepositives:
+  - 合法的短链接服务
+  - 营销邮件中的跟踪链接
+level: high
+tags:
+  - attack.initial_access
+  - attack.t1566.002
+  - attack.defense_evasion
+  - attack.t1036
+  - attack.credential_access
+  - attack.t1552
+```
+
+## YARA 规则
+
+### 规则 1: URL 钓鱼页面特征检测
+
+```yara
+rule Phishing_Page_URL_Patterns {
+  meta:
+    description = "检测钓鱼页面中常见的 URL 提取和凭证收割模式"
+    author = "sec-skills url-analysis"
+    date = "2026-06-21"
+    reference = "ATT&CK T1566.002"
+  strings:
+    $form_action1 = /action=["']https?:\/\/[^"']+\.(tk|ml|ga|cf|gq)/ nocase
+    $form_action2 = /action=["']https?:\/\/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/ nocase
+    $cred_harvest1 = /name=["']?(password|passwd|pwd|pass)["']?/ nocase
+    $cred_harvest2 = /name=["']?(username|user|email|account)["']?/ nocase
+    $obfuscation = /document\.write\(atob\(/ nocase
+    $iframe_inject = /<iframe[^>]+src=["']https?:\/\// nocase
+  condition:
+    ($form_action1 or $form_action2) and ($cred_harvest1 and $cred_harvest2)
+    or ($obfuscation and $iframe_inject)
+}
+```
+
+### 规则 2: URL 缩短服务滥用检测
+
+```yara
+rule URL_Shortener_Suspicious_Patterns {
+  meta:
+    description = "检测可疑的 URL 缩短服务使用模式"
+    author = "sec-skills url-analysis"
+    date = "2026-06-21"
+    reference = "ATT&CK T1027 Obfuscated Files or Information"
+  strings:
+    $shortener1 = /https?:\/\/(bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|buff\.ly)\/[A-Za-z0-9]{6,}/ nocase
+    $shortener2 = /https?:\/\/(t\.me|telegram\.me)\/[a-zA-Z0-9_]+\?start=/ nocase
+    $redirect_param = /[?&](redirect|url|next|goto|return_to|continue)=https?%3A%2F%2F/ nocase
+    $tracking = /[?&](utm_source|utm_medium|campaign)=/ nocase
+  condition:
+    ($shortener1 or $shortener2) and $redirect_param
+    or ($shortener1 and not $tracking)
+}
+```
+
+## CVE 参考
+
+| CVE | 描述 | URL 分析关联 |
+|-----|------|-------------|
+| CVE-2021-44228 | Log4Shell JNDI 注入 | URL 参数 `${jndi:ldap://}` 模式检测 |
+| CVE-2023-50164 | Apache Struts 路径遍历 | URL 路径操纵上传 Web Shell |
+| CVE-2024-3400 | Palo Alto PAN-OS 命令注入 | URL 中嵌入 shell 命令特征 |
+| CVE-2023-23397 | Outlook NTLM 品尝 | 恶意 URL 触发 NTLM 认证泄露 |
+| CVE-2024-21893 | Ivanti Connect Secure SSRF | URL 参数利用 SSRF 链 |
+| CVE-2023-46604 | Apache ActiveMQ RCE | URL 指向恶意 XML 配置 |
+| CVE-2025-31101 | Apple WebKit URL Scheme 漏洞 | 恶意 URL Scheme 触发 Safari 漏洞 |
+
+## IOC 采集指引
+
+URL 分析过程中应提取以下 IOC 并格式化输出：
+
+| IOC 类型 | 提取方法 | 格式 |
+|----------|----------|------|
+| 完整 URL | url_parser.py 输出 | `hxxps://example[.]com/path` (Defang) |
+| 目标域名 | 从 URL 解析 | `example[.]com` (Defang) |
+| 目标 IP | DNS 解析或 URL 提取 | `1.2.3[.]4` (Defang) |
+| 重定向链 | url_fetcher.py 追踪 | JSON 数组，每跳含 URL + 状态码 |
+| 页面标题 | url_fetcher.py 提取 | 纯文本 |
+| SSL 证书指纹 | url_fetcher.py 获取 | SHA-256 |
+| User-Agent 特征 | 僵尸网络/扫描器 UA | 字符串模式 |
+| 路径关键词 | URL 路径段分析 | `/admin` `/login` `/.env` `/api/` |
+| 查询参数 | URL 参数分析 | JSON key-value（注意脱敏） |
+| 页面 Hash | 页面内容 SHA-256 | SHA-256 哈希值 |
+| JS 框架指纹 | 页面内容分析 | React/Vue/jQuery 版本 |
+| 同形字域名 | url_evasion_patterns.py | Unicode + ASCII 对照 |
+
+## 合规标准参考
+
+| 标准 | 章节/控制项 | 与 URL 分析的关系 |
+|------|------------|------------------|
+| ISO/IEC 27001 | A.13 通信安全 | URL 过滤和恶意链接防护 |
+| ISO/IEC 27001 | A.14 系统获取、开发及维护 | Web 应用 URL 安全测试 |
+| NIST SP 800-53 | SC-7 Boundary Protection | URL 过滤和网关检测 |
+| NIST SP 800-53 | SI-3 Malicious Code Protection | URL 信誉检测集成 |
+| NIST SP 800-137 | Information Security Continuous Monitoring | URL 持续监控 |
+| PCI DSS v4.0 | 6.5 Web Application Security | URL 输入验证和注入防护 |
+| GDPR | Article 32 | URL 泄露中的 PII 检测（URL 参数中的个人信息） |
+| 等保2.0 | 第八章 通信网络 | URL 访问控制和安全检测 |
+
+## 跨技能工作流
+
+### 工作流 1: 钓鱼 URL 完整分析链
+
+```
+邮件附件/钓鱼报告 → url-analysis（URL 分析）→ domain-analysis（域名信息）→ ip-analysis（IP 威胁）
+  → phishing-analysis（钓鱼判定）→ ttp-extractor（TTP 提取）→ pdf-report（报告生成）
+```
+
+### 工作流 2: C2 URL 威胁狩猎
+
+```
+日志分析/SIEM 告警 → url-analysis（C2 URL 确认）→ ip-analysis（基础设施追溯）
+  → domain-analysis（域名注册历史）→ ttp-extractor（攻击行为映射）→ 报告
+```
+
+### 工作流 3: Web 应用漏洞 URL 检测
+
+```
+代码审计/资产发现 → url-analysis（漏洞 URL 验证）→ researching-vulnerabilities（漏洞关联）
+  → code-audit（代码验证）→ ttp-extractor（漏洞利用 TTP）→ 报告
+```
+
 ## 技能关联
 
-**上游技能**: phishing-analysis, office-malware-analyzer, pdf-analysis, traffic-analysis
+**上游技能**: phishing-analysis, office-malware-analyzer, pdf-analysis, traffic-analysis, code-audit, brand-impersonation, mail-attachment-downloader
 
-**下游技能**: domain-analysis, ip-analysis, binary-reverse-engineering, office-malware-analyzer, pdf-analysis, mail-attachment-downloader
+**下游技能**: domain-analysis, ip-analysis, binary-reverse-engineering, office-malware-analyzer, pdf-analysis, mail-attachment-downloader, prompt-injection-detect, ttp-extractor, pdf-report
