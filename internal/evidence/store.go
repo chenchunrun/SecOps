@@ -144,6 +144,14 @@ func (s *FileStore) PutInference(ctx context.Context, inference Inference) error
 	return writeImmutableJSON(recordPath(s.inferenceRoot, inference.ID), inference)
 }
 
+func (s *FileStore) GetInference(ctx context.Context, id string) (Inference, error) {
+	var inference Inference
+	if err := readJSON(ctx, recordPath(s.inferenceRoot, id), &inference); err != nil {
+		return Inference{}, err
+	}
+	return inference, nil
+}
+
 func (s *FileStore) PutFinding(ctx context.Context, finding Finding) error {
 	if !validID(finding.ID) || !validID(finding.TaskID) || !validID(finding.MakerID) || !validSeverity(finding.Severity) || len(finding.FactIDs) == 0 || strings.TrimSpace(finding.Recommendation) == "" {
 		return ErrInvalidRecord
