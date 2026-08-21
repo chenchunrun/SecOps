@@ -30,6 +30,11 @@ Core contributor:
 - **Governed execution backends:** local, Docker, and SSH execution paths now carry policy validation, audit middleware, and remote-target checks.
 - **Mode-specialized agents:** AUTO, OPS, SEC, and CODE flows expose explicit routing for operations and security work in the TUI.
 - **SecOps-first runtime architecture:** capability registry, tool catalogs, fixed toolset datasets, and config/runtime wiring were generalized to reduce drift across the system.
+- **Evidence-first investigations:** immutable, task-bound evidence with content hashes supports explicit Fact, Inference, Finding, Verification, report, and replay contracts.
+- **Durable multi-agent collaboration:** structured Planner DAGs and persistent Handoff envelopes keep Maker and Checker identities, capabilities, evidence references, and outputs separate.
+- **Productized core skills:** 8 high-value security skills have versioned manifests, structured I/O schemas, integrity hashes, platform requirements, parameter risk, timeout, output, and authorization contracts.
+- **Validated security workflows:** phishing investigation, cross-platform host response, code and supply-chain review, and signed-scope attack-surface validation have deterministic failure and recovery tests.
+- **Security workbench and connectors:** Task, Evidence, Approval, and Verification views are backed by durable controls and metrics; a transport-neutral connector SDK defines contracts for Sentinel, Splunk, Elastic, Defender XDR, CrowdStrike Falcon, and Jira.
 
 ## Security Skills
 
@@ -65,21 +70,22 @@ SecOps ships with 35 skills under `skills/`. Switch to the `sec` agent (`/sec`) 
 
 #### How the Authorization Gate Works
 
-When you invoke any red team skill, the SecurityExpertAgent will:
+When you invoke a red team capability, the runtime will:
 
 1. **Declare intent** — state which skill it is activating and what it will do.
-2. **Request confirmation** — ask you to type `已授权` or `AUTHORIZED` along with the target scope and rules of engagement.
-3. **Record and proceed** — only after confirmation does it execute. The invocation is logged as a `security_alert` audit event.
+2. **Validate authorization** — require the relevant capability and approval. The migrated `redteam-intrusion-hunter` contract additionally requires a machine-verifiable signed target scope.
+3. **Check scope and risk** — validate target, port, time window, parameter risk, platform, and Kill Switch before execution.
+4. **Record and proceed** — write the audit event before any approved side effect.
 
 The agent will **refuse** if:
-- You have not typed the authorization phrase.
+- Required capability, approval, or signed scope is absent.
 - The target appears outside the stated scope.
 - Any step is irreversible without a rollback plan.
 
 #### Enabling Red Team Capabilities (optional hardening)
 
-By default, red team skills rely on the behavioral gate in the agent prompt.
-For stricter enforcement at the capability layer, add to your `crush.json`:
+Prompt text is not considered authorization. Capability grants remain explicit
+in `crush.json`; signed-scope skills also require a valid authorization object:
 
 ```json
 {
@@ -109,6 +115,10 @@ check it explicitly.
 - **Execution middleware refactor:** policy and audit concerns were lifted into shared middleware around local and remote execution.
 - **Security hardening:** SIEM exporters require real HTTPS endpoints, SSH targets enforce host/port allowlists, and dangerous path access is checked earlier in the execution path.
 - **Public-docs split:** durable public guides stay under [`docs/README.md`](docs/README.md), while process records stay local-only.
+- **Externalized durable state:** tasks, workspaces, snapshots, evidence, verification records, services, and handoffs live outside disposable execution environments.
+- **Evidence-first Maker/Checker:** high and critical findings cannot produce verified reports without task-bound evidence and an independent checker identity.
+- **Deterministic Skill Runtime:** models request capabilities, while code enforces platform, authorization, risk escalation, timeout, output, and schema contracts.
+- **Gradual release gates:** read-only investigation is the default; approved response, automatic response, and red-team execution are independent switches with emergency rollback.
 
 ## Documentation
 
@@ -127,11 +137,11 @@ check it explicitly.
 This fork includes SecOps runtime capabilities, risk-aware permissions,
 auditing, and secure execution controls.
 
-The cross-platform CI closure passed Build, Security, Lint, and Snapshot on
-2026-07-14. The stabilization baseline is commit
-[`86c91a3`](https://github.com/chenchunrun/SecOps/commit/86c91a3599e35fe36026bf9239dd2426b9e0bf0a);
-the remaining release action is to tag that verified line and publish a GitHub
-Release.
+The 2026-08-21 local completion audit passes the full Go test suite, focused
+race tests for the new durable/security packages, and CGO-disabled Linux and
+Windows full-package cross-builds. GitHub Actions remains the authoritative
+remote gate for Build, Security, Lint, and Snapshot after these commits are
+pushed.
 
 Recommended release verification commands:
 
