@@ -40,6 +40,21 @@ func TestConfig_LoadFromBytes(t *testing.T) {
 	require.Equal(t, "https://api.openai.com/v2", pc.BaseURL)
 }
 
+func TestNormalizeReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	model := &catwalk.Model{
+		ReasoningLevels:        []string{"high"},
+		DefaultReasoningEffort: "high",
+	}
+	require.Equal(t, "high", normalizeReasoningEffort(model, "xhigh"))
+	require.Equal(t, "high", normalizeReasoningEffort(model, "high"))
+	require.Equal(t, "high", normalizeReasoningEffort(model, ""))
+
+	customModel := &catwalk.Model{}
+	require.Equal(t, "xhigh", normalizeReasoningEffort(customModel, "xhigh"))
+}
+
 func TestConfig_LoadFromBytes_DecryptsNestedProviderAPIKey(t *testing.T) {
 	t.Setenv("HOME", "/tmp/crush-test-home")
 	t.Setenv("USER", "crush-test-user")

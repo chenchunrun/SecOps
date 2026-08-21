@@ -51,11 +51,26 @@ var Embedded = sync.OnceValue(func() catwalk.Provider {
 	if err := json.Unmarshal(embedded, &provider); err != nil {
 		slog.Error("Could not use embedded provider data", "err", err)
 	}
+	provider = NormalizeProviderCapabilities(provider)
 	if e := os.Getenv("HYPER_URL"); e != "" {
 		provider.APIEndpoint = e + "/api/v1/fantasy"
 	}
 	return provider
 })
+
+// NormalizeProviderCapabilities applies compatibility overrides for model
+// capabilities that Hyper currently advertises incorrectly.
+func NormalizeProviderCapabilities(provider catwalk.Provider) catwalk.Provider {
+	provider.Models = append([]catwalk.Model(nil), provider.Models...)
+	for i := range provider.Models {
+		if provider.Models[i].ID != "glm-5.2" {
+			continue
+		}
+		provider.Models[i].ReasoningLevels = []string{"high"}
+		provider.Models[i].DefaultReasoningEffort = "high"
+	}
+	return provider
+}
 
 const (
 	// Name is the default name of this meta provider.
