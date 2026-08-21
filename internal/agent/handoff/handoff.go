@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/chenchunrun/SecOps/internal/security/promptguard"
 )
 
 // Size limits guard against oversized or abusive payloads.
@@ -29,27 +31,39 @@ var ErrNoValidHandoff = errors.New("no valid handoff block found")
 
 // Handoff is the normalized v1 payload after JSON parsing and validation.
 type Handoff struct {
-	Version      int      `json:"handoff_version"`
-	FromAgent    string   `json:"from_agent"`
-	ToAgent      string   `json:"to_agent"`
-	Summary      string   `json:"summary"`
-	TouchedPaths []string `json:"touched_paths"`
-	RiskLevel    string   `json:"risk_level,omitempty"`
-	Followups    []string `json:"followups"`
-	AuditRef     string   `json:"audit_ref,omitempty"`
+	Version               int      `json:"handoff_version"`
+	FromAgent             string   `json:"from_agent"`
+	ToAgent               string   `json:"to_agent"`
+	Summary               string   `json:"summary"`
+	TouchedPaths          []string `json:"touched_paths"`
+	RiskLevel             string   `json:"risk_level,omitempty"`
+	Followups             []string `json:"followups"`
+	AuditRef              string   `json:"audit_ref,omitempty"`
+	TaskID                string   `json:"task_id,omitempty"`
+	Objective             string   `json:"objective,omitempty"`
+	EvidenceIDs           []string `json:"evidence_ids,omitempty"`
+	UnverifiedAssumptions []string `json:"unverified_assumptions,omitempty"`
+	RequiredCapabilities  []string `json:"required_capabilities,omitempty"`
+	ExpectedOutputSchema  string   `json:"expected_output_schema,omitempty"`
 }
 
 type wireHandoff struct {
-	HandoffVersion any      `json:"handoff_version"`
-	SourceAgent    string   `json:"source_agent,omitempty"`
-	FromAgent      string   `json:"from_agent,omitempty"`
-	TargetAgent    string   `json:"target_agent,omitempty"`
-	ToAgent        string   `json:"to_agent,omitempty"`
-	Summary        string   `json:"summary,omitempty"`
-	TouchedPaths   []string `json:"touched_paths,omitempty"`
-	RiskLevel      string   `json:"risk_level,omitempty"`
-	Followups      []string `json:"followups,omitempty"`
-	AuditRef       string   `json:"audit_ref,omitempty"`
+	HandoffVersion        any      `json:"handoff_version"`
+	SourceAgent           string   `json:"source_agent,omitempty"`
+	FromAgent             string   `json:"from_agent,omitempty"`
+	TargetAgent           string   `json:"target_agent,omitempty"`
+	ToAgent               string   `json:"to_agent,omitempty"`
+	Summary               string   `json:"summary,omitempty"`
+	TouchedPaths          []string `json:"touched_paths,omitempty"`
+	RiskLevel             string   `json:"risk_level,omitempty"`
+	Followups             []string `json:"followups,omitempty"`
+	AuditRef              string   `json:"audit_ref,omitempty"`
+	TaskID                string   `json:"task_id,omitempty"`
+	Objective             string   `json:"objective,omitempty"`
+	EvidenceIDs           []string `json:"evidence_ids,omitempty"`
+	UnverifiedAssumptions []string `json:"unverified_assumptions,omitempty"`
+	RequiredCapabilities  []string `json:"required_capabilities,omitempty"`
+	ExpectedOutputSchema  string   `json:"expected_output_schema,omitempty"`
 }
 
 var markdownFenceRE = regexp.MustCompile("(?s)```([a-zA-Z0-9._+-]*)[ \t]*\n(.*?)```")
@@ -87,6 +101,11 @@ func ParseJSON(raw []byte) (*Handoff, error) {
 		RiskLevel:    strings.TrimSpace(strings.ToLower(w.RiskLevel)),
 		Followups:    append([]string(nil), w.Followups...),
 		AuditRef:     strings.TrimSpace(w.AuditRef),
+		TaskID:       strings.TrimSpace(w.TaskID), Objective: strings.TrimSpace(w.Objective),
+		EvidenceIDs:           append([]string(nil), w.EvidenceIDs...),
+		UnverifiedAssumptions: append([]string(nil), w.UnverifiedAssumptions...),
+		RequiredCapabilities:  append([]string(nil), w.RequiredCapabilities...),
+		ExpectedOutputSchema:  strings.TrimSpace(w.ExpectedOutputSchema),
 	}
 	if err := out.Validate(); err != nil {
 		return nil, err
@@ -200,6 +219,19 @@ func (h *Handoff) Validate() error {
 	for _, p := range h.TouchedPaths {
 		if err := validateSafePath(p); err != nil {
 			return err
+		}
+	}
+	if h.TaskID != "" || h.Objective != "" || len(h.EvidenceIDs) > 0 || len(h.RequiredCapabilities) > 0 || h.ExpectedOutputSchema != "" {
+		if h.TaskID == "" || h.Objective == "" || len(h.RequiredCapabilities) == 0 || h.ExpectedOutputSchema == "" {
+			return errors.New("extended handoff requires task_id, objective, required_capabilities, and expected_output_schema")
+		}
+		if promptguard.ContainsInjection(h.Objective) {
+			return errors.New("extended handoff objective contains instruction hijacking")
+		}
+		for _, assumption := range h.UnverifiedAssumptions {
+			if promptguard.ContainsInjection(assumption) {
+				return errors.New("extended handoff assumption contains instruction hijacking")
+			}
 		}
 	}
 	return nil

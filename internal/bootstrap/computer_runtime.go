@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/chenchunrun/SecOps/internal/admission"
+	"github.com/chenchunrun/SecOps/internal/collaboration"
 	"github.com/chenchunrun/SecOps/internal/computer"
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/evidence"
@@ -34,6 +35,7 @@ type ComputerRuntime struct {
 	VerificationMaker   *verification.Maker
 	VerificationChecker *verification.Checker
 	EvidenceStore       *evidence.FileStore
+	HandoffStore        *collaboration.FileStore
 	AdmissionStore      admission.Store
 	Admission           *admission.Manager
 	Services            *service.Manager
@@ -79,6 +81,10 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 	evidenceStore, err := evidence.NewFileStore(filepath.Join(runtimeRoot, "evidence"))
 	if err != nil {
 		return nil, fmt.Errorf("initialize evidence store: %w", err)
+	}
+	handoffStore, err := collaboration.NewFileStore(filepath.Join(runtimeRoot, "handoffs"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize handoff store: %w", err)
 	}
 	manager := computer.NewManager()
 	local, err := computer.NewLocalComputer(DefaultLocalComputerID)
@@ -234,6 +240,7 @@ func newComputerRuntimeWithConfig(ctx context.Context, runtimeRoot string, cfg *
 		VerificationMaker:   verificationMaker,
 		VerificationChecker: verificationChecker,
 		EvidenceStore:       evidenceStore,
+		HandoffStore:        handoffStore,
 		AdmissionStore:      admissionStore,
 		Admission:           admissionManager,
 		Services:            services,
