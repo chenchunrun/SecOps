@@ -1,0 +1,13 @@
+api_version: secops/connectors/v1
+name: defender-xdr
+version: 1.0.0
+provider: Microsoft Defender XDR
+data_scopes: [alerts:read, machines:write]
+credential: {type: oauth2, scopes: [Machine.Read.All], short_lived: true}
+provider_api_version: v1.0
+rate_limit: {max_retries: 3, backoff: 1s}
+health_path: /api/machines
+event_schema: secops-event-v1
+operations:
+  - {name: query_alerts, method: GET, path: /api/alerts, side_effect: false, risk: low}
+  - {name: isolate_machine, method: POST, path: /api/machines/isolate, side_effect: true, risk: critical}

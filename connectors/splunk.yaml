@@ -1,0 +1,13 @@
+api_version: secops/connectors/v1
+name: splunk
+version: 1.0.0
+provider: Splunk
+data_scopes: [search:read, notable:write]
+credential: {type: proxy_token, scopes: [search], short_lived: true}
+provider_api_version: v2
+rate_limit: {max_retries: 3, backoff: 1s}
+health_path: /services/server/health/splunkd
+event_schema: secops-event-v1
+operations:
+  - {name: search, method: POST, path: /services/search/jobs, side_effect: false, risk: low}
+  - {name: update_notable, method: POST, path: /services/notable_update, side_effect: true, risk: high}

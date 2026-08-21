@@ -1,0 +1,13 @@
+api_version: secops/connectors/v1
+name: elastic
+version: 1.0.0
+provider: Elastic Security
+data_scopes: [alerts:read, cases:write]
+credential: {type: api_key_proxy, scopes: [read_security], short_lived: true}
+provider_api_version: v8
+rate_limit: {max_retries: 3, backoff: 1s}
+health_path: /_cluster/health
+event_schema: ecs-8
+operations:
+  - {name: query_alerts, method: POST, path: /alerts/_search, side_effect: false, risk: low}
+  - {name: update_case, method: PATCH, path: /api/cases, side_effect: true, risk: high}
