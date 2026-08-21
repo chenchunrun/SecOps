@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chenchunrun/SecOps/internal/investigation/phishing"
 )
 
 // AgentRole 代理角色
@@ -62,6 +65,9 @@ type AgentResponse struct {
 	ConfidenceScore float64                  `json:"confidence_score"` // 置信度 0-1
 	NextSteps       []string                 `json:"next_steps"`
 	WorkflowSummary *SecurityWorkflowSummary `json:"workflow_summary,omitempty"`
+	EvidenceIDs     []string                 `json:"evidence_ids,omitempty"`
+	FindingIDs      []string                 `json:"finding_ids,omitempty"`
+	Verification    string                   `json:"verification,omitempty"`
 	ResponseTime    int                      `json:"response_time"` // 毫秒
 	Error           string                   `json:"error,omitempty"`
 }
@@ -401,6 +407,7 @@ type SecurityExpertAgent struct {
 	Capabilities []AgentCapability
 	State        AgentState
 	Knowledge    map[string]interface{}
+	phishing     *phishing.Workflow
 }
 
 type securityWorkflowPlan struct {
@@ -459,6 +466,12 @@ func NewSecurityExpertAgent(id string) *SecurityExpertAgent {
 	}
 }
 
+func (a *SecurityExpertAgent) ConfigurePhishingWorkflow(workflow *phishing.Workflow) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.phishing = workflow
+}
+
 // ProcessTask 处理任务
 func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 	startTime := time.Now()
@@ -482,6 +495,9 @@ func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 		Alerts:          make([]string, 0),
 		Recommendations: make([]string, 0),
 		NextSteps:       make([]string, 0),
+	}
+	if task.Type == "phishing_investigation" {
+		return a.processPhishingInvestigation(task, startTime)
 	}
 	evidence := verifiedSecurityEvidence(task.Metadata)
 	if len(evidence) == 0 {
@@ -535,6 +551,84 @@ func (a *SecurityExpertAgent) ProcessTask(task *AgentTask) *AgentResponse {
 	response.ResponseTime = int(time.Since(startTime).Milliseconds())
 
 	return response
+}
+
+func (a *SecurityExpertAgent) processPhishingInvestigation(task *AgentTask, startTime time.Time) *AgentResponse {
+	a.mu.RLock()
+	workflow := a.phishing
+	a.mu.RUnlock()
+	response := &AgentResponse{AgentRole: a.Role, TaskID: task.ID, Status: "failed"}
+	if workflow == nil {
+		response.Error = "evidence-first phishing workflow is unavailable"
+		return a.finishSecurityTask(task, response, startTime)
+	}
+	message, reference, checkerID, ok := phishingTaskInput(task.Metadata)
+	if !ok {
+		response.Error = "phishing task requires message, message_reference, and checker_id metadata"
+		return a.finishSecurityTask(task, response, startTime)
+	}
+	report, err := workflow.Run(context.Background(), phishing.Input{
+		TaskID: task.ID, MessageReference: reference, Message: message,
+		MakerID: a.ID, CheckerID: checkerID,
+	})
+	if err != nil {
+		response.Error = fmt.Sprintf("phishing investigation failed: %v", err)
+		return a.finishSecurityTask(task, response, startTime)
+	}
+	response.Status = "completed"
+	response.Action = report.Finding.Recommendation
+	response.Reasoning = fmt.Sprintf("Finding %s was produced from task-bound evidence and independently checked", report.Finding.ID)
+	response.Findings = []string{fmt.Sprintf("%s severity finding: %s", report.Finding.Severity, report.Finding.ID)}
+	response.Recommendations = []string{report.Finding.Recommendation}
+	response.EvidenceIDs = append([]string(nil), report.EvidenceIDs...)
+	response.FindingIDs = []string{report.Finding.ID}
+	response.Verification = string(report.Verification.Verdict)
+	response.ConfidenceScore = 1
+	if report.PromptInjectionDetected {
+		response.Alerts = []string{"Prompt-injection content detected and isolated as untrusted evidence"}
+	}
+	response.WorkflowSummary = &SecurityWorkflowSummary{
+		PrimaryTool: "phishing-analysis", EvidenceSources: append([]string(nil), report.EvidenceIDs...),
+		Status: "independently verified", Reason: report.Verification.Reason,
+	}
+	return a.finishSecurityTask(task, response, startTime)
+}
+
+func (a *SecurityExpertAgent) finishSecurityTask(task *AgentTask, response *AgentResponse, startTime time.Time) *AgentResponse {
+	task.CompletedAt = time.Now()
+	if response.Status == "completed" {
+		task.Status = "completed"
+		task.Result = response
+	} else {
+		task.Status = "failed"
+		task.Error = response.Error
+	}
+	a.mu.Lock()
+	if task.Status == "completed" {
+		a.State.CompletedTasks++
+	} else {
+		a.State.FailedTasks++
+	}
+	a.State.LastActivity = time.Now()
+	a.mu.Unlock()
+	response.ResponseTime = int(time.Since(startTime).Milliseconds())
+	return response
+}
+
+func phishingTaskInput(metadata map[string]interface{}) ([]byte, string, string, bool) {
+	if len(metadata) == 0 {
+		return nil, "", "", false
+	}
+	var message []byte
+	switch value := metadata["message"].(type) {
+	case string:
+		message = []byte(value)
+	case []byte:
+		message = append([]byte(nil), value...)
+	}
+	reference, _ := metadata["message_reference"].(string)
+	checkerID, _ := metadata["checker_id"].(string)
+	return message, strings.TrimSpace(reference), strings.TrimSpace(checkerID), len(message) > 0 && strings.TrimSpace(reference) != "" && strings.TrimSpace(checkerID) != ""
 }
 
 func verifiedSecurityEvidence(metadata map[string]interface{}) []SecurityEvidence {
