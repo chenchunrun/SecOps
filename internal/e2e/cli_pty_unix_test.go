@@ -41,7 +41,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	testBinary = filepath.Join(buildDir, "secops")
-	build := exec.Command("go", "build", "-o", testBinary, ".")
+	buildContext, cancelBuild := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancelBuild()
+	build := exec.CommandContext(buildContext, "go", "build", "-o", testBinary, ".")
 	build.Dir = root
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if output, buildErr := build.CombinedOutput(); buildErr != nil {

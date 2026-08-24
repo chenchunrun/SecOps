@@ -400,6 +400,12 @@ func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt,
 
 		case <-ctx.Done():
 			stopSpinner()
+			app.AgentCoordinator.Cancel(sess.ID)
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				slog.Warn("Timed out waiting for non-interactive agent cancellation", "session_id", sess.ID)
+			}
 			return ctx.Err()
 		}
 	}
