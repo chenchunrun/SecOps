@@ -127,6 +127,15 @@ func (m *Chat) SetMessages(msgs ...chat.MessageItem) {
 	m.ScrollToBottom()
 }
 
+// InvalidateStyles clears message render caches after a theme change.
+func (m *Chat) InvalidateStyles() {
+	for i := 0; i < m.list.Len(); i++ {
+		if item, ok := m.list.ItemAt(i).(interface{ InvalidateCache() }); ok {
+			item.InvalidateCache()
+		}
+	}
+}
+
 // AppendMessages appends a new message item to the chat list.
 func (m *Chat) AppendMessages(msgs ...chat.MessageItem) {
 	items := make([]list.Item, len(msgs))

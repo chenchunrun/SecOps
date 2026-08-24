@@ -677,9 +677,7 @@ func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provid
 			} else {
 				large.MaxTokens = model.DefaultMaxTokens
 			}
-			if largeModelSelected.ReasoningEffort != "" {
-				large.ReasoningEffort = largeModelSelected.ReasoningEffort
-			}
+			large.ReasoningEffort = normalizeReasoningEffort(model, largeModelSelected.ReasoningEffort)
 			large.Think = largeModelSelected.Think
 			if largeModelSelected.Temperature != nil {
 				large.Temperature = largeModelSelected.Temperature
@@ -721,9 +719,7 @@ func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provid
 			} else {
 				small.MaxTokens = model.DefaultMaxTokens
 			}
-			if smallModelSelected.ReasoningEffort != "" {
-				small.ReasoningEffort = smallModelSelected.ReasoningEffort
-			}
+			small.ReasoningEffort = normalizeReasoningEffort(model, smallModelSelected.ReasoningEffort)
 			if smallModelSelected.Temperature != nil {
 				small.Temperature = smallModelSelected.Temperature
 			}
@@ -745,6 +741,18 @@ func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provid
 	c.Models[SelectedModelTypeLarge] = large
 	c.Models[SelectedModelTypeSmall] = small
 	return nil
+}
+
+func normalizeReasoningEffort(model *catwalk.Model, effort string) string {
+	if model == nil || len(model.ReasoningLevels) == 0 {
+		return effort
+	}
+	for _, supported := range model.ReasoningLevels {
+		if effort == supported {
+			return effort
+		}
+	}
+	return model.DefaultReasoningEffort
 }
 
 // lookupConfigs searches config files recursively from CWD up to FS root

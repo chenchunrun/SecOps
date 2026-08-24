@@ -45,6 +45,11 @@ func (s *Status) ClearInfoMsg() {
 	s.msg = util.InfoMsg{}
 }
 
+// RefreshStyles updates style values copied into the help component.
+func (s *Status) RefreshStyles() {
+	s.help.Styles = s.com.Styles.Help
+}
+
 // SetWidth sets the width of the status bar and help view.
 func (s *Status) SetWidth(width int) {
 	helpStyle := s.com.Styles.Status.Help

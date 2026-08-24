@@ -2,7 +2,7 @@
 name: binary-reverse-engineering
 description: 二进制逆向工程和恶意软件分析。支持 PE/.NET/Go/ELF。使用 radare2、frida、pwntools、YARA。Use when analyzing binaries, reverse engineering, malware analysis, CTF, exploit development.
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   builtin: true
 ---
 
@@ -282,6 +282,211 @@ yara -r yara/ ./samples/   # 所有规则
 3. 动态分析发现网络行为时，分析目标地址
 
 ---
+
+## MITRE ATT&CK 技术映射
+
+二进制逆向工程覆盖恶意软件分析和漏洞研究的多个 ATT&CK 战术：
+
+| 战术 | 技术 | 名称 | 逆向分析场景 |
+|------|------|------|-------------|
+| **Execution (TA0002)** | T1055 | Process Injection | 分析注入型恶意软件的 API 调用链 |
+| | T1055.001 | DLL Injection | 分析 VirtualAllocEx + WriteProcessMemory 模式 |
+| | T1055.012 | Process Hollowing | 分析 CREATE_SUSPENDED + NtUnmapViewOfSection |
+| | T1055.003 | Thread Execution Hijacking | 分析 SuspendThread + SetThreadContext |
+| | T1055.004 | APC Injection | 分析 QueueUserAPC 调用 |
+| | T1055.013 | Process Doppelgänging | 分析 TxF 事务操作 |
+| | T1620 | Reflective DLL Loading | 分析自实现 Loader 的恶意 DLL |
+| | T1106 | Native API | 分析直接 syscalls/Nt* 调用 |
+| | T1129 | Shared Modules | 分析 LoadLibrary 动态加载 |
+| | T1059.001 | PowerShell | 分析嵌入的 PowerShell 脚本 |
+| **Defense Evasion (TA0005)** | T1027 | Obfuscated Files or Information | 分析加壳/加密/混淆代码 |
+| | T1027.002 | Software Packing | 检测 UPX/Themida/VMProtect 等壳 |
+| | T1027.007 | Dynamic API Resolution | 分析 GetProcAddress 动态解析 |
+| | T1036 | Masquerading | 分析伪装系统进程名 |
+| | T1140 | Deobfuscate/Decode Files | 分析运行时自解密 |
+| | T1497.001 | System Checks | 分析反调试/反虚拟机代码 |
+| | T1620 | Reflective DLL Loading | 分析内存加载的 DLL |
+| **Credential Access (TA0006)** | T1555 | Credentials from Password Stores | 分析凭证提取代码 |
+| | T1003 | OS Credential Dumping | 分析 LSASS 操作代码 |
+| **Discovery (TA0007)** | T1082 | System Information Discovery | 分析环境检测代码 |
+| | T1497 | Virtualization/Sandbox Evasion | 分析反沙箱技术 |
+| **Collection (TA0009)** | T1056 | Input Capture | 分析键盘记录器 |
+| | T1005 | Data from Local System | 分析文件搜索/窃取代码 |
+| **Command and Control (TA0011)** | T1071 | Application Layer Protocol | 分析 C2 通信协议 |
+| | T1573 | Encrypted Channel | 分析 TLS/自定义加密通信 |
+| | T1105 | Ingress Tool Transfer | 分析下载器/投放器 |
+| **Exfiltration (TA0010)** | T1041 | Exfiltration Over C2 Channel | 分析数据外泄代码 |
+
+## OWASP Top 10 / CWE 映射
+
+二进制逆向分析关联的应用安全维度：
+
+| OWASP 类别 | CWE | 关联场景 |
+|-----------|-----|---------|
+| **A01** Broken Access Control | CWE-787 | 缓冲区溢出导致代码执行 |
+| | CWE-125 | 越界读取泄露内存数据 |
+| **A03** Injection | CWE-94 | 代码注入漏洞的二进制利用 |
+| | CWE-119 | 内存操作不当 |
+| **A04** Insecure Design | CWE-20 | 输入验证缺失导致漏洞 |
+| **A05** Security Misconfiguration | CWE-732 | 权限配置错误被利用 |
+| **A06** Vulnerable Components | CWE-1104 | 第三方库漏洞利用 |
+| | CWE-918 | SSRF 在二进制中的利用 |
+| **A08** Software & Data Integrity Failures | CWE-345 | 未验证的更新/加载 |
+| **A10** SSRF | CWE-918 | 服务端请求伪造的载荷分析 |
+
+## CVE 参考表
+
+逆向分析中常见的高危 CVE 类型：
+
+| CVE 类型 | 漏洞模式 | YARA 特征 | ATT&CK 映射 |
+|---------|---------|-----------|------------|
+| CVE-2021-34527 (PrintNightmare) | 打印服务权限提升 | RpcAddPrinterDriverEx | T1068 |
+| CVE-2021-1675 | Windows Print Spooler | printer import 操作 | T1068 |
+| CVE-2023-23397 | Outlook 权限提升 | PidLidReminderProperty | T1068 |
+| CVE-2023-21716 | Word RTF RCE | RTF 对象解析 | T1203 |
+| CVE-2021-44228 (Log4Shell) | JNDI 注入 | \${jndi:ldap://} | T1059 |
+| CVE-2022-26923 | AD Kerberos 绕过 | dNSHostName 属性 | T1098 |
+
+## IOC 采集指引
+
+| IOC 类型 | 提取方法 | 存储格式 | 工具支持 |
+|---------|---------|---------|----------|
+| C2 IP/域名 | 字符串提取/内存转储 | ip_addr/domain | malware_analyze.py --ioc |
+| C2 URL | 字符串扫描 | url | strings + regex |
+| 文件哈希 | 计算 PE/ELF 哈希 | hash_sha256 | hashlib |
+| Mutex 名称 | CreateMutex 调用分析 | mutex_name | YARA + radare2 |
+| 注册表键 | RegCreateKey 分析 | registry_key | radare2 |
+| API 调用序列 | IAT/动态分析 | api_call_chain | frida hook |
+| 嵌入式 PE | 提取嵌入的二进制 | pe_file | extract_embedded.py |
+| 加密密钥 | 解密代码分析 | crypto_key | radare2 + 脚本 |
+| User-Agent | HTTP 分析 | user_agent | strings + mitmproxy |
+| C2 协议特征 | 网络行为分析 | protocol_pattern | frida + Wireshark |
+
+## Sigma 检测规则
+
+### 规则 1: 恶意软件特征进程创建
+
+```yaml
+title: Malware Process Creation from Binary Analysis IOCs
+description: >
+  基于二进制逆向分析提取的 IOC，
+  检测恶意软件创建的进程。
+status: experimental
+author: sec-skills
+references:
+  - https://attack.mitre.org/techniques/T1055/
+  - https://attack.mitre.org/techniques/T1105/
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1055
+  - attack.t1105
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_suspicious_processes:
+    Image:
+      - 'C:\\Users\\*\\AppData\\Local\\Temp\\*.exe'
+      - 'C:\\Users\\*\\AppData\\Roaming\\*.exe'
+      - 'C:\\ProgramData\\*.exe'
+  selection_suspicious_parent:
+    ParentImage:
+      - 'C:\\Windows\\System32\\svchost.exe'
+      - 'C:\\Windows\\System32\\rundll32.exe'
+      - 'C:\\Windows\\System32\\mshta.exe'
+  condition: selection_suspicious_processes or (selection_suspicious_processes and selection_suspicious_parent)
+falsepositives:
+  - 合法的临时可执行文件
+level: high
+```
+
+### 规则 2: 进程注入行为检测
+
+```yaml
+title: Process Injection API Call Sequence
+description: >
+  检测进程注入技术的 API 调用序列，
+  基于二进制逆向分析中发现的注入模式。
+status: experimental
+author: sec-skills
+references:
+  - https://attack.mitre.org/techniques/T1055/001/
+  - https://attack.mitre.org/techniques/T1055/012/
+tags:
+  - attack.defense_evasion
+  - attack.privilege_escalation
+  - attack.t1055.001
+  - attack.t1055.012
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_injection_tools:
+    Image:
+      - 'C:\\Windows\\System32\\rundll32.exe'
+      - 'C:\\Windows\\System32\\regsvr32.exe'
+      - 'C:\\Windows\\System32\\mshta.exe'
+  selection_suspicious_commandline:
+    CommandLine:
+      - '*\\AppData\\*'
+      - '*http*'
+      - '*javascript*'
+      - '*eval*'
+  condition: selection_injection_tools and selection_suspicious_commandline
+falsepositives:
+  - 合法的 regsvr32/rundll32 使用
+level: high
+```
+
+## 合规标准关联
+
+| 标准 | 条款 | 关联 |
+|------|------|------|
+| **ISO 27001** | A.8.7 | 恶意软件防范——逆向分析支持恶意软件检测能力 |
+| **ISO 27001** | A.12.5.1 | 技术漏洞管理——二进制分析发现软件漏洞 |
+| **ISO 27001** | A.16.1.2 | 事件报告——逆向分析为事件响应提供证据 |
+| **NIST SP 800-83** | 3.2 | 恶意软件事件预防——低级分析增强检测能力 |
+| **NIST SP 800-53** | SI-3 | 恶意代码检测——二进制扫描自动化 |
+| **NIST SP 800-53** | SI-7 | 软件/固件完整性——逆向验证代码完整性 |
+| **NIST SP 800-61** | 3.2 | 事件响应——恶意软件分析支持分类和优先级 |
+| **PCI DSS** | 5.1 | 恶意软件防护——所有系统需定期扫描 |
+| **PCI DSS** | 6.5 | 安全编码——逆向发现的安全漏洞需修复 |
+| **GDPR** | Art. 33 | 数据泄露通知——逆向分析确定泄露范围 |
+| **PIPL** | 第57条 | 数据安全事件处置——恶意软件分析支持事件调查 |
+
+## 跨技能工作流
+
+### 工作流 1: 文档载荷分析链
+
+```
+office-malware-analyzer (提取嵌入 PE)
+  └─→ binary-reverse-engineering (逆向分析)
+       └─→ url-analysis (分析 C2 URL)
+            └─→ ttp-extractor (提取 TTP)
+                 └─→ pdf-report (生成报告)
+```
+
+### 工作流 2: 恶意软件事件响应链
+
+```
+linux-ir/windows-ir (发现可疑文件)
+  └─→ binary-reverse-engineering (分析样本)
+       ├─→ domain-analysis (C2 域名)
+       ├─→ ip-analysis (C2 IP)
+       └─→ ttp-extractor (提取 ATT&CK 技术)
+            └─→ pdf-report (事件报告)
+```
+
+### 工作流 3: PDF 嵌入载荷分析链
+
+```
+pdf-analysis (提取嵌入 PE)
+  └─→ binary-reverse-engineering (逆向分析)
+       └─→ code-audit (分析源码/反编译代码)
+            └─→ sca-analyzer (依赖漏洞扫描)
+                 └─→ ttp-extractor (TTP 提取)
+```
 
 ## 附加资源
 

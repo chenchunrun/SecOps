@@ -23,15 +23,17 @@ type ComputerResolver interface {
 }
 
 type Runtime struct {
-	store Store
-	mu    sync.Mutex
+	store          Store
+	mu             sync.Mutex
+	active         map[ID]context.CancelFunc
+	requestedState map[ID]State
 }
 
 func New(store Store) (*Runtime, error) {
 	if store == nil {
 		return nil, fmt.Errorf("%w: store is required", ErrInvalidTask)
 	}
-	return &Runtime{store: store}, nil
+	return &Runtime{store: store, active: make(map[ID]context.CancelFunc), requestedState: make(map[ID]State)}, nil
 }
 
 func (r *Runtime) Submit(ctx context.Context, submission Submission) (Task, error) {
@@ -153,22 +155,27 @@ func (r *Runtime) Run(ctx context.Context, id ID, machine Computer) (Task, error
 		return Task{}, err
 	}
 
+	execCtx, cancel := context.WithCancel(ctx)
 	r.mu.Lock()
 	task, err := r.store.Get(ctx, id)
 	if err != nil {
 		r.mu.Unlock()
+		cancel()
 		return Task{}, fmt.Errorf("load runnable task: %w", err)
 	}
 	if task.State.terminal() {
 		r.mu.Unlock()
+		cancel()
 		return task, nil
 	}
 	if task.State != StatePending {
 		r.mu.Unlock()
+		cancel()
 		return task, fmt.Errorf("%w: task %s is %s", ErrNotRunnable, id, task.State)
 	}
 	if machine.ID() != task.ComputerID {
 		r.mu.Unlock()
+		cancel()
 		return task, fmt.Errorf("%w: task %s requires %s, got %s", ErrComputerMismatch, id, task.ComputerID, machine.ID())
 	}
 
@@ -184,12 +191,23 @@ func (r *Runtime) Run(ctx context.Context, id ID, machine Computer) (Task, error
 	task.VerificationEvidenceIDs = nil
 	task.VerificationFindings = nil
 	task, err = r.store.Update(ctx, task)
+	if err == nil {
+		r.active[id] = cancel
+		delete(r.requestedState, id)
+	}
 	r.mu.Unlock()
 	if err != nil {
+		cancel()
 		return Task{}, fmt.Errorf("persist running task: %w", err)
 	}
 
-	executionResult, executionErr := machine.Exec(ctx, task.Request)
+	executionResult, executionErr := machine.Exec(execCtx, task.Request)
+	cancel()
+	r.mu.Lock()
+	requestedState := r.requestedState[id]
+	delete(r.active, id)
+	delete(r.requestedState, id)
+	r.mu.Unlock()
 	if executionResult == nil && executionErr == nil {
 		executionErr = ErrInvalidResult
 	}
@@ -215,7 +233,12 @@ func (r *Runtime) Run(ctx context.Context, id ID, machine Computer) (Task, error
 	} else {
 		task.FinishedAt = finishedAt
 		task.Error = executionErr.Error()
-		if errors.Is(executionErr, context.Canceled) {
+		if errors.Is(executionErr, context.Canceled) && requestedState == StatePaused {
+			task.State = StatePaused
+			task.Error = "task paused by user"
+			task.FinishedAt = time.Time{}
+			task.Result = nil
+		} else if errors.Is(executionErr, context.Canceled) {
 			task.State = StateCancelled
 		} else {
 			task.State = StateFailed
@@ -230,6 +253,94 @@ func (r *Runtime) Run(ctx context.Context, id ID, machine Computer) (Task, error
 	}
 	if executionErr != nil {
 		return persisted, executionErr
+	}
+	return persisted, nil
+}
+
+func (r *Runtime) Pause(ctx context.Context, id ID) (Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, err := r.store.Get(ctx, id)
+	if err != nil {
+		return Task{}, fmt.Errorf("load task for pause: %w", err)
+	}
+	switch task.State {
+	case StatePaused:
+		return task, nil
+	case StatePending:
+		task.State = StatePaused
+		task.Error = "task paused by user"
+		task.UpdatedAt = time.Now().UTC()
+		persisted, err := r.store.Update(ctx, task)
+		if err != nil {
+			return Task{}, fmt.Errorf("persist paused task: %w", err)
+		}
+		return persisted, nil
+	case StateRunning:
+		cancel := r.active[id]
+		if cancel == nil {
+			return task, fmt.Errorf("%w: running task %s has no active execution", ErrConflict, id)
+		}
+		r.requestedState[id] = StatePaused
+		cancel()
+		return task, nil
+	default:
+		return task, fmt.Errorf("%w: task %s cannot pause from %s", ErrNotRunnable, id, task.State)
+	}
+}
+
+func (r *Runtime) Resume(ctx context.Context, id ID) (Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, err := r.store.Get(ctx, id)
+	if err != nil {
+		return Task{}, fmt.Errorf("load task for resume: %w", err)
+	}
+	if task.State != StatePaused {
+		return task, fmt.Errorf("%w: task %s cannot resume from %s", ErrNotRunnable, id, task.State)
+	}
+	task.State = StatePending
+	task.Error = ""
+	task.Result = nil
+	task.StartedAt = time.Time{}
+	task.FinishedAt = time.Time{}
+	task.UpdatedAt = time.Now().UTC()
+	persisted, err := r.store.Update(ctx, task)
+	if err != nil {
+		return Task{}, fmt.Errorf("persist resumed task: %w", err)
+	}
+	return persisted, nil
+}
+
+func (r *Runtime) Cancel(ctx context.Context, id ID) (Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, err := r.store.Get(ctx, id)
+	if err != nil {
+		return Task{}, fmt.Errorf("load task for cancellation: %w", err)
+	}
+	if task.State == StateCancelled {
+		return task, nil
+	}
+	if task.State.terminal() {
+		return task, fmt.Errorf("%w: terminal task %s cannot be cancelled", ErrNotRunnable, id)
+	}
+	if task.State == StateRunning {
+		cancel := r.active[id]
+		if cancel == nil {
+			return task, fmt.Errorf("%w: running task %s has no active execution", ErrConflict, id)
+		}
+		r.requestedState[id] = StateCancelled
+		cancel()
+		return task, nil
+	}
+	task.State = StateCancelled
+	task.Error = "task cancelled by user"
+	task.UpdatedAt = time.Now().UTC()
+	task.FinishedAt = task.UpdatedAt
+	persisted, err := r.store.Update(ctx, task)
+	if err != nil {
+		return Task{}, fmt.Errorf("persist cancelled task: %w", err)
 	}
 	return persisted, nil
 }

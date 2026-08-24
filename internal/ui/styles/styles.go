@@ -1448,14 +1448,22 @@ func foregroundColorsForTheme(theme ...Theme) (fgBase, fgMuted, fgHalfMuted, fgS
 		// Foregrounds for light terminal backgrounds.
 		fgBase = lipgloss.Color("#1A1A1A")
 		fgMuted = lipgloss.Color("#5A5A5A")
-		fgHalfMuted = lipgloss.Color("#8A8A8A")
-		fgSubtle = lipgloss.Color("#AAAAAA")
+		fgHalfMuted = lipgloss.Color("#666666")
+		fgSubtle = lipgloss.Color("#737373")
 	default:
 		// Foregrounds for dark terminal backgrounds.
 		fgBase = lipgloss.Color("#F5F5F5")
 		fgMuted = lipgloss.Color("#BBBBBB")
 		fgHalfMuted = lipgloss.Color("#999999")
-		fgSubtle = lipgloss.Color("#777777")
+		fgSubtle = lipgloss.Color("#A0A0A0")
 	}
 	return fgBase, fgMuted, fgHalfMuted, fgSubtle
+}
+
+// ThemeForBackground returns the high-contrast theme for a terminal background.
+func ThemeForBackground(isDark bool) Theme {
+	if isDark {
+		return ThemeDark
+	}
+	return ThemeLight
 }

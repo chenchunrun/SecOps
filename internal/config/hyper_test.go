@@ -73,6 +73,30 @@ func TestHyperSync_GetFreshProvider(t *testing.T) {
 	require.False(t, fileInfo.IsDir())
 }
 
+func TestHyperSync_GetNormalizesGLM52ReasoningLevels(t *testing.T) {
+	t.Parallel()
+
+	syncer := &hyperSync{}
+	client := &mockHyperClient{provider: catwalk.Provider{
+		Name: "Hyper",
+		ID:   "hyper",
+		Models: []catwalk.Model{
+			{
+				ID:                     "glm-5.2",
+				ReasoningLevels:        []string{"high", "xhigh"},
+				DefaultReasoningEffort: "xhigh",
+			},
+		},
+	}}
+	syncer.Init(client, t.TempDir()+"/hyper.json", true)
+
+	provider, err := syncer.Get(t.Context())
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"high"}, provider.Models[0].ReasoningLevels)
+	require.Equal(t, "high", provider.Models[0].DefaultReasoningEffort)
+}
+
 func TestHyperSync_GetNotModifiedUsesCached(t *testing.T) {
 	t.Parallel()
 

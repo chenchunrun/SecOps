@@ -5,7 +5,7 @@ description: |
   触发条件：分析 IP、查询 IP 威胁情报、检查 IP 信誉、IP 归属查询、IP 是否恶意、分析攻击源 IP、C2 IP 分析。
   间接触发：恶意软件分析发现 C2 地址、钓鱼邮件发件人 IP、攻击日志来源 IP。
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   builtin: true
 ---
 
@@ -427,6 +427,180 @@ python <SKILL_DIR>/scripts/ip_validate.py <IP>
 - [references/hacker-tool-ports.md](references/hacker-tool-ports.md) - C2/RAT 端口与指纹
 - [references/risk-scoring.md](references/risk-scoring.md) - 详细评分规则
 - [references/high-risk-asn.md](references/high-risk-asn.md) - 高风险 ASN 列表
+
+## MITRE ATT&CK 映射
+
+| Tactic | Technique | 子技术 | IP 分析场景 |
+|--------|-----------|--------|-------------|
+| Reconnaissance (TA0043) | **T1595** Active Scanning | **T1595.001** Scanning IP Blocks | 端口扫描源 IP 检测 |
+| Reconnaissance (TA0043) | **T1595** Active Scanning | **T1595.002** Vulnerability Scanning | 漏洞扫描源 IP 识别 |
+| Reconnaissance (TA0043) | **T1592** Gather Victim Host Information | — | 通过 IP 收集主机信息 |
+| Initial Access (TA0001) | **T1190** Exploit Public-Facing Applications | — | 利用源 IP 追踪 |
+| Command and Control (TA0011) | **T1071** Application Layer Protocol | **T1071.001** Web Protocols | C2 服务器 IP 检测 |
+| Command and Control (TA0011) | **T1071** Application Layer Protocol | **T1071.004** DNS | DNS 隧道 C2 IP |
+| Command and Control (TA0011) | **T1573** Encrypted Channel | **T1573.002** Asymmetric Cryptography | 加密 C2 IP 通信 |
+| Command and Control (TA0011) | **T1105** Ingress Tool Transfer | — | 下载后续载荷的 C2 IP |
+| Discovery (TA0007) | **T1046** Network Service Discovery | — | 内网扫描源 IP |
+| Defense Evasion (TA0005) | **T1090** Proxy | **T1090.002** External Proxy | 代理跳板 IP 识别 |
+| Defense Evasion (TA0005) | **T1090** Proxy | **T1090.003** Multi-hop Proxy | 多跳代理 IP 链 |
+| Defense Evasion (TA0005) | **T1090** Proxy | **T1090.004** Domain Fronting | 域前置隐藏真实 C2 IP |
+| Exfiltration (TA0010) | **T1041** Exfiltration Over C2 Channel | — | 数据外传目的 IP |
+| Impact (TA0040) | **T1498** Network Denial of Service | **T1498.001** Direct Network Flood | DDoS 攻击源 IP |
+| Impact (TA0040) | **T1498** Network Denial of Service | **T1498.002** Reflection Amplification | 反射放大攻击 IP |
+
+### ATT&CK Mitigations
+
+| Mitigation | ID | 应用场景 |
+|-----------|-----|--------|
+| Network Intrusion Prevention | **M1031** | 基于 IP 威胁情报阻断恶意 IP |
+| Filter Network Traffic | **M1037** | IP 黑名单过滤 |
+| Network Segmentation | **M1030** | 隔离受感染网段，限制横向 IP 通信 |
+| Internet Access | **M1036** | 代理所有出站流量，监控目的 IP |
+| Threat Intelligence Program | **M1019** | 建立 IP 威胁情报订阅和集成 |
+
+## OWASP Top 10 / CWE 映射
+
+| OWASP 类别 | CWE | ATT&CK | IP 分析场景 |
+|-----------|------|--------|------------|
+| **A01 Broken Access Control** | CWE-284 | T1046 | 未授权 IP 访问内部服务 |
+| **A05 Security Misconfiguration** | CWE-16 | T1071.001 | 错误配置暴露内部 IP 给公网 |
+| **A06 Vulnerable Components** | CWE-1035 | T1190 | 已知漏洞组件被特定 IP 利用 |
+| **A09 Logging/Monitoring** | CWE-778 | T1595 | 未记录扫描源 IP |
+| **A10 SSRF** | CWE-918 | T1190 | SSRF 利用内网 IP 访问 |
+
+## 合规框架参考
+
+| 标准 | 条款 | IP 分析关联 |
+|------|------|-------------|
+| **ISO 27001** | A.8.20 网络安全 | 网络边界 IP 监控和阻断 |
+| **ISO 27001** | A.8.16 监控活动 | IP 地址活动监控和告警 |
+| **NIST SP 800-53** | SI-3 恶意代码防护 | 基于恶意 IP 阻断通信 |
+| **NIST SP 800-53** | SC-7 边界保护 | 边界防火墙 IP 过滤 |
+| **NIST SP 800-53** | IA-3 设备标识和认证 | IP 设备标识与验证 |
+| **GDPR** | Art. 32 安全处理 | IP 地址作为 PII 的处理保护 |
+| **PCI DSS** | 1.2 网络安全控制 | 限制到卡数据环境的 IP 访问 |
+| **等保2.0** | 8.1.2 网络通信 | IP 地址访问控制和审计 |
+
+## Sigma 检测规则
+
+### Sigma 规则 1：已知恶意 IP 通信检测
+```yaml
+title: Communication with Known Malicious IP
+description: Detects internal hosts communicating with known threat IPs
+description: Detects internal hosts communicating with known threat indicator IPs
+status: experimental
+author: sec-skills
+logsource:
+    product: firewall
+    category: network_connection
+detection:
+    selection:
+        DestinationIp|cidr:
+            - '203.0.113.0/24'  # 替换为实际威胁 IP CIDR
+            - '198.51.100.0/24'
+    condition: selection
+falsepositives:
+    - Legitimate service on shared hosting
+level: high
+tags:
+    - attack.command_and_control
+    - attack.t1071.001
+    - attack.t1105
+```
+
+### Sigma 规则 2：端口扫描行为检测
+```yaml
+title: Potential Port Scanning Activity
+description: Detects single source IP attempting connections to many ports
+status: experimental
+author: sec-skills
+logsource:
+    product: firewall
+    category: network_connection
+detection:
+    selection:
+        SourceIp: '*'
+    timeframe: 1m
+    condition: selection | count(DestinationPort) by SourceIp > 20
+falsepositives:
+    - Network security scanner (Nessus, Nmap)
+    - Load balancer health checks
+level: medium
+tags:
+    - attack.reconnaissance
+    - attack.t1595.001
+    - attack.t1046
+```
+
+## YARA 检测规则
+
+```yara
+rule Suspicious_Network_Beacon_IP
+{
+    meta:
+        description = "Detects hardcoded C2 IP addresses in binary samples"
+        author = "sec-skills"
+    strings:
+        $ipv4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/
+        $port_combo = /(?:\d{1,3}\.){3}\d{1,3}:(\d{2,5})/
+        $http_ip = /http:\/\/(?:\d{1,3}\.){3}\d{1,3}/
+        $connect = /connect\((?:\d{1,3}\.){3}\d{1,3}/
+    condition:
+        $ipv4 and ($port_combo or $http_ip or $connect)
+}
+```
+
+## CVE 参考表
+
+| CVE | 漏洞 | IP 分析关联 |
+|-----|------|------------|
+| CVE-2021-44228 | Log4Shell JNDI 注入 | C2 回连 IP 检测和阻断 |
+| CVE-2017-11882 | Office 公式编辑器 RCE | 恶意文档回连 C2 IP |
+| CVE-2023-22515 | Confluence 权限提升 | 攻击者 IP 追踪 |
+| CVE-2021-26855 | Exchange ProxyLogon | 邮件服务器攻击源 IP |
+| CVE-2023-23375 | Windows SmartScreen 绕过 | 恶意下载源 IP |
+
+## IOC 采集指引
+
+| IOC 类型 | 提取方法 | 格式 | 后续处理 |
+|---------|---------|------|--------|
+| 源 IP | 防火墙/IDS 日志提取 | `192.168.1.100` | → 威胁情报查询 |
+| 目的 IP | 代理/网关日志提取 | `203.0.113.50` | → 威胁情报查询 |
+| IP+端口 | netflow/连接日志 | `203.0.113.50:4444` | → C2 端口指纹匹配 |
+| PTR 记录 | DNS 反向解析 | `malicious.example.com` | → domain-analysis |
+| ASN 信息 | WHOIS/geo 查询 | `AS12345 (ISP Name)` | → 高风险 ASN 比对 |
+| CIDR 段 | C 段扫描发现 | `203.0.113.0/24` | → C 段关联分析 |
+| 关联域名 | DNS 历史记录 | `domain.com → IP` | → domain-analysis |
+| SSL 证书 | 证书 SAN/CN 提取 | `*.malicious.com` | → domain-analysis |
+
+## 跨技能工作流
+
+### 工作流 1：C2 IP 发现与阻断
+```
+traffic-analysis / binary-reverse-engineering → 发现可疑 C2 IP
+  → ip-analysis (威胁情报查询 + 端口扫描)
+  → 关联域名 → domain-analysis
+  → 部署 Sigma 规则 → SIEM 告警
+  → 防火墙阻断 IP
+```
+
+### 工作流 2：钓鱼邮件源 IP 追踪
+```
+phishing-analysis → 提取发件人 IP
+  → ip-analysis (地理位置 + 威胁情报)
+  → email-osint (邮箱关联)
+  → ttp-extractor (技术映射)
+  → pdf-report (威胁报告)
+```
+
+### 工作流 3：入侵响应 IP 排查
+```
+linux-ir/windows-ir/macos-ir → 提取异常连接 IP
+  → ip-analysis (批量分析公网 IP)
+  → auth-log-analysis (关联登录源 IP)
+  → traffic-analysis (流量关联)
+  → 阻断恶意 IP + 生成 IOC 清单
+```
 
 ## 技能关联
 

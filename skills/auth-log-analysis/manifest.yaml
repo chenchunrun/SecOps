@@ -1,0 +1,11 @@
+api_version: secops/v1
+name: auth-log-analysis
+version: 1.0.0
+description: Analyze authentication logs as untrusted evidence.
+roles: [security_expert]
+capabilities: {required: [file:read, log:analyze]}
+risk: {base: low, parameter_rules: {remote_collection: medium}}
+runtime: {platforms: [darwin, linux, windows], network: {required: false, allowed_domains: []}, timeout: 5m, output_limit: 10485760}
+input_schema: ../schemas/security-task-input.json
+output_schema: ../schemas/security-task-output.json
+integrity: {skill_sha256: 428fe8d37764ef0a5d71e3da0df527a20920137e40f3fa20d763870c052fff42}

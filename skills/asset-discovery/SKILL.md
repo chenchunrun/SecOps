@@ -2,7 +2,7 @@
 name: asset-discovery
 description: 企业攻击面资产发现与测绘。当用户要求"资产发现"、"子域名枚举"、"攻击面测绘"、"暴露面分析"、"资产清点"、"影子资产发现"、"外部资产发现"、"EASM"、"两高一弱"、"高危漏洞检测"、"高危端口检测"、"弱口令检测"、"安全基线检测"时使用此技能。
 metadata:
-  version: 1.4.0
+  version: 1.5.0
   builtin: true
 ---
 
@@ -561,6 +561,278 @@ api.example.com,1.2.3.5,8080,tomcat,API网关,中,检查认证
 - [references/high-value-targets.md](references/high-value-targets.md) - 高价值目标识别
 - [references/cloud-fingerprints.md](references/cloud-fingerprints.md) - 云资产指纹
 - [references/high-risk-ports.md](references/high-risk-ports.md) - 高危端口清单
+
+## MITRE ATT&CK 技术映射表
+
+资产发现是安全评估的起点，覆盖侦察和发现两大战术。
+
+| 战术 | 技术ID | 技术名称 | 资产发现场景 |
+|------|--------|----------|-------------|
+| **Reconnaissance** | T1595.001 | Scanning IP Blocks | IP 段扫描发现活跃主机 |
+| **Reconnaissance** | T1595.002 | Scanning Vulnerability | 漏洞扫描发现可利用资产 |
+| **Reconnaissance** | T1592.001 | Gather Victim Host Info | 收集目标主机信息（服务/版本） |
+| **Reconnaissance** | T1592.002 | Gather Victim OS Info | 操作系统指纹识别 |
+| **Reconnaissance** | T1592.004 | Gather Victim Client Config | 客户端配置信息收集 |
+| **Reconnaissance** | T1590.001 | Domain Properties | 域名属性分析（WHOIS/DNS） |
+| **Reconnaissance** | T1590.002 | DNS | DNS 记录分析发现资产 |
+| **Reconnaissance** | T1590.003 | DNS Records | MX/NS/TXT 记录关联发现 |
+| **Reconnaissance** | T1590.004 | Search Engines | 搜索引擎发现资产 |
+| **Reconnaissance** | T1590.005 | Registrant Information | WHOIS 注册人信息关联 |
+| **Reconnaissance** | T1590.006 | Network Topology | 网络拓扑发现（C段/ASN） |
+| **Discovery** | T1046 | Network Service Discovery | 端口扫描发现开放服务 |
+| **Discovery** | T1087 | Account Discovery | 关联账号发现 |
+| **Discovery** | T1082 | System Info Discovery | 系统信息探测（指纹） |
+| **Discovery** | T1049 | System Network Connections | 网络连接发现 |
+| **Initial Access** | T1190 | Exploit Public-Facing Application | 发现的暴露面被用于入口 |
+| **Initial Access** | T1078 | Valid Accounts | 弱口令检测发现的可用凭据 |
+| **Defense Evasion** | T1108.001 | Redundant Access | 发现多个入口点（影子资产） |
+| **Credential Access** | T1110.001 | Brute Force: Password Guessing | 弱口令检测 |
+| **Impact** | T1499.004 | Application or System Exploitation | 高危漏洞资产可被破坏 |
+
+### ATT&CK 缓解措施参考
+
+| Mitigation ID | 名称 | 与资产发现的关系 |
+|---------------|------|-----------------|
+| M1056 | Pre-compromise | 减少攻击面（关闭不需要的端口/服务） |
+| M1042 | Disable or Remove Feature | 禁用不必要的服务和功能 |
+| M1030 | Network Segmentation | 网络分段限制资产暴露面 |
+| M1055 | Compromise User Computer | 防止终端信息泄露 |
+
+---
+
+## OWASP Top 10 + CWE 映射表
+
+| OWASP 2021 | CWE | 与资产发现的关系 |
+|-----------|------|------------------|
+| **A01** Broken Access Control | CWE-538 | 管理面板未做访问控制暴露于公网 |
+| **A02** Cryptographic Failures | CWE-295 | 过期/弱 TLS 证书暴露 |
+| **A04** Insecure Design | CWE-209 | 测试环境暴露导致信息泄露 |
+| **A05** Security Misconfiguration | CWE-16 | 默认配置/不安全配置（弱口令/开放端口） |
+| **A06** Vulnerable Components | CWE-1035 | 已知漏洞组件发现 |
+| **A07** Auth Failures | CWE-287 | 弱口令/默认凭据检测 |
+| **A09** Logging Failures | CWE-778 | 影子资产缺乏监控和日志 |
+| **A10** SSRF | CWE-918 | 内网资产通过 SSRF 被发现 |
+
+---
+
+## CVE 参考表（资产发现可检测的高危漏洞）
+
+| CVE | 漏洞名称 | 资产发现检测方法 |
+|-----|----------|-----------------|
+| CVE-2021-44228 | Log4Shell | nuclei 检测 JNDI 注入点 |
+| CVE-2022-22965 | Spring4Shell | nuclei 检测 Spring RCE |
+| CVE-2019-0708 | BlueKeep | 端口 3389 + 协商包检测 |
+| CVE-2021-34527 | PrintNightmare | SMB 端口 445 + MS-RPRN 检测 |
+| CVE-2017-0144 | EternalBlue | SMB 端口 445 + 特征检测 |
+| CVE-2023-23397 | Outlook CVE | Exchange/Outlook 服务暴露检测 |
+| CVE-2024-21887 | Ivanti Connect Secure | VPN 服务指纹 + 漏洞检测 |
+
+---
+
+## Sigma 检测规则
+
+### Sigma 规则 1: 端口扫描行为检测
+
+```yaml
+title: Network Port Scanning Activity
+type: detect
+id: b5c6d7e8-f9a0-4b1c-8d2e-3f4a5b6c7d8e
+status: experimental
+description: >
+  检测外部 IP 对内部网络进行端口扫描的行为。
+  大量不同端口的连接尝试是侦察活动的典型特征。
+author: SecSkill Evolution System
+references:
+  - https://attack.mitre.org/techniques/T1046/
+  - https://attack.mitre.org/techniques/T1595/001/
+tags:
+  - attack.discovery
+  - attack.reconnaissance
+  - attack.t1046
+  - attack.t1595.001
+logsource:
+  product: firewall
+  service: connection
+detection:
+  selection:
+    action: 'denied'
+  timeframe: 1m
+  condition: selection | count_distinct(destination_port) by source_ip >= 20
+  # 同一源 IP 在 1 分钟内被拒绝 20+ 不同端口
+falsepositives:
+  - 合法的网络扫描（授权渗透测试）
+  - 监控系统健康检查
+  - 负载均衡器探测
+level: medium
+```
+
+### Sigma 规则 2: 子域名枚举行为检测
+
+```yaml
+title: Suspicious Subdomain Enumeration
+type: detect
+id: c6d7e8f9-a0b1-4c2d-9e3f-4a5b6c7d8e9f
+status: experimental
+description: >
+  检测异常的子域名 DNS 查询模式。高频 NXDOMAIN 响应通常指示
+  字典暴力枚举或通配符探测，是攻击者侦察阶段的典型行为。
+author: SecSkill Evolution System
+references:
+  - https://attack.mitre.org/techniques/T1590/002/
+  - https://attack.mitre.org/techniques/T1592/004/
+tags:
+  - attack.reconnaissance
+  - attack.t1590.002
+  - attack.t1592.004
+logsource:
+  product: dns
+  service: query
+detection:
+  high_nxdomain:
+    response_code: 'NXDOMAIN'
+  timeframe: 1m
+  condition: high_nxdomain | count() by source_ip >= 50
+  # 同一源 IP 在 1 分钟内查询 50+ 不存在的子域名
+falsepositives:
+  - 错误的 DNS 配置
+  - 过期的软件配置
+  - 网络初始化
+level: medium
+```
+
+---
+
+## YARA 规则
+
+### YARA 规则: 资产指纹与服务识别
+
+```yara
+rule Web_Service_Fingerprint {
+  meta:
+    description = "检测网络响应中的服务指纹信息"
+    author = "SecSkill Evolution System"
+    date = "2026-06-21"
+    reference = "https://attack.mitre.org/techniques/T1592/001/"
+  strings:
+    // Web 服务器版本
+    $apache = /Apache\/\d\.\d\.\d+/i
+    $nginx = /nginx\/\d\.\d\.\d+/i
+    $iis = /Microsoft-IIS\/\d\.\d/i
+    $tomcat = /Apache-Coyote\/\d\.\d/i
+    // 框架指纹
+    $spring = /X-Application-Context:/i
+    $django = /CSRF|csrftoken/i
+    $rails = /X-Runtime:|X-Rack-Cache:/i
+    // 版本信息泄露
+    $phpinfo = /PHP\/\d\.\d\.\d+/
+    $expose = /"version":"\d\.\d+\.\d+".*"name":[^}]+/
+  condition:
+    any of them
+}
+
+rule Exposed_Admin_Panel {
+  meta:
+    description = "检测暴露的管理后台特征"
+    author = "SecSkill Evolution System"
+    date = "2026-06-21"
+    reference = "https://attack.mitre.org/techniques/T1590/004/"
+  strings:
+    // 登录页面特征
+    $login = /<title>.*(login|admin|dashboard|console|manage)/i
+    // 管理后台路径
+    $admin_path = /\/(admin|administrator|manage|dashboard|console|backend)/i
+    // API 文档暴露
+    $swagger = /(swagger-ui|api-docs|openapi)/i
+    // phpinfo 暴露
+    $phpinfo = /phpinfo\(\)/i
+    // 调试信息
+    $debug = /(debug|stack.?trace|whoops|laravel-debugbar)/i
+  condition:
+    any of them
+}
+```
+
+---
+
+## 合规标准参考表
+
+| 标准 | 相关章节 | 资产发现的角色 |
+|------|---------|---------------|
+| **等保 2.0** | 第八章 - 网络通信安全 | 资产清点是安全基线的基础 |
+| **等保 2.0** | 第九章 - 环境安全 | 暴露面管理是安全要求 |
+| **ISO 27001** | A.8.1 | 资产清单（核心标准要求） |
+| **ISO 27001** | A.5.9 | 清查和分类信息处理设施 |
+| **ISO 27001** | A.8.9 | 配置管理中的资产管理 |
+| **NIST SP 800-53** | CM-8 | 信息系统组件清单 |
+| **NIST SP 800-137** | 全文 | 持续监控中的资产发现 |
+| **PCI DSS v4.0** | 11.5.2 | 外部入侵测试中的攻击面发现 |
+
+---
+
+## IOC 采集指引
+
+### 高优先级 IOC
+
+| 类型 | 采集方法 | 用途 |
+|------|---------|------|
+| **暴露的子域名** | subfinder + DNS + CT Logs | 攻击面映射 |
+| **高危端口** | 端口扫描 | 暴露面风险评估 |
+| **管理后台 URL** | HTTP 探测 + 标题匹配 | 高价值目标标记 |
+| **弱口令凭据** | 默认凭据检测 | 入口点验证 |
+| **漏洞资产** | nuclei + 漏洞查询 | 优先修复排序 |
+
+### 中优先级 IOC
+
+| 类型 | 采集方法 | 用途 |
+|------|---------|------|
+| **TLS 证书指纹** | TLS 探测 | 资产关联 |
+| **Web 服务版本** | HTTP Header 分析 | 漏洞匹配 |
+| **DNS 历史** | DNS 历史查询 | 影子资产发现 |
+| **云资产信息** | S3/OSS/CDN 枚举 | 云暴露面评估 |
+| **ICP 备案信息** | ICP 反查 | 关联资产发现 |
+
+### IOC 安全标记
+
+- `defanged` — IP/URL 使用 [.] 消毒标记
+- `TLP:CLEAR` — 可自由分享
+- `TLP:AMBER` — 仅限受信任方
+- `TLP:RED` — 仅限接收方
+
+---
+
+## 跨技能工作流
+
+### 工作流 1: 企业攻击面全链路评估
+```
+企业名称 → asset-discovery (ICP/域名)
+     ↓
+     ├→ domain-analysis (域名详情)
+     ├→ cyberspace-search (空间搜索)
+     ├→ asset-monitor (资产监控)
+     └→ researching-vulnerabilities (漏洞研究)
+              ↓
+         ttp-extractor → pdf-report
+```
+
+### 工作流 2: 影子资产发现与处置
+```
+告警触发 → asset-discovery (全量扫描)
+     ↓
+     ├→ domain-analysis (关联域名)
+     ├→ ip-analysis (IP 溯源)
+     ├→ url-analysis (Web 资产分析)
+     └→ traffic-analysis (流量关联)
+              ↓
+         data-desensitize (检测敏感数据暴露)
+```
+
+### 工作流 3: 两高一弱专项检测
+```
+目标域名 → asset-discovery (资产清点 + 两高一弱)
+     ↓
+     ├→ 高危漏洞: researching-vulnerabilities (漏洞验证)
+     ├→ 高危端口: ip-analysis (端口关联分析)
+     └→ 弱口令: auth-log-analysis (异常登录检测)
 
 ---
 

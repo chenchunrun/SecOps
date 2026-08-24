@@ -2,7 +2,7 @@
 name: email-osint
 description: 邮箱情报调查与关联分析。当用户要求"邮箱调查"、"邮箱搜索"、"查邮箱"、"邮箱关联"、"社交账号发现"、"用户名搜索"、"数字足迹"、"OSINT调查"、"人肉搜索"时使用此技能。
 metadata:
-  version: 1.2.0
+  version: 2.0.0
   builtin: true
 ---
 
@@ -514,3 +514,269 @@ fi
 - **[references/report-format.md](references/report-format.md)** - 报告格式规范
 - [references/email-providers.md](references/email-providers.md) - 邮箱服务商情报
 - [references/platform-metadata.md](references/platform-metadata.md) - 平台元数据提取
+
+## MITRE ATT&CK 技术映射表
+
+邮箱 OSINT 覆盖侦察和初始访问阶段的多种技术。
+
+| 战术 | 技术ID | 技术名称 | OSINT 场景 |
+|------|--------|----------|------------|
+| **Reconnaissance** | T1589.001 | Credentials | 邮箱作为凭据泄露检测的起点 |
+| **Reconnaissance** | T1589.002 | Email Addresses | 通过邮箱收集目标个人信息 |
+| **Reconnaissance** | T1590.003 | DNS Records | 邮箱域名 DNS/MX 记录分析 |
+| **Reconnaissance** | T1590.005 | Registrant Information | WHOIS 查询邮箱注册人信息 |
+| **Reconnaissance** | T1592.004 | Client Configurations | 邮箱客户端指纹分析 |
+| **Reconnaissance** | T1593.001 | Code Repositories | GitHub 提交记录中的邮箱关联 |
+| **Reconnaissance** | T1594 | Search Victim-Owned Websites | 搜索目标个人/企业网站 |
+| **Initial Access** | T1566.001 | Spearphishing Attachment | 目标邮箱用于钓鱼攻击入口 |
+| **Initial Access** | T1566.002 | Spearphishing Link | 邮箱中的钓鱼链接分析 |
+| **Initial Access** | T1078.004 | Valid Accounts: Cloud Accounts | 邮箱关联的云服务账号 |
+| **Credential Access** | T1110.001 | Brute Force: Password Guessing | 邮箱暴力破解检测 |
+| **Credential Access** | T1552.001 | Unsecured Credentials: Files | 泄露数据库中的邮箱-密码对 |
+| **Discovery** | T1087.001 | Account Discovery: List | 通过邮箱发现关联账号 |
+| **Defense Evasion** | T1036.005 | Masquerading: Match Legitimate Name | 仿冒邮箱地址检测 |
+| **Command and Control** | T1071.001 | Web Protocols | OSINT 工具的 HTTP API 调用 |
+
+### ATT&CK 缓解措施参考
+
+| Mitigation ID | 名称 | 与邮箱 OSINT 的关系 |
+|---------------|------|---------------------|
+| M1035 | Data Access Management | 限制邮箱信息在公共平台的暴露 |
+| M1056 | Pre-compromise | 邮箱隐私保护措施降低 OSINT 风险 |
+| M1018 | Account Management | 邮箱账号生命周期管理 |
+| M1027 | Password Policies | 强密码策略防止邮箱凭据泄露 |
+
+---
+
+## OWASP Top 10 + CWE 映射表
+
+| OWASP 2021 | CWE | 与邮箱 OSINT 的关联 |
+|-----------|------|---------------------|
+| **A01** Broken Access Control | CWE-200 | 信息暴露：邮箱在公开页面中过度暴露 |
+| **A02** Cryptographic Failures | CWE-312 | 明文存储邮箱导致泄露 |
+| **A04** Insecure Design | CWE-209 | 错误信息中泄露邮箱存在性（holehe 原理） |
+| **A05** Security Misconfiguration | CWE-16 | API 未限制邮箱枚举（忘记密码接口） |
+| **A07** Auth Failures | CWE-307 | 暴力破解邮箱账号 |
+| **A08** Software/Data Integrity | CWE-345 | 邮箱地址可被仿冒（发件人伪造） |
+| **A10** SSRF | CWE-918 | 通过邮箱 API SSRF 获取内部信息 |
+
+---
+
+## CVE 参考表（邮箱相关漏洞利用）
+
+| CVE | 漏洞名称 | 与邮箱 OSINT 的关系 |
+|-----|----------|---------------------|
+| CVE-2021-26855 | Exchange ProxyLogon | 邮箱服务器漏洞导致邮箱数据泄露 |
+| CVE-2021-34473 | Exchange ProxyShell | 邮箱服务器 SSRF + RCE |
+| CVE-2022-41040 | Exchange NotProxyShell | 邮箱服务器访问控制绕过 |
+| CVE-2023-23397 | Outlook Elevation | 特制邮件泄露 NTLM Hash |
+| CVE-2024-21413 | Outlook Moniker Link | 邮件预览即可触发 RCE |
+
+---
+
+## Sigma 检测规则
+
+### Sigma 规则 1: 异常邮箱登录行为检测
+
+```yaml
+title: Suspicious Email Account Login Pattern
+id: 9c3b4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e
+status: experimental
+description: >
+  检测异常的邮箱登录行为，包括陌生地理位置登录、非工作时间登录、
+  多次失败后的成功登录。基于邮箱 OSINT 调查中发现的关联账号进行监控。
+author: SecSkill Evolution System
+references:
+  - https://attack.mitre.org/techniques/T1078/004/
+  - https://attack.mitre.org/techniques/T1110/001/
+tags:
+  - attack.initial_access
+  - attack.t1078.004
+  - attack.credential_access
+  - attack.t1110.001
+logsource:
+  product: email
+  service: login
+detection:
+  unusual_location:
+    source_ip_country:
+      - '!expected_country'
+  off_hours_login:
+    login_time:
+      start: '23:00'
+      end: '06:00'
+  brute_force_success:
+    failed_attempts: '>=5'
+    timeframe: 10m
+    success_after_failures: true
+  condition: unusual_location or off_hours_login or brute_force_success
+falsepositives:
+  - 出差/远程办公
+  - VPN 连接
+  - 时区差异
+level: medium
+```
+
+### Sigma 规则 2: 邮箱地址枚举行为检测
+
+```yaml
+title: Email Enumeration via Password Reset API
+type: detect
+id: a4c5d6e7-f8a9-4b0c-8d1e-2f3a4b5c6d7e
+status: experimental
+description: >
+  检测通过忘记密码/密码重置接口枚举邮箱地址的行为。
+  攻击者利用 API 响应差异判断邮箱是否存在（holehe 原理的防御检测）。
+author: SecSkill Evolution System
+references:
+  - https://attack.mitre.org/techniques/T1589/002/
+  - https://attack.mitre.org/techniques/T1110/001/
+tags:
+  - attack.reconnaissance
+  - attack.t1589.002
+  - attack.credential_access
+  - attack.t1110.001
+logsource:
+  product: web
+  service: api
+detection:
+  reset_endpoint:
+    uri|contains:
+      - '/forgot-password'
+      - '/reset-password'
+      - '/account/recovery'
+      - '/api/v1/password/forgot'
+  high_frequency:
+    timeframe: 5m
+    condition: reset_endpoint | count() by source_ip >= 10
+  mixed_responses:
+    timeframe: 5m
+    condition: reset_endpoint | count_distinct(response_status) by source_ip >= 2
+  condition: high_frequency or mixed_responses
+falsepositives:
+  - 用户批量密码重置
+  - 自动化测试
+  - SSO 服务健康检查
+level: medium
+```
+
+---
+
+## YARA 规则
+
+### YARA 规则: 邮箱凭据泄露检测
+
+```yara
+rule Leaked_Email_Credentials {
+  meta:
+    description = "检测泄露数据中的邮箱-密码对"
+    author = "SecSkill Evolution System"
+    date = "2026-06-21"
+    reference = "https://attack.mitre.org/techniques/T1552/001/"
+  strings:
+    // 邮箱:密码 格式
+    $email_pass = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[:|;|,|\t][^\s]{4,}/
+    // 常见密码模式
+    $weak_pass = /(password|123456|qwerty|admin|welcome)/i
+    // API 密钥模式
+    $api_key = /(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|AIza[0-9A-Za-z_-]{35})/
+  condition:
+    $email_pass and ($weak_pass or $api_key)
+}
+
+rule Phishing_Email_Patterns {
+  meta:
+    description = "检测钓鱼邮件中的社工模式"
+    author = "SecSkill Evolution System"
+    date = "2026-06-21"
+    reference = "https://attack.mitre.org/techniques/T1566/001/"
+  strings:
+    // 紧迫感词汇
+    $urgency = /(urgent|immediate|verify your account|suspended|warning)/i
+    // 仿冒域名
+    $lookalike = /(arnazon|g00gle|paypa1|microsoft|appleid)/i
+    // 钓鱼链接特征
+    $phish_url = /(bit\.ly|tinyurl|t\.co|rebrand\.ly)/i
+    // 附件危险类型
+    $dangerous_ext = /\.(exe|scr|js|vbs|hta|bat|cmd|ps1)$/i
+  condition:
+    any of ($urgency, $lookalike, $phish_url) and $dangerous_ext
+}
+```
+
+---
+
+## 合规标准参考表
+
+| 标准 | 相关章节 | 邮箱 OSINT 的角色 |
+|------|---------|-------------------|
+| **GDPR** | Art.4(1) | 邮箱属于个人数据，调查需合法依据 |
+| **GDPR** | Art.6 | 邮箱处理的合法性基础（同意/合法利益） |
+| **PIPL** (中国个保法) | 第十三条 | 处理个人信息的合法性要求 |
+| **ISO 27001** | A.5.33 | 信息处理设施中的个人信息保护 |
+| **ISO 27001** | A.5.12 | 邮箱账号管理安全要求 |
+| **NIST SP 800-63B** | 全文 | 数字身份指南中的邮箱作为身份验证 |
+| **PCI DSS v4.0** | 8.3 | 强身份验证中的邮箱验证 |
+| **等保 2.0** | 第八章 | 个人信息保护中的邮箱数据处理 |
+
+---
+
+## IOC 采集指引
+
+### 高优先级 IOC
+
+| 类型 | 采集方法 | 用途 |
+|------|---------|------|
+| **关联邮箱** | holehe + blackbird 发现的注册邮箱 | 扩大调查范围 |
+| **用户名变体** | 从邮箱提取 + Leet speak 还原 | 跨平台关联 |
+| **社交账号** | blackbird + 平台 API | 目标画像构建 |
+| **手机号** | 平台元数据提取（如 Telegram） | 多维度身份验证 |
+| **地理信息** | 平台元数据 + 邮箱服务商 | 目标定位 |
+
+### 中优先级 IOC
+
+| 类型 | 采集方法 | 用途 |
+|------|---------|------|
+| **头像 URL** | Gravatar + 社交平台 | 目标识别 |
+| **GitHub 仓库** | GitHub API | 技术能力评估 |
+| **注册时间** | 平台 API | 活动时间线 |
+| **IP 地址** | 登录日志 + 平台元数据 | 地理定位 |
+| **设备信息** | 平台元数据 | 设备指纹 |
+
+### IOC 安全标记
+
+- `defanged` — 邮箱使用 [at] 消毒标记
+- `TLP:CLEAR` — 可自由分享
+- `TLP:AMBER` — 仅限受信任方
+- `TLP:RED` — 仅限接收方
+
+---
+
+## 跨技能工作流
+
+### 工作流 1: 钓鱼攻击溯源
+```
+钓鱼邮件 → phishing-analysis → email-osint (发件人调查)
+     ↓                              ↓
+  url-analysis              domain-analysis → ip-analysis
+                                  ↓
+                            ttp-extractor → pdf-report
+```
+
+### 工作流 2: 人物情报全链路
+```
+目标邮箱 → email-osint (邮箱+用户名搜索)
+     ↓
+     ├→ redteam-recon-person (个人画像)
+     ├→ redteam-recon-enterprise (企业侦察)
+     ├→ brand-impersonation (品牌仿冒检测)
+     └→ ttp-extractor → pdf-report
+```
+
+### 工作流 3: 凭据泄露调查
+```
+泄露数据库 → email-osint (邮箱搜索)
+     ↓
+     ├→ auth-log-analysis (异常登录检测)
+     ├→ asset-discovery (关联资产)
+     └→ traffic-analysis (C2 流量关联)

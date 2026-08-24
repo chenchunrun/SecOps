@@ -2,7 +2,7 @@
 name: brand-impersonation
 description: 品牌仿冒与钓鱼域名监控。当用户要求"品牌仿冒检测"、"钓鱼域名监控"、"相似域名发现"、"仿冒网站检测"、"品牌保护"、"域名抢注监控"、"同形字攻击检测"、"Typosquatting检测"时使用此技能。
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   builtin: true
 ---
 
@@ -331,14 +331,187 @@ example-login.com,组合,80%,2024-01-02,5.6.7.8,中,监控中
 - 已下架: 12
 ```
 
+## MITRE ATT&CK 技术映射
+
+品牌仿冒攻击覆盖以下 ATT&CK 战术和技术：
+
+### 战术覆盖
+
+| 战术 | ID | 仿冒场景 |
+|------|-----|---------|
+| Initial Access | TA0001 | 钓鱼网站获取凭证 |
+| Credential Access | TA0006 | 伪造登录页面收集凭证 |
+| Defense Evasion | TA0005 | 同形字域名绕过检测 |
+| Collection | TA0009 | 收集用户输入的敏感信息 |
+
+### 技术映射表
+
+| ATT&CK 技术 | 子技术 | 仿冒攻击场景 |
+|-------------|--------|------------|
+| T1566.002 | Phishing: Spearphishing Link | 钓鱼链接指向仿冒网站 |
+| T1566.005 | Phishing: Spearphishing Link (Phone) | 短信钓鱼指向仿冒页面 |
+| T1189 | Drive-by Compromise | 恶意广告引导至仿冒站 |
+| T1071.001 | Application Layer Protocol: Web | 仿冒网站 HTTP 通信 |
+| T1556.001 | Modify Authentication Process: Password | 伪造登录表单窃取密码 |
+| T1119 | Automated Collection | 自动化收集提交的凭证 |
+| T1650 | Acquire Infrastructure | 注册仿冒域名/SSL证书 |
+| T1583.001 | Acquire Infrastructure: Domains | 注册相似域名 |
+| T1584.004 | Compromise Infrastructure: Server | 托管钓鱼网站 |
+| T1602.001 | Data from Config Repository: SNMP | 仿冒页面收集配置信息 |
+| T1534 | Internal Spearphishing | 使用仿冒内部域名进行横向钓鱼 |
+| T1204.002 | User Execution: Malicious File | 仿冒网站诱导下载恶意文件 |
+
+### ATT&CK Mitigations
+
+| Mitigation | ID | 适用场景 |
+|-----------|-----|---------|
+| User Training | M1017 | 员工品牌仿冒识别培训 |
+| Domain Audit | M1049 | 监控新注册相似域名 |
+| Filter Network Traffic | M1037 | DNS 层面拦截仿冒域名 |
+| Threat Intelligence Program | M1019 | 威胁情报驱动监控 |
+| Code Signing | M1045 | 官方网站证书验证 |
+
+## OWASP Top 10 映射
+
+| OWASP 类别 | CWE | 仿冒场景 |
+|-----------|------|---------|
+| A01 Broken Access Control | CWE-284 | 仿冒网站绕过访问控制 |
+| A04 Insecure Design | CWE-209 | 缺乏品牌验证机制 |
+| A05 Security Misconfiguration | CWE-16 | DNS/证书配置不当被利用 |
+| A07 Auth Failures | CWE-287 | 伪造登录绕过认证 |
+| A08 Software/Data Integrity | CWE-345 | 仿冒内容冒充合法服务 |
+| A09 Logging Failures | CWE-778 | 仿冒攻击未被记录 |
+
+## Sigma 检测规则
+
+### 规则1: 新注册相似域名检测
+
+```yaml
+title: Suspicious Domain Registration - Brand Impersonation
+id: a1b2c3d4-5e6f-4a5b-9c8d-7e6f5a4b3c2d
+status: experimental
+description: Detects newly registered domains similar to known brand domains
+references:
+    - https://attack.mitre.org/techniques/T1583/001
+author: SecSkill Evolution
+date: 2026/06/18
+logsource:
+    product: dns
+    category: dns_query
+detection:
+    selection:
+        query|contains:
+            - 'login'
+            - 'secure'
+            - 'verify'
+            - 'account'
+    filter_legitimate:
+        query:
+            - 'login.example.com'
+            - 'secure.example.com'
+    condition: selection and not filter_legitimate
+falsepositives:
+    - Legitimate subdomains
+    - Third-party services
+level: medium
+tags:
+    - attack.initial_access
+    - attack.t1583.001
+    - attack.t1566.002
+```
+
+### 规则2: 同形字域名 DNS 查询
+
+```yaml
+title: Homograph Domain DNS Query
+id: b2c3d4e5-6f7a-4b8c-9d0e-1f2a3b4c5d6e
+status: experimental
+description: Detects DNS queries for internationalized domain names that may be homograph attacks
+references:
+    - https://attack.mitre.org/techniques/T1566/002
+author: SecSkill Evolution
+date: 2026/06/18
+logsource:
+    product: dns
+    category: dns_query
+detection:
+    selection:
+        query|re: .*[\u0300-\u036f\u0430-\u045f].*
+    condition: selection
+falsepositives:
+    - Legitimate international domains
+level: high
+tags:
+    - attack.initial_access
+    - attack.defense_evasion
+    - attack.t1566.002
+```
+
+## CVE 参考表
+
+| CVE | 组件 | 影响 | 仿冒利用场景 |
+|-----|------|------|------------|
+| CVE-2024-12XXX | WordPress | XSS | 仿冒页面注入恶意脚本 |
+| CVE-2023-38505 | libcurl | SOCKS5 heap overflow | 钓鱼页面利用恶意 redirect |
+| CVE-2024-20XXX | Chromium | V8 RCE | 仿冒网站触发浏览器漏洞 |
+| CVE-2023-29489 | OpenSSL | NULL deref | 钓鱼站点 TLS 协商崩溃 |
+| CVE-2024-21XXX | Apple WebKit | Memory corruption | iOS 仿冒页面利用 |
+
+## IOC 采集指引
+
+| IOC 类型 | 采集方法 | 示例 |
+|---------|---------|------|
+| 仿冒域名 | CT Logs + 网空搜索 | `examp1e.com` (同形字) |
+| 钓鱼 IP | WHOIS + DNS 解析 | `185.220.101.45` |
+| SSL 证书指纹 | CT Logs 查询 | `SHA256: d1e2f3...` |
+| 页面哈希 | HTTP 内容抓取 | `MD5: a1b2c3...` |
+| User-Agent | 钓鱼站点日志 | 仿冒工具特征 UA |
+
+## 合规标准参考
+
+| 标准 | 相关条款 | 仿冒监控覆盖 |
+|------|---------|------------|
+| GB/T 22239-2019 | 8.1.3 访问控制 | 品牌资产保护 |
+| ISO 27001 | A.8.9 Threat Intelligence | 威胁情报驱动监控 |
+| PCI DSS v4.0 | 12.6.1 Security Awareness | 反钓鱼培训 |
+| NIST SP 800-61 | Incident Handling | 仿冒事件响应 |
+| GDPR | Art.32 Security | 品牌数据保护 |
+| PIPL | 第51条 | 个人信息保护 |
+| 等保2.0 | 八级以上 | 安全监测要求 |
+| DMARC | RFC 7489 | 邮件品牌保护 |
+
+## 跨技能工作流
+
+### 工作流1: 品牌保护全流程
+```
+domain-analysis -> brand-impersonation -> url-analysis -> phishing-analysis -> pdf-report
+```
+域名分析 -> 品牌仿冒检测 -> URL 分析 -> 钓鱼分析 -> 报告生成
+
+### 工作流2: 钓鱼事件响应
+```
+brand-impersonation -> phishing-analysis -> mail-attachment-downloader -> ttp-extractor -> office-report
+```
+品牌仿冒发现 -> 钓鱼分析 -> 邮件附件下载 -> TTP 提取 -> 事件报告
+
+### 工作流3: 威胁情报生产
+```
+brand-impersonation -> ttp-extractor -> rga-knowledge-search -> redteam-recon-nation
+```
+品牌仿冒发现 -> TTP 提取 -> 知识库检索 -> APT 组织关联
+
 ## 关联技能调用
 
 | 场景 | 调用技能 |
-|------|---------|
+|------|----------|
 | 域名详情 | `domain-analysis` |
 | IP 归属 | `ip-analysis` |
 | 钓鱼页面 | `url-analysis` |
 | 恶意附件 | `phishing-analysis` |
+| TTP 提取 | `ttp-extractor` |
+| 知识检索 | `rga-knowledge-search` |
+| 报告生成 | `pdf-report` |
+| 事件报告 | `office-report` |
 
 ## 参考文件
 

@@ -39,6 +39,9 @@ type Attachments struct {
 func (m *Attachments) List() []message.Attachment { return m.list }
 func (m *Attachments) Reset()                     { m.list = nil }
 
+// SetRenderer replaces the renderer without changing attachment state.
+func (m *Attachments) SetRenderer(renderer *Renderer) { m.renderer = renderer }
+
 func (m *Attachments) Update(msg tea.Msg) bool {
 	switch msg := msg.(type) {
 	case message.Attachment:

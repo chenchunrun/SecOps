@@ -2,7 +2,7 @@
 name: linux-ir
 description: Linux 入侵检查与应急响应。当用户要求"Linux入侵检查"、"Linux应急响应"、"Linux后门检测"、"systemd检查"、"crontab检查"、"Linux持久化检测"、"Rootkit检测"、"容器安全检查"、"挖矿木马检测"、"Webshell检测"、"供应链安全检测"、"无文件恶意软件检测"、"eBPF后门检测"、"BPFDoor检测"、"memfd检测"时使用此技能。
 metadata:
-  version: 2.2.0
+  version: 2.3.0
   builtin: true
 ---
 
@@ -633,6 +633,257 @@ bash scripts/ir.sh fileless     # 无文件恶意软件专项
 bash scripts/ir.sh ebpf         # eBPF/BPF 后门专项
 bash scripts/ir.sh advanced     # 高级持久化专项
 ```
+
+---
+
+## OWASP Top 10 + CWE 映射（Linux IR 视角）
+
+Linux 应急响应中发现的攻击行为与 OWASP Top 10 应用安全风险和 CWE 的映射关系：
+
+| OWASP 类别 | CWE ID | 漏洞名称 | Linux IR 场景 | ATT&CK 映射 |
+|-----------|--------|---------|-------------|------------|
+| A01:2021 Broken Access Control | CWE-284 | Improper Access Control | SUID 提权、sudo 配置错误、UID=0 后门用户 | T1548.001 |
+| A01:2021 Broken Access Control | CWE-269 | Improper Privilege Management | root 权限获取、容器逃逸、内核提权 | T1068 |
+| A03:2021 Injection | CWE-78 | OS Command Injection | Web 应用注入导致 Linux 主机沦陷、Shellshock | T1059.004 |
+| A04:2021 Insecure Design | CWE-1188 | Insecure Default Initialization | 默认配置弱口令、SSH 允许 root 登录、Redis 未授权 | T1190 |
+| A05:2021 Security Misconfiguration | CWE-16 | Configuration | 暴露的数据库端口(6379/27017/9200)、错误 sudoers | T1571 |
+| A06:2021 Vulnerable Components | CWE-1035 | Outdated Components | 过时内核/库存在已知漏洞、供应链投毒 | T1195 |
+| A07:2021 Auth Failures | CWE-307 | Improper Restriction of Excessive Auth Attempts | SSH 爆破、PAM 后门绕过认证 | T1110 |
+| A08:2021 Software/Data Integrity | CWE-503 | Non-Verifiable Integrity | APT hooks 注入、dpkg 脚本篡改、包管理器后门 | T1547.013 |
+| A09:2021 Logging Failures | CWE-778 | Insufficient Logging | 攻击者清除 .bash_history、篡改 journald | T1070.003 |
+| A10:2021 SSRF | CWE-918 | Server-Side Request Forgery | 云元数据 API SSRF 导致 IAM 凭证泄露到 Linux 实例 | T1552.005 |
+
+---
+
+## Sigma 检测规则
+
+### Sigma 规则 1: 反弹 Shell 检测
+
+```yaml
+title: Linux Reverse Shell Connection Detected
+id: 8f1c2a3b-4d5e-6789-abcd-ef0123456789
+status: experimental
+description: >
+    Detects potential reverse shell connections via common bash/tcp, netcat,
+    or python/perl socket patterns on Linux systems.
+references:
+    - https://attack.mitre.org/techniques/T1059/004/
+    - https://attack.mitre.org/techniques/T1571/
+author: SecSkill Evolution
+ date: 2026/06/24
+logsource:
+    product: linux
+    service: syslog
+detection:
+    selection_cmd:
+        message|contains:
+            - '/dev/tcp/'
+            - '/dev/udp/'
+            - 'bash -i'
+            - 'nc -e'
+            - 'ncat -e'
+            - 'socat TCP:'
+    selection_python:
+        message|contains|all:
+            - 'socket'
+            - 'subprocess'
+            - 'pty'
+    selectionperl:
+        message|contains|all:
+            - 'IO::Socket'
+            - 'exec'
+    condition: selection_cmd or selection_python or selection_perl
+falsepositives:
+    - Legitimate administrative scripts using network sockets
+    - Monitoring tools using persistent connections
+level: high
+tags:
+    - attack.execution
+    - attack.t1059.004
+    - attack.command_and_control
+    - attack.t1571
+```
+
+### Sigma 规则 2: 持久化机制检测（systemd + cron + LD_PRELOAD）
+
+```yaml
+title: Linux Persistence Mechanism Created or Modified
+id: 9a2b3c4d-5e6f-7890-abcd-ef1234567890
+status: experimental
+description: >
+    Detects creation or modification of systemd services, cron jobs,
+    LD_PRELOAD configuration, and PAM modules — common Linux persistence vectors.
+references:
+    - https://attack.mitre.org/techniques/T1543/002/
+    - https://attack.mitre.org/techniques/T1053/003/
+    - https://attack.mitre.org/techniques/T1574/006/
+author: SecSkill Evolution
+date: 2026/06/24
+logsource:
+    product: linux
+    service: file_event
+detection:
+    selection_systemd:
+        TargetFilename|contains:
+            - '/etc/systemd/system/'
+            - '/.config/systemd/user/'
+        TargetFilename|endswith: '.service'
+    selection_cron:
+        TargetFilename|contains:
+            - '/etc/cron.d/'
+            - '/etc/cron.hourly/'
+            - '/etc/cron.daily/'
+            - '/var/spool/cron/'
+    selection_preload:
+        TargetFilename: '/etc/ld.so.preload'
+    selection_pam:
+        TargetFilename|contains: '/etc/pam.d/'
+    condition: selection_systemd or selection_cron or selection_preload or selection_pam
+falsepositives:
+    - Package installation updating service files
+    - Administrator configuring legitimate cron jobs
+level: medium
+tags:
+    - attack.persistence
+    - attack.t1543.002
+    - attack.t1053.003
+    - attack.t1574.006
+    - attack.t1556.003
+```
+
+---
+
+## YARA 规则
+
+### YARA 规则 1: ELF 恶意软件通用检测
+
+```yara
+rule Linux_ELF_Generic_Malware {
+    meta:
+        description = "Detects common patterns in Linux ELF malware"
+        author = "SecSkill Evolution"
+        date = "2026-06-24"
+        reference = "ATT&CK T1059.004, T1620"
+    strings:
+        $elf_header = { 7f 45 4c 46 }
+        $rev_shell1 = "/dev/tcp/" ascii
+        $rev_shell2 = "/dev/udp/" ascii
+        $rev_shell3 = "bash -i" ascii
+        $rev_shell4 = "nc -e" ascii nocase
+        $mining1 = "stratum+tcp" ascii nocase
+        $mining2 = "cryptonight" ascii nocase
+        $mining3 = "xmrig" ascii nocase
+        $curl_pipe = "curl" ascii
+        $wget_pipe = "wget" ascii
+        $bash_pipe = "| bash" ascii
+        $base64_d = "base64 -d" ascii nocase
+    condition:
+        $elf_header at 0 and (
+            3 of ($rev_shell*) or
+            2 of ($mining*) or
+            ($curl_pipe and $bash_pipe) or
+            ($wget_pipe and $bash_pipe) or
+            $base64_d
+        )
+}
+```
+
+### YARA 规则 2: BPFDoor/Symbiote 后门特征
+
+```yara
+rule Linux_BPFDoor_Symbiote_Backdoor {
+    meta:
+        description = "Detects BPFDoor and Symbiote eBPF/LD_PRELOAD backdoor families"
+        author = "SecSkill Evolution"
+        date = "2026-06-24"
+        reference = "ATT&CK T1014, T1205.002, T1574.006"
+    strings:
+        $bpfdoor_proc1 = "kdmtmpflush" ascii
+        $bpfdoor_proc2 = "dbus-srv" ascii
+        $bpfdoor_proc3 = "hald-addon" ascii
+        $bpfdoor_proc4 = "irqbalanced" ascii
+        $bpfdoor_port = "42391" ascii
+        $bpfdoor_port2 = "43391" ascii
+        $bpfdoor_magic = { 53 59 4e 43 4f 4d 4d }  // "SYNCOMM"
+        $symbiote_ldpreload = "ld.so.preload" ascii
+        $symbiote_hook1 = "__libc_start_main" ascii
+        $symbiote_hook2 = "ptrace" ascii
+        $af_packet = "AF_PACKET" ascii
+        $packet_recv = "packet_recvmsg" ascii
+    condition:
+        any of ($bpfdoor_proc*) or
+        any of ($bpfdoor_port*) or
+        $bpfdoor_magic or
+        (2 of ($symbiote*) and $af_packet) or
+        $packet_recv
+}
+```
+
+---
+
+## CVE 参考表
+
+Linux 应急响应中高频出现的 CVE 及其检测方法：
+
+| CVE ID | 漏洞名称 | CVSS | ATT&CK | Linux IR 检测要点 |
+|--------|---------|------|--------|------------------|
+| CVE-2024-3094 | XZ Utils 后门 (liblzma) | 10.0 | T1195.002 | 检查 liblzma.so 版本、sshd 进程异常、SSH 认证后门 |
+| CVE-2024-1086 | Linux Kernel nf_tables LPE | 7.8 | T1068 | 检查 nf_tables 模块加载、内核版本 <=5.14.21 |
+| CVE-2023-32233 | Linux Kernel Netfilter nft_set UAF | 7.8 | T1068 | nft_set 模块使用、内核版本范围 5.x-6.x |
+| CVE-2022-0847 | Dirty Pipe | 7.8 | T1068 | 检查 /etc/passwd 覆写、内核 5.8-5.16.10 |
+| CVE-2021-4034 | PwnKit (pkexec LPE) | 7.8 | T1548.001 | pkexec SUID 检查、GUEST 相关环境变量 |
+| CVE-2021-3156 | Sudo Heap Overflow (Baron Samedit) | 7.8 | T1548.001 | sudo 版本 < 1.9.5p2、/etc/passwd 异常创建 |
+| CVE-2019-5736 | runc Container Escape |  8.6 | T1611 | 容器内 runc 版本、宿主机进程异常 |
+| CVE-2014-0160 | Heartbleed (OpenSSL) | 7.5 | T1552 | OpenSSL 版本检查、内存泄露痕迹 |
+
+---
+
+## IOC 采集指引
+
+Linux IR 完成后应提取以下 IOC 并转发至威胁情报平台：
+
+| 优先级 | IOC 类型 | 采集方法 | 存储格式 | 转发目标 |
+|--------|---------|---------|---------|--------|
+| 🔴 高 | C2 IP:Port | `ss -tunp` / `netstat` / `/proc/net/tcp` | IP:Port | ip-analysis |
+| 🔴 高 | 恶意域名 | DNS 日志 `/var/log/syslog` + `/etc/resolv.conf` | domain | domain-analysis |
+| 🔴 高 | 恶意文件 Hash | `sha256sum /tmp/*` / 文件系统扫描 | SHA256 | binary-reverse-engineering |
+| 🔴 高 | C2 URL | 进程命令行参数 + bash_history | URL | url-analysis |
+| 🟡 中 | 恶意 systemd 服务 | `/etc/systemd/system/*.service` 内容 | service文件+hash | ttp-extractor |
+| 🟡 中 | SSH 后门公钥 | `authorized_keys` 全量提取 | SSH公钥 | auth-log-analysis |
+| 🟡 中 | 恶意内核模块 | `lsmod` + `/lib/modules/**/*.ko` | 模块名+hash | binary-reverse-engineering |
+| 🟡 中 | LD_PRELOAD 库 | `/etc/ld.so.preload` + `/proc/*/environ` | .so文件+hash | binary-reverse-engineering |
+| 🟢 低 | 恶意 cron 条目 | `/etc/cron.d/*` + `crontab -l -u *` | cron表达式 | ttp-extractor |
+| 🟢 低 | Webshell 路径 | `/var/www/**/*.php` + access log | 文件路径+hash | code-audit |
+
+---
+
+## 合规标准参考表
+
+| 标准 | 相关章节 | Linux IR 要求 |
+|------|---------|--------------|
+| ISO/IEC 27001 | A.16.1 Incident Management | 事件响应流程、取证保留、根因分析 |
+| ISO/IEC 27035 | Phase 4 Detection & Identification | 安全事件检测、日志分析、告警分类 |
+| NIST SP 800-61 | 3.2 Containment | 隔离受感染主机、防止横向移动 |
+| NIST SP 800-86 | Section 3 | 收集和保全数字证据、内存取证、磁盘镜像 |
+| NIST SP 800-92 | Section 4 | 日志管理策略、syslog/journald 配置 |
+| 等保2.0 第八章 | 8.1.3 入侵防范 | 主机入侵检测、恶意代码防范、入侵告警 |
+| 等保2.0 第九章 | 9.1.4 安全审计 | 安全审计日志、日志留存≥6个月、集中分析 |
+| GDPR | Art.33 | 72小时内向监管机构报告数据泄露事件 |
+| PIPL | 第57条 | 个人信息泄露事件应急响应、通知义务 |
+| PCI DSS | 12.10 | 事件响应计划、证据收集、取证分析 |
+| SOC 2 | CC7.3 | 安全事件检测、应急响应、恢复 |
+
+---
+
+## 跨技能生态工作流
+
+| 场景 | 上游技能 → 本技能 → 下游技能 | 数据流 |
+|------|-------------------------------|--------|
+| 主机入侵响应 | traffic-analysis → **linux-ir** → binary-reverse-engineering | 流量告警 → 主机取证 → 恶意样本逆向 |
+| 持久化清除 | auth-log-analysis → **linux-ir** → ttp-extractor | 认证异常 → 主机检查 → TTP 提取归档 |
+| 挖矿木马处置 | asset-monitor → **linux-ir** → ip-analysis | 资产告警 → 主机检查 → C2 IP 分析 |
+| 供应链事件 | code-audit → **linux-ir** → pdf-report | 代码投毒 → 主机影响评估 → IR 报告 |
+| 容器安全事件 | asset-discovery → **linux-ir** → data-desensitize | 容器逃逸 → 主机影响范围 → 敏感数据脱敏 |
 
 ---
 

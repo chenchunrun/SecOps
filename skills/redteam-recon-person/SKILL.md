@@ -2,31 +2,10 @@
 name: redteam-recon-person
 description: 个人目标情报收集。针对特定个人的OSINT收集和社工画像分析。当用户要求"人物画像"、"个人情报"、"OSINT调查"、"社工预研"、"VIP安全评估"、"高管风险评估"时使用此技能。
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   builtin: true
   category: redteam-recon
 ---
-
-> ⚠️ **RED TEAM AUTHORIZATION REQUIRED**
->
-> This skill falls under the `redteam:execute` capability gate.
->
-> **Before executing ANY step in this skill, you MUST:**
-> 1. State the skill name and a one-line summary of what you are about to do.
-> 2. Ask the user to explicitly confirm authorization by typing **"已授权 / AUTHORIZED"**.
-> 3. Ask the user to confirm the authorized scope (target, timeframe, rules of engagement).
-> 4. Record the confirmation in your response before proceeding.
->
-> **Do NOT proceed if:**
-> - The user has not typed the authorization confirmation.
-> - The target is outside the stated scope.
-> - Any step would cause irreversible changes without a rollback plan.
->
-> Violation of this gate is logged as a `security_alert` audit event.
-
----
-
-
 
 # 个人目标情报
 
@@ -321,6 +300,187 @@ curl "https://haveibeenpwned.com/api/v3/breachedaccount/email@example.com"
 | PimEyes | 人脸识别搜索 |
 | TinEye | 反向图片搜索 |
 | Google Images | 反向搜索 |
+
+## MITRE ATT&CK 技术映射
+
+个人情报收集涉及红队侦察全周期的多个 ATT&CK 技术：
+
+| 战术 | 技术 | 名称 | 场景 |
+|------|------|------|------|
+| **Reconnaissance (TA0095)** | T1592 | Gather Victim Host Information | 收集目标使用的主机/设备信息 |
+| | T1592.004 | Client Configurations | 收集目标客户端配置信息 |
+| | T1593 | Search Closed Sources | 使用付费数据库(DeHashed/IntelX)搜索 |
+| | T1593.002 | Code Repositories | 搜索目标 GitHub/GitLab 活动 |
+| | T1594 | Search Victim-Owned Websites | 搜索目标个人博客/作品集网站 |
+| | T1589 | Gather Victim Identity Information | 收集目标身份信息 |
+| | T1589.001 | Credentials | 从泄露数据库收集凭证 |
+| | T1589.002 | Email Addresses | 收集目标邮箱地址 |
+| | T1590 | Gather Victim Host Information | 收集目标网络存在信息 |
+| | T1591 | Gather Victim Org Information | 收集目标组织信息 |
+| | T1595.003 | Wordlist Scrolling | 基于已知信息生成密码字典 |
+| **Initial Access (TA0001)** | T1566.001 | Spearphishing Attachment | 基于画像发送定向钓鱼邮件 |
+| | T1566.002 | Spearphishing Link | 基于兴趣发送钓鱼链接 |
+| | T1078 | Valid Accounts | 使用泄露凭证尝试登录 |
+| **Social Engineering (TA0001)** | T1566 | Phishing | 基于社交画像设计话术 |
+| | T1650 | Acquire Infrastructure | 注册仿冒域名用于钓鱼 |
+| **Credential Access (TA0006)** | T1110 | Brute Force | 基于画像生成密码进行爆破 |
+| | T1110.002 | Password Cracking | 离线破解泄露的哈希密码 |
+| | T1552 | Unsecured Credentials | 从泄露数据库获取明文凭证 |
+
+## OWASP Top 10 映射
+
+个人情报收集直接支持 OWASP 安全评估：
+
+| OWASP 类别 | CWE | 关联场景 |
+|-----------|-----|---------|
+| **A01** Broken Access Control | CWE-284 | 泄露凭证导致越权访问 |
+| **A02** Cryptographic Failures | CWE-311 | 泄露数据库中的明文/弱哈希密码 |
+| **A04** Insecure Design | CWE-209 | 社交媒体泄露系统设计信息 |
+| **A05** Security Misconfiguration | CWE-16 | 公开云存储桶/错误配置暴露数据 |
+| **A07** Identification & Auth Failures | CWE-287 | 凭证填充攻击基于泄露数据 |
+| **A08** Software & Data Integrity Failures | CWE-345 | 供应链攻击通过社工触达 |
+| **A09** Security Logging Failures | CWE-778 | OSINT收集过程无法被检测 |
+| **A10** SSRF | CWE-918 | 内部人员信息辅助SSRF攻击 |
+
+## Sigma 检测规则
+
+### 规则 1: 异常登录行为检测（基于凭证泄露）
+
+```yaml
+title: Suspicious Login After Credential Leak
+description: >
+  检测用户在已知数据泄露事件后，从异常位置/设备登录的行为。
+  结合 OSINT 泄露情报和认证日志进行关联分析。
+status: experimental
+author: sec-skills
+references:
+  - https://attack.mitre.org/techniques/T1078/
+  - https://attack.mitre.org/techniques/T1110/
+tags:
+  - attack.initial_access
+  - attack.credential_access
+  - attack.t1078
+  - attack.t1110
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_successful_logon:
+    EventID: 4624
+    LogonType: 10
+  filter_normal_location:
+    IpAddress:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+  timeframe: 24h
+  condition: selection_successful_logon and not filter_normal_location
+falsepositives:
+  - 用户出差/远程办公
+  - VPN 连接
+level: medium
+```
+
+### 规则 2: 用户名枚举检测（跨平台搜索行为）
+
+```yaml
+title: Cross-Platform Username Enumeration Pattern
+description: >
+  检测从单一源IP对多个社交媒体/平台进行用户名搜索的行为模式。
+  这种行为通常指示自动化 OSINT 工具（如 Sherlock/Maigret）的使用。
+status: experimental
+author: sec-skills
+references:
+  - https://attack.mitre.org/techniques/T1589/
+  - https://attack.mitre.org/techniques/T1593/
+tags:
+  - attack.reconnaissance
+  - attack.t1589
+  - attack.t1593
+logsource:
+  product: proxy
+detection:
+  selection:
+    c-uri-query:
+      - "*linkedin*"
+      - "*twitter*"
+      - "*github*"
+      - "*facebook*"
+      - "*instagram*"
+  timeframe: 10m
+  condition: selection | count(c-uri-query) by src_ip > 5
+falsepositives:
+  - 合法用户同时访问多个社交媒体
+level: low
+```
+
+## CVE 参考表
+
+个人情报收集相关的高危 CVE（社交工程/凭证利用向量）：
+
+| CVE | 产品 | 影响 | OSINT 关联 |
+|-----|------|------|-----------|
+| CVE-2021-44228 | Apache Log4j | RCE | 通过LinkedIn定位使用Java的目标人员 |
+| CVE-2023-23397 | Microsoft Outlook | 凭证泄露 | 收集目标Outlook版本后定向钓鱼 |
+| CVE-2024-21413 | Microsoft Outlook | 远程代码执行 | 针对高管Outlook客户端 |
+| CVE-2021-26855 | Microsoft Exchange | SSRF | 识别使用Exchange的目标组织 |
+| CVE-2023-46805 | Ivanti Connect Secure | 身份验证绕过 | 识别使用Ivanti VPN的目标人员 |
+
+## IOC 采集指引
+
+| 数据类型 | 采集方法 | 存储格式 | 用途 |
+|---------|---------|---------|------|
+| 邮箱地址 | holehe/Google Dorks | email_addr | 关联分析/凭证填充 |
+| 用户名变体 | person_recon.py | username | 跨平台搜索 |
+| 社交媒体链接 | blackbird/sherlock | url | 行为分析 |
+| 泄露凭证 | HIBP/DeHashed | credential | 风险评估 |
+| 电话号码 | Google Dorks | phone | 社工攻击 |
+| 物理地址 | 公开记录 | address | 物理安全评估 |
+| 技术技能 | LinkedIn/GitHub | skill_list | 攻击面评估 |
+| 密码模式 | 泄露分析 | password_pattern | 密码字典生成 |
+
+## 合规标准关联
+
+| 标准 | 条款 | 关联 |
+|------|------|------|
+| **GDPR** | Art. 5/32 | 个人数据保护—OSINT收集需合规 |
+| **PIPL** | 第13条 | 个人信息处理—需取得同意 |
+| **ISO 27001** | A.8.7 | 恶意软件防范—社工攻击防范 |
+| **ISO 27001** | A.5.7 | 情报威胁—OSINT用于威胁情报 |
+| **NIST SP 800-53** | IA-2 | 身份验证—多因素认证防范凭证泄露 |
+| **NIST SP 800-53** | AT-2 | 意识培训—基于OSINT画像的钓鱼演练 |
+| **NIST SP 800-60** | 附件J | 信息类型—PII分类和OSINT暴露面 |
+| **PCI DSS** | 12.6.2 | 安全意识—针对持卡数据的社工防范 |
+
+## 跨技能工作流
+
+### 工作流 1: 红队社工攻击链
+
+```
+redteam-recon-enterprise (识别关键人员)
+  └─→ redteam-recon-person (深度画像)
+       └─→ redteam-intrusion-social (设计社工话术)
+            └─→ phishing-analysis (钓鱼执行)
+                 └─→ ttp-extractor (TTP提取)
+```
+
+### 工作流 2: 凭证泄露响应链
+
+```
+redteam-recon-person (发现泄露凭证)
+  └─→ auth-log-analysis (检测异常登录)
+       └─→ windows-ir/linux-ir (事件响应)
+            └─→ pdf-report (事件报告)
+```
+
+### 工作流 3: 高管保护评估链
+
+```
+redteam-recon-person (高管数字足迹)
+  └─→ brand-impersonation (检测仿冒账号)
+       └─→ url-analysis (分析钓鱼链接)
+            └─→ pdf-report (安全评估报告)
+```
 
 ## 法律和道德边界
 

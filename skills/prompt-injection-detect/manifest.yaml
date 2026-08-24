@@ -1,0 +1,11 @@
+api_version: secops/v1
+name: prompt-injection-detect
+version: 1.0.0
+description: Detect instruction-hijacking content in untrusted data.
+roles: [security_expert]
+capabilities: {required: [content:read, prompt_injection:detect]}
+risk: {base: low, parameter_rules: {quarantine_content: medium}}
+runtime: {platforms: [darwin, linux, windows], network: {required: false, allowed_domains: []}, timeout: 2m, output_limit: 5242880}
+input_schema: ../schemas/security-task-input.json
+output_schema: ../schemas/security-task-output.json
+integrity: {skill_sha256: af60816d02447f1b2ed4de8650ec4b3358d80553db8ffcdb6885c103acdd9dae}

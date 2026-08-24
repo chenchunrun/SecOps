@@ -1,0 +1,13 @@
+api_version: secops/connectors/v1
+name: crowdstrike-falcon
+version: 1.0.0
+provider: CrowdStrike Falcon
+data_scopes: [detections:read, hosts:write]
+credential: {type: oauth2, scopes: [detections:read], short_lived: true}
+provider_api_version: v2
+rate_limit: {max_retries: 3, backoff: 1s}
+health_path: /oauth2/verify
+event_schema: secops-event-v1
+operations:
+  - {name: query_detections, method: GET, path: /detects/queries/detects/v1, side_effect: false, risk: low}
+  - {name: contain_host, method: POST, path: /devices/entities/devices-actions/v2, side_effect: true, risk: critical}

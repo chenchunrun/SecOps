@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "message_reference"],
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "message_reference": { "type": "string", "minLength": 1 },
+    "allow_external_lookup": { "type": "boolean" },
+    "allow_external_upload": { "type": "boolean", "default": false },
+    "allow_attachment_execute": { "type": "boolean", "default": false }
+  }
+}

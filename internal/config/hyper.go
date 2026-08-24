@@ -61,20 +61,21 @@ func (s *hyperSync) Get(ctx context.Context) (catwalk.Provider, error) {
 		result, err := s.client.Get(ctx, etag)
 		if errors.Is(err, context.DeadlineExceeded) {
 			slog.Warn("Hyper provider not updated in time")
-			s.result = cached
+			s.result = hyper.NormalizeProviderCapabilities(cached)
 			return
 		}
 		if errors.Is(err, catwalk.ErrNotModified) {
 			slog.Info("Hyper provider not modified")
-			s.result = cached
+			s.result = hyper.NormalizeProviderCapabilities(cached)
 			return
 		}
 		if len(result.Models) == 0 {
 			slog.Warn("Hyper did not return any models")
-			s.result = cached
+			s.result = hyper.NormalizeProviderCapabilities(cached)
 			return
 		}
 
+		result = hyper.NormalizeProviderCapabilities(result)
 		s.result = result
 		throwErr = s.cache.Store(result)
 	})

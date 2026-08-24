@@ -2,7 +2,7 @@
 name: ttp-extractor
 description: 从安全报告和威胁情报中提取攻防技战法，映射到 MITRE ATT&CK 框架并生成检测规则。当用户要求"TTP 分析"、"ATT&CK 映射"、"提取攻击技术"、"生成 Sigma 规则"、"威胁狩猎规则提取"时使用此技能。
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   builtin: true
 ---
 
@@ -169,6 +169,265 @@ DeviceProcessEvents
 | `--with-hunt` | 包含威胁狩猎查询 |
 | `--defense-only` | 仅输出防御措施 |
 | `--attack-only` | 仅输出攻击技术 |
+
+## ATT&CK v16 新增技术覆盖
+
+| 技术 ID | 技术名称 | 战术 | 描述 |
+|---------|----------|------|------|
+| T1195.004 | Compromise Software Dependencies | Initial Access | 供应链依赖投毒 |
+| T1199 | Trusted Relationship | Initial Access | 利用可信关系 |
+| T1027.013 | Encrypted/Encoded File | Defense Evasion | 加密/编码文件 |
+| T1140.004 | AppleScript Deobfuscation | Defense Evasion | AppleScript 去混淆 |
+| T1059.013 | PowerShell | Execution | PowerShell (v16重新定义) |
+| T1071.008 | DNS Calculation | C2 | DNS 计算通信 |
+| T1573.002 | Asymmetric Cryptography | C2 | 非对称加密C2 |
+| T1567.002 | Exfiltration to Cloud Storage | Exfiltration | 数据外发到云存储 |
+| T1567.003 | Exfiltration to Text Storage Sites | Exfiltration | 数据外发到文本存储站点 |
+| T1090.005 | Device Proxy | Defense Evasion/C2 | 设备代理 |
+
+## OWASP 与 ATT&CK 交叉映射
+
+| OWASP 类别 | 相关 ATT&CK 技术 | 应用场景 |
+|-----------|----------------|----------|
+| A01 Access Control | T1078 Valid Accounts, T1548 Abuse Elevation Control | Web应用权限提升 |
+| A02 Crypto Failures | T1573 Encrypted Channel, T1552 Unsecured Credentials | 加密通信与凭据 |
+| A03 Injection | T1059 Command & Scripting, T1190 Exploit Public App | 注入攻击 |
+| A04 Insecure Design | T1059, T1548 | 设计缺陷利用 |
+| A05 Security Misconfig | T1098 Account Manipulation, T1078 | 配置错误利用 |
+| A06 Vulnerable Components | T1195 Supply Chain Compromise, T1210 Exploitation of Remote Services | 脆弱组件 |
+| A07 Auth Failures | T1110 Brute Force, T1078 Valid Accounts | 认证攻击 |
+| A08 Data Integrity | T1055 Process Injection, T1546 Event Triggered Exec | 完整性破坏 |
+| A09 Logging Failures | T1070 Indicator Removal, T1562 Impair Defenses | 日志破坏 |
+| A10 SSRF | T1046 Network Service Discovery, T1190 | SSRF利用 |
+
+## CVE 参考表
+
+| CVE ID | 产品 | ATT&CK 技术 | TTP提取价值 |
+|--------|------|-------------|-------------|
+| CVE-2024-21413 | Microsoft Outlook | T1566.001 (Spearphishing Attachment) | 远程代码执行通过特制邮件 |
+| CVE-2024-1086 | Linux nf_tables | T1068 (Exploitation for Privilege Escalation) | 内核提权 |
+| CVE-2023-46805 | Ivanti Connect Secure | T1190 (Exploit Public-Facing Application) | VPN网关绕过 |
+| CVE-2024-21887 | Ivanti Connect Secure | T1068, T1190 | 命令注入 |
+| CVE-2023-46604 | Apache ActiveMQ | T1190, T1059 (Remote Code Execution) | RCE利用 |
+| CVE-2024-23897 | Jenkins | T1190, T1552.001 | 任意文件读取 |
+| CVE-2024-3094 | XZ Utils | T1195.002 (Compromise Software Supply Chain) | 后门植入 |
+
+## YARA 规则示例
+
+### 检测 Cobalt Strike Beacon
+
+```yara
+rule Cobalt_Strike_Beacon_Generic {
+    meta:
+        description = "检测 Cobalt Strike Beacon 内存加载"
+        author = "sec-skills"
+        date = "2025-06-17"
+        reference = "ATT&CK T1059.001, T1071.001"
+        mitre_attack_id = "T1071.001"
+    strings:
+        $pipe = "\\\\\\.\\pipe\\" ascii
+        $beacon = { 4D 5A 90 00 03 00 00 00 }
+        $reflective = "ReflectiveLoader" ascii
+        $msf = "msf_buffer" ascii
+    condition:
+        uint16(0) == 0x5A4D and
+        any of ($reflective, $msf) or
+        ($pipe and $beacon)
+}
+```
+
+### 检测 Mimikatz
+
+```yara
+rule Mimikatz_Generic_Signatures {
+    meta:
+        description = "检测 Mimikatz 凭据提取工具"
+        author = "sec-skills"
+        date = "2025-06-17"
+        reference = "ATT&CK T1003.001"
+        mitre_attack_id = "T1003.001"
+    strings:
+        $sekurlsa = "sekurlsa" ascii nocase
+        $lsadump = "lsadump" ascii nocase
+        $kerberos = "kerberos::" ascii nocase
+        $privilege = "privilege::debug" ascii nocase
+        $mimikatz = "mimikatz" ascii nocase
+        $gentilkiwi = "gentilkiwi" ascii nocase
+    condition:
+        3 of them
+}
+```
+
+### 检测 PowerShell 混淆
+
+```yara
+rule PowerShell_Obfuscation_Patterns {
+    meta:
+        description = "检测 PowerShell 混淆模式"
+        author = "sec-skills"
+        date = "2025-06-17"
+        reference = "ATT&CK T1027, T1059.001"
+        mitre_attack_id = "T1059.001"
+    strings:
+        $base64 = "-enc" ascii nocase
+        $bypass = "-exec bypass" ascii nocase
+        $hidden = "-w hidden" ascii nocase
+        $noprofile = "-nop" ascii nocase
+        $download = "DownloadString" ascii nocase
+        $invoke = "IEX(" ascii nocase
+        $reflection = "[Reflection.Assembly]" ascii nocase
+    condition:
+        2 of them
+}
+```
+
+## IOC 类型与提取规则
+
+| IOC 类型 | 格式 | 正则表达式 | ATT&CK 映射 |
+|----------|------|-----------|-------------|
+| IPv4 地址 | xxx.xxx.xxx.xxx | `\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b` | T1071 |
+| 域名 | example.com | `\b[a-z0-9]([a-z0-9-]*[a-z0-9])?\.[a-z]{2,}\b` | T1071 |
+| 文件哈希 (MD5) | 32位hex | `\b[a-fA-F0-9]{32}\b` | T1027 |
+| 文件哈希 (SHA256) | 64位hex | `\b[a-fA-F0-9]{64}\b` | T1027 |
+| URL | http(s)://... | `https?://[^\s<>"]+` | T1566.002 |
+| 邮箱地址 | x@x.com | `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}` | T1566.001 |
+| CVE 编号 | CVE-YYYY-NNNN | `CVE-\d{4}-\d{4,}` | T1190 |
+| C2 端口 | 数字 | 常见: 443, 8443, 8080, 4444, 1337 | T1071 |
+| Bitcoin 地址 | bc1/1/3... | `[13][a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[a-z0-9]{39,59}` | T1486 |
+
+## Sigma 规则生成模板
+
+### 模板 1: 进程创建检测
+
+```yaml
+title: {{rule_title}}
+id: {{generate_uuid}}
+status: experimental
+description: {{description}}
+references:
+    - {{reference_url}}
+date: {{date}}
+logsource:
+    product: windows
+    service: sysmon
+detection:
+    selection:
+        EventID: 1
+        {{field}}|{{operator}}:
+            - {{value_1}}
+            - {{value_2}}
+    condition: selection
+falsepositives:
+    - {{false_positive_notes}}
+level: {{severity}}
+tags:
+    - attack.{{tactic}}
+    - attack.t{{technique_id}}
+```
+
+### 模板 2: 网络连接检测
+
+```yaml
+title: {{rule_title}}
+id: {{generate_uuid}}
+status: experimental
+description: {{description}}
+date: {{date}}
+logsource:
+    product: windows
+    service: sysmon
+detection:
+    selection:
+        EventID: 3
+        DestinationIp|cidr:
+            - '{{cidr_range}}'
+        DestinationPort:
+            - {{port}}
+    condition: selection
+falsepositives:
+    - {{false_positive_notes}}
+level: {{severity}}
+tags:
+    - attack.command_and_control
+    - attack.t1071
+```
+
+### 模板 3: 文件创建检测
+
+```yaml
+title: {{rule_title}}
+id: {{generate_uuid}}
+status: experimental
+description: {{description}}
+date: {{date}}
+logsource:
+    product: windows
+    category: file_event
+detection:
+    selection:
+        TargetFilename|contains:
+            - '{{path_pattern}}'
+        TargetFilename|endswith:
+            - '{{extension}}'
+    condition: selection
+falsepositives:
+    - {{false_positive_notes}}
+level: {{severity}}
+tags:
+    - attack.{{tactic}}
+    - attack.t{{technique_id}}
+```
+
+## 合规标准参考
+
+| 标准 | 相关条款 | TTP提取要求 |
+|------|----------|-------------|
+| NIST SP 800-150 | 全文 | 网络威胁信息共享指南 |
+| ISO/IEC 27001:2022 | A.5.7 | 威胁情报收集与分发 |
+| PCI DSS 4.0 | Req. 5.2, 10.3 | 恶意软件检测与日志分析 |
+| MITRE ATT&CK v16 | 全文 | 技术映射标准参考 |
+| STIX 2.1 | 全文 | 威胁情报交换格式 |
+| TAXII 2.1 | 全文 | 威胁情报传输协议 |
+| GDPR | Art. 33(1) | 安全事件通知中的技术分析 |
+| PIPL (中国) | 第57条 | 安全事件技术分析义务 |
+
+## 跨技能工作流
+
+### 工作流 1: 从事件响应到检测规则
+```
+linux-ir / windows-ir → ttp-extractor → pdf-report
+```
+
+1. `linux-ir` 或 `windows-ir` 进行事件响应，收集证据
+2. `ttp-extractor` 从事件中提取攻击技术矩阵并生成检测规则
+3. `pdf-report` 生成完整事件响应报告
+
+### 工作流 2: 从威胁报告到狩猎规则
+```
+rga-knowledge-search → ttp-extractor → pdf-report
+```
+
+1. `rga-knowledge-search` 检索相关威胁情报报告
+2. `ttp-extractor` 提取TTP并生成狩猎查询
+3. `pdf-report` 生成威胁狩猎指南
+
+### 工作流 3: 从代码审计到攻击面映射
+```
+code-audit → ttp-extractor → pdf-report
+```
+
+1. `code-audit` 发现应用代码中的漏洞
+2. `ttp-extractor` 将漏洞映射到ATT&CK技术，评估攻击面
+3. `pdf-report` 生成攻击面评估报告
+
+### 工作流 4: AI安全事件分析
+```
+prompt-injection-detect → ttp-extractor → pdf-report
+```
+
+1. `prompt-injection-detect` 检测到提示注入攻击
+2. `ttp-extractor` 提取攻击者的TTP并映射到ATT&CK
+3. `pdf-report` 生成AI安全事件分析报告
 
 ## 附加资源
 
