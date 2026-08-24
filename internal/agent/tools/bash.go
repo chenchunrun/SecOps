@@ -492,13 +492,19 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		stdout += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(localResult.WorkingDirectory))
 		return fantasy.WithResponseMetadata(fantasy.NewTextResponse(stdout), metadata), nil
 	}
+	callGate := newToolCallGate(1024)
+	executeBash := func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+		return callGate.Do(ctx, toolCallKey(ctx, call.ID), func() (fantasy.ToolResponse, error) {
+			return runBash(ctx, params, call)
+		})
+	}
 
 	if remoteCfg == nil {
 		return fantasy.NewAgentTool(
 			BashToolName,
 			desc,
 			func(ctx context.Context, params BashLocalParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-				return runBash(ctx, BashParams{
+				return executeBash(ctx, BashParams{
 					Description:         params.Description,
 					Command:             params.Command,
 					WorkingDir:          params.WorkingDir,
@@ -512,7 +518,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 	return fantasy.NewAgentTool(
 		BashToolName,
 		desc,
-		runBash,
+		executeBash,
 	)
 }
 
