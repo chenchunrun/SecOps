@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,9 @@ func TestLDFlagsVersionTakesPrecedenceOverEmbeddedBuildVersion(t *testing.T) {
 
 	root := filepath.Clean(filepath.Join("..", ".."))
 	binary := filepath.Join(t.TempDir(), "SecOps")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	cmd := exec.CommandContext(
 		t.Context(),
 		"go",
