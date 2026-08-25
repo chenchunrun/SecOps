@@ -13,6 +13,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/lsp"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
+	"github.com/chenchunrun/SecOps/internal/ui/logo"
 	"github.com/chenchunrun/SecOps/internal/ui/styles"
 )
 
@@ -39,9 +40,7 @@ func newHeader(com *common.Common) *header {
 	h := &header{
 		com: com,
 	}
-	t := com.Styles
-	h.compactLogo = t.Header.Charm.Render("Charm™") + " " +
-		styles.ApplyBoldForegroundGrad(t, "SecOps", t.Secondary, t.Primary) + " "
+	h.compactLogo = logo.InlineRender(com.Styles)
 	return h
 }
 

@@ -97,15 +97,20 @@ func Render(s *styles.Styles, version string, compact bool, o Opts) string {
 	return logo
 }
 
+// InlineRender renders the compact brand mark with one adaptive brand color.
+func InlineRender(t *styles.Styles) string {
+	brand := t.Base.Foreground(t.LogoTitleColorB)
+	return brand.Render("Charm™") + " " + brand.Bold(true).Render("SecOps") + " "
+}
+
 // SmallRender renders a smaller version of the SecOps logo, suitable for
 // smaller windows or sidebar usage.
 func SmallRender(t *styles.Styles, width int) string {
-	title := t.Base.Foreground(t.Secondary).Render("Charm™")
-	title = fmt.Sprintf("%s %s", title, styles.ApplyBoldForegroundGrad(t, "SecOps", t.Secondary, t.Primary))
+	title := strings.TrimSpace(InlineRender(t))
 	remainingWidth := width - lipgloss.Width(title) - 1 // 1 for the space after "SecOps"
 	if remainingWidth > 0 {
 		lines := strings.Repeat("╱", remainingWidth)
-		title = fmt.Sprintf("%s %s", title, t.Base.Foreground(t.Primary).Render(lines))
+		title = fmt.Sprintf("%s %s", title, t.Base.Foreground(t.LogoTitleColorB).Render(lines))
 	}
 	return title
 }
