@@ -407,7 +407,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			return a.messages.BufferedUpdate(genCtx, *currentAssistant, message.UpdateOptions{ForceDBWrite: true})
 		},
 		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
-			// TODO: implement
+			statusCode := 0
+			if err != nil {
+				statusCode = err.StatusCode
+			}
+			slog.Warn("Retrying provider request", "status_code", statusCode, "delay", delay)
 		},
 		OnToolCall: func(tc fantasy.ToolCallContent) error {
 			toolCall := message.ToolCall{

@@ -156,10 +156,17 @@ DOC
 
     archive_path="${DIST_DIR}/${pkg_name}.zip"
     rm -f "$archive_path"
-    (
-      cd "$DIST_DIR"
-      COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$pkg_name" "${pkg_name}.zip"
-    )
+    if command -v ditto >/dev/null 2>&1; then
+      (
+        cd "$DIST_DIR"
+        COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$pkg_name" "${pkg_name}.zip"
+      )
+    else
+      (
+        cd "$DIST_DIR"
+        zip -qr "${pkg_name}.zip" "$pkg_name"
+      )
+    fi
   else
     cat > "$work_dir/install.sh" <<'SH'
 #!/usr/bin/env bash

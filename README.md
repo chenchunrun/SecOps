@@ -6,7 +6,7 @@
     <a href="https://github.com/chenchunrun/SecOps/actions"><img src="https://github.com/chenchunrun/SecOps/actions/workflows/build.yml/badge.svg" alt="Build Status"></a>
 </p>
 
-> Independent fork and SecOps extension maintained and released by
+> Independent fork and SecOps extension maintained by
 > **chenchunrun**.
 > Built from the original Crush base, but extended into a security-operations
 > runtime with policy, audit, and secure execution controls. Not affiliated
@@ -23,7 +23,7 @@ Core contributor:
 
 ## What SecOps Adds
 
-- **18 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, ATT&CK reasoning, incident assessment, deployment and infrastructure queries, and more.
+- **20 SecOps tools:** security scanning, monitoring, log analysis, certificate auditing, secret auditing, compliance checks, incident support, ATT&CK reasoning, incident assessment, deployment and infrastructure queries, and more.
 - **35 security skills:** defensive skills (IR, threat intelligence, log analysis, malware analysis, compliance reporting) plus 7 red team skills with a mandatory authorization gate.
 - **Risk-aware execution:** capability checks and permission decisions evaluate risk signals before sensitive tools or commands run.
 - **Audit and SIEM pipeline:** every governed action can be recorded, reviewed, and exported to ELK, Splunk, Azure Sentinel, or generic JSON sinks with redaction.
@@ -137,11 +137,11 @@ check it explicitly.
 This fork includes SecOps runtime capabilities, risk-aware permissions,
 auditing, and secure execution controls.
 
-The 2026-08-21 local completion audit passes the full Go test suite, focused
-race tests for the new durable/security packages, and CGO-disabled Linux and
-Windows full-package cross-builds. GitHub Actions remains the authoritative
-remote gate for Build, Security, Lint, and Snapshot after these commits are
-pushed.
+The 2026-08-25 release-candidate closeout adds an enforced 80% aggregate
+coverage gate for the SecOps control plane, preserves the full Go regression
+suite, and builds signed-scope security workflows across supported platforms.
+GitHub Actions remains the authoritative remote gate for Build, Security,
+Lint, Snapshot, release packaging, checksums, and SBOM generation.
 
 Recommended release verification commands:
 
@@ -149,6 +149,7 @@ Recommended release verification commands:
 GOCACHE=$(pwd)/.gocache go test ./internal/agent/tools/secops -count=1
 GOCACHE=$(pwd)/.gocache go test ./internal/integration -count=1
 GOCACHE=$(pwd)/.gocache go test ./internal/sandbox ./internal/audit -count=1
+GOCACHE=$(pwd)/.gocache bash ./scripts/check_secops_coverage.sh
 CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go test ./... -count=1
 CGO_ENABLED=0 GOCACHE=$(pwd)/.gocache go build ./...
 ```
@@ -163,8 +164,8 @@ Public reference material:
 
 ## Installation
 
-Published artifacts for this fork are distributed from the
-[GitHub releases page](https://github.com/chenchunrun/SecOps/releases).
+Release-candidate and published artifacts for this fork are distributed from
+the [GitHub releases page](https://github.com/chenchunrun/SecOps/releases).
 
 Recommended executable names:
 
