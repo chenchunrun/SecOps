@@ -86,6 +86,11 @@ tasks:
     cmds:
       - bash ./scripts/validate_secops_release.sh {{.CLI_ARGS}}
 
+  coverage:secops:
+    desc: Enforce the SecOps control-plane coverage threshold
+    cmds:
+      - bash ./scripts/check_secops_coverage.sh
+
   demo:secops-reasoning:
     desc: Run the SecOps reasoning demo chain
     cmds:

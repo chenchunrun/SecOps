@@ -1,36 +1,68 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 
-name: goreleaser
+name: release
 
 on:
   push:
     tags:
       - v*.*.*
 
+permissions:
+  contents: write
+
 concurrency:
-  group: goreleaser
-  cancel-in-progress: true
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  goreleaser:
-    uses: charmbracelet/meta/.github/workflows/goreleaser.yml@main
-    with:
-      go_version: "1.26"
-      macos_sign_entitlements: "./.github/entitlements.plist"
-      # XXX: remove it after goreleaser 2.14.
-      goreleaser_version: nightly
-    secrets:
-      docker_username: ${{ secrets.DOCKERHUB_USERNAME }}
-      docker_token: ${{ secrets.DOCKERHUB_TOKEN }}
-      gh_pat: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-      goreleaser_key: ${{ secrets.GORELEASER_KEY }}
-      fury_token: ${{ secrets.FURY_TOKEN }}
-      nfpm_gpg_key: ${{ secrets.NFPM_GPG_KEY }}
-      nfpm_passphrase: ${{ secrets.NFPM_PASSPHRASE }}
-      snapcraft_token: ${{ secrets.SNAPCRAFT_TOKEN }}
-      aur_key: ${{ secrets.AUR_KEY }}
-      macos_sign_p12: ${{ secrets.MACOS_SIGN_P12 }}
-      macos_sign_password: ${{ secrets.MACOS_SIGN_PASSWORD }}
-      macos_notary_issuer_id: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
-      macos_notary_key_id: ${{ secrets.MACOS_NOTARY_KEY_ID }}
-      macos_notary_key: ${{ secrets.MACOS_NOTARY_KEY }}
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Validate release candidate
+        run: |
+          bash ./scripts/check_secops_coverage.sh
+          go test -mod=readonly -failfast ./...
+      - name: Build cross-platform packages
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: bash ./scripts/package_cross_platform.sh
+      - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      - name: Generate source SBOM and aggregate checksums
+        run: |
+          syft dir:. --exclude './dist/**' -o cyclonedx-json=dist/SecOps-${GITHUB_REF_NAME}-sbom.cdx.json
+          find dist -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.json' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > dist/checksums.txt
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          notes_file="RELEASE_NOTES_${tag}.md"
+          notes_args=(--generate-notes)
+          if [[ -f "$notes_file" ]]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
+          prerelease_args=()
+          if [[ "$tag" == *-rc* || "$tag" == *-beta* || "$tag" == *-alpha* ]]; then
+            prerelease_args=(--prerelease)
+          fi
+          gh release create "$tag" \
+            dist/*.tar.gz dist/*.zip dist/*.sha256 dist/*.json dist/checksums.txt \
+            --verify-tag \
+            --title "SecOps Agent ${tag}" \
+            "${notes_args[@]}" \
+            "${prerelease_args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: release-dist-${{ github.ref_name }}
+          path: dist
+          retention-days: 30
