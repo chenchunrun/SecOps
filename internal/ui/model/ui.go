@@ -949,8 +949,7 @@ func (m *UI) applyTheme(theme styles.Theme) {
 	m.status.RefreshStyles()
 	m.chat.InvalidateStyles()
 	m.header.logo = ""
-	m.header.compactLogo = next.Header.Charm.Render("Charm™") + " " +
-		styles.ApplyBoldForegroundGrad(&next, "SecOps", next.Secondary, next.Primary) + " "
+	m.header.compactLogo = logo.InlineRender(&next)
 	m.sidebarLogo = ""
 	m.updateLayoutAndSize()
 }
@@ -4028,12 +4027,13 @@ func (m *UI) disableDockerMCP() tea.Msg {
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
 func renderLogo(t *styles.Styles, compact bool, width int) string {
+	brandColor := t.LogoTitleColorB
 	return logo.Render(t, version.Version, compact, logo.Opts{
-		FieldColor:   t.LogoFieldColor,
-		TitleColorA:  t.LogoTitleColorA,
-		TitleColorB:  t.LogoTitleColorB,
-		CharmColor:   t.LogoCharmColor,
-		VersionColor: t.LogoVersionColor,
+		FieldColor:   brandColor,
+		TitleColorA:  brandColor,
+		TitleColorB:  brandColor,
+		CharmColor:   brandColor,
+		VersionColor: brandColor,
 		Width:        width,
 	})
 }
