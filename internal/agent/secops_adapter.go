@@ -105,6 +105,9 @@ func (a *Adapter) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolR
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to marshal params: %v", err)), nil
 	}
+	// Downstream capability, scope, risk, and audit checks consume ToolCall.Input.
+	// Keep it aligned with the canonical parameters accepted by the tool.
+	call.Input = string(paramsBytes)
 
 	params, err := a.decodeParams(paramsBytes)
 	if err != nil {
@@ -451,11 +454,11 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 			return fantasy.NewTextErrorResponse(decision.Reason), nil
 		}
 	} else {
-		if err := a.validateCapabilities(ctx, role, caps); err != nil {
+		if err := a.validateCapabilities(ctx, role, caps, capabilityTargetFromCall(call)); err != nil {
 			return fantasy.NewTextErrorResponse(err.Error()), nil
 		}
 
-		if err := a.enforceRiskDecision(ctx, call, role, nil); err != nil {
+		if err := a.enforceRiskDecision(ctx, call, role, caps, nil); err != nil {
 			return fantasy.NewTextErrorResponse(err.Error()), nil
 		}
 	}
@@ -527,9 +530,16 @@ func RegisterDefaultSecOpsToolSet(registry *secops.SecOpsToolRegistry) error {
 
 // RegisterSecOpsTools registers all SecOps tools with the Crush coordinator's tool list.
 // It returns a slice of fantasy.AgentTool that can be passed to SetTools.
-func RegisterSecOpsTools(registry *secops.SecOpsToolRegistry, perms permission.Service, cfg *config.Config) []fantasy.AgentTool {
+func RegisterSecOpsTools(
+	registry *secops.SecOpsToolRegistry,
+	perms permission.Service,
+	secopsPerms permission.SecOpsService,
+	cfg *config.Config,
+) []fantasy.AgentTool {
 	var tools []fantasy.AgentTool
-	secopsPerms := permission.NewDefaultService()
+	if secopsPerms == nil {
+		secopsPerms = permission.NewDefaultService()
+	}
 	applySecOpsCapabilityGrants(secopsPerms, cfg)
 	assessor := security.NewRiskAssessor()
 	descriptorRegistry := capregistry.NewSecOpsRegistry()
@@ -641,7 +651,8 @@ func (e secopsPolicyEvaluator) EvaluateSecOps(ctx context.Context, req policy.Re
 		return policy.Decision{}, fmt.Errorf("unexpected secops policy params type %T", req.Parameters)
 	}
 
-	if err := e.adapter.validateCapabilities(ctx, secopsCtx.Role, secopsCtx.RequiredCaps); err != nil {
+	target := capabilityTargetFromCall(secopsCtx.Call)
+	if err := e.adapter.validateCapabilities(ctx, secopsCtx.Role, secopsCtx.RequiredCaps, target); err != nil {
 		return policy.Decision{
 			Allowed: false,
 			Reason:  err.Error(),
@@ -652,7 +663,7 @@ func (e secopsPolicyEvaluator) EvaluateSecOps(ctx context.Context, req policy.Re
 		}, nil
 	}
 
-	if err := e.adapter.enforceRiskDecision(ctx, secopsCtx.Call, secopsCtx.Role, secopsCtx.RiskTags); err != nil {
+	if err := e.adapter.enforceRiskDecision(ctx, secopsCtx.Call, secopsCtx.Role, secopsCtx.RequiredCaps, secopsCtx.RiskTags); err != nil {
 		return policy.Decision{
 			Allowed: false,
 			Reason:  err.Error(),
@@ -673,11 +684,11 @@ func (e secopsPolicyEvaluator) EvaluateSecOps(ctx context.Context, req policy.Re
 	}, nil
 }
 
-func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall, role string, riskTags []string) error {
+func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall, role string, requiredCaps, riskTags []string) error {
 	if a.secopsPerms == nil || a.assessor == nil {
 		return nil
 	}
-	if err := enforceEngagementAuthorization(call, role, riskTags); err != nil {
+	if err := enforceEngagementAuthorization(ctx, call, role, requiredCaps, riskTags, a.secopsPerms); err != nil {
 		return err
 	}
 
@@ -727,7 +738,7 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	if err != nil {
 		return fmt.Errorf("secops decision failed: %w", err)
 	}
-	if decision == permission.DecisionAutoApprove && role == string(RoleOpsAgent) {
+	if decision == permission.DecisionAutoApprove && role == "operator" {
 		decision = permission.DecisionUserConfirm
 	}
 	req.Decision = decision
@@ -770,7 +781,13 @@ func (a *Adapter) enforceRiskDecision(ctx context.Context, call fantasy.ToolCall
 	return nil
 }
 
-func enforceEngagementAuthorization(call fantasy.ToolCall, role string, riskTags []string) error {
+func enforceEngagementAuthorization(
+	ctx context.Context,
+	call fantasy.ToolCall,
+	role string,
+	requiredCaps, riskTags []string,
+	grants permission.SecOpsService,
+) error {
 	if role != "analyst" || !slices.Contains(riskTags, "active_probe") {
 		return nil
 	}
@@ -780,18 +797,44 @@ func enforceEngagementAuthorization(call fantasy.ToolCall, role string, riskTags
 	}
 	authorizationID, _ := params["authorization_id"].(string)
 	target := engagementTargetFromParams(params)
-	if strings.TrimSpace(authorizationID) == "" || target == "" {
-		return fmt.Errorf("active security probe requires authorization_id and target")
+	if target == "" {
+		return fmt.Errorf("active security probe requires target")
 	}
-	if err := security.ValidateGlobalEngagementAuthorization(
+	capability := "redteam:execute"
+	if len(requiredCaps) > 0 && strings.TrimSpace(requiredCaps[0]) != "" {
+		capability = requiredCaps[0]
+	}
+	if strings.TrimSpace(authorizationID) == "" && grants != nil {
+		sessionID := tools.GetSessionFromContext(ctx)
+		for _, subject := range capabilityGrantSubjects(ctx, role) {
+			grant, ok := grants.FindSessionCapability(sessionID, subject, capability, target)
+			if ok && strings.TrimSpace(grant.AuthorizationID) != "" {
+				authorizationID = grant.AuthorizationID
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(authorizationID) == "" {
+		return fmt.Errorf("active security probe requires a scoped authorization for %s", capability)
+	}
+	if err := security.ValidateGlobalEngagementAuthorizationForSession(
 		authorizationID,
-		"redteam:execute",
+		capability,
 		target,
+		tools.GetSessionFromContext(ctx),
 		timeNowUTC(),
 	); err != nil {
 		return fmt.Errorf("active security probe authorization failed: %w", err)
 	}
 	return nil
+}
+
+func capabilityTargetFromCall(call fantasy.ToolCall) string {
+	var params map[string]any
+	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {
+		return ""
+	}
+	return engagementTargetFromParams(params)
 }
 
 func engagementTargetFromParams(params map[string]any) string {
@@ -925,9 +968,9 @@ func applySecOpsCapabilityGrants(svc permission.SecOpsService, cfg *config.Confi
 	}
 }
 
-func (a *Adapter) validateCapabilities(ctx context.Context, role string, caps []string) error {
+func (a *Adapter) validateCapabilities(ctx context.Context, role string, caps []string, target string) error {
 	for _, cap := range caps {
-		allowed, err := a.roleHasCapability(ctx, role, cap)
+		allowed, err := a.roleHasCapability(ctx, role, cap, target)
 		if err != nil {
 			return fmt.Errorf("capability check failed: %w", err)
 		}
@@ -938,7 +981,7 @@ func (a *Adapter) validateCapabilities(ctx context.Context, role string, caps []
 	return nil
 }
 
-func (a *Adapter) roleHasCapability(ctx context.Context, role, capability string) (bool, error) {
+func (a *Adapter) roleHasCapability(ctx context.Context, role, capability, target string) (bool, error) {
 	for _, candidate := range expandedRoles(role) {
 		if security.CheckCapability(candidate, capability) {
 			return true, nil
@@ -955,6 +998,11 @@ func (a *Adapter) roleHasCapability(ctx context.Context, role, capability string
 		if ok {
 			return true, nil
 		}
+		if _, ok := a.secopsPerms.FindSessionCapability(
+			tools.GetSessionFromContext(ctx), subject, capability, target,
+		); ok {
+			return true, nil
+		}
 	}
 	return false, nil
 }
@@ -967,7 +1015,9 @@ func expandedRoles(role string) []string {
 	case "operator":
 		return []string{"operator", "viewer"}
 	case "responder":
-		return []string{"responder", "analyst"}
+		return []string{"responder", "analyst", "viewer"}
+	case "analyst":
+		return []string{"analyst", "viewer"}
 	default:
 		return []string{role}
 	}
@@ -1009,7 +1059,7 @@ func secOpsRoleFromContext(ctx context.Context) string {
 	case config.AgentSecurityExpertAgent:
 		return "analyst"
 	case config.AgentOpsAgent:
-		return string(RoleOpsAgent)
+		return "operator"
 	case config.AgentTask:
 		// Task agent needs operator-level to run read-only diagnostics and reports.
 		return "operator"

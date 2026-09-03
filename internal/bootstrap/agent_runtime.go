@@ -21,6 +21,7 @@ type AgentCoordinatorDeps struct {
 	Sessions           session.Service
 	Messages           message.Service
 	Permissions        permission.Service
+	SecOpsPermissions  permission.SecOpsService
 	History            history.Service
 	FileTracker        filetracker.Service
 	LSPManager         *lsp.Manager
@@ -34,6 +35,7 @@ func NewAgentCoordinator(ctx context.Context, deps AgentCoordinatorDeps) (agent.
 		deps.Sessions,
 		deps.Messages,
 		deps.Permissions,
+		deps.SecOpsPermissions,
 		deps.History,
 		deps.FileTracker,
 		deps.LSPManager,

@@ -2,6 +2,9 @@ package permission
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +27,21 @@ type SecOpsService interface {
 	// 撤销能力
 	RevokeCapability(userID, capability string)
 
+	// ListCapabilities lists persistent capabilities for a subject.
+	ListCapabilities(userID string) []string
+
+	// GrantSessionCapability grants a target-scoped capability for one session.
+	GrantSessionCapability(grant CapabilityGrant) error
+
+	// RevokeSessionCapability revokes matching grants and returns removed entries.
+	RevokeSessionCapability(sessionID, subject, capability, target string) []CapabilityGrant
+
+	// ListSessionCapabilities lists active grants for a session and subject.
+	ListSessionCapabilities(sessionID, subject string) []CapabilityGrant
+
+	// FindSessionCapability resolves an active grant for a target.
+	FindSessionCapability(sessionID, subject, capability, target string) (CapabilityGrant, bool)
+
 	// 评估风险
 	EvaluateRisk(req *PermissionRequest) (int, Severity, error)
 
@@ -44,6 +62,18 @@ type permissionEntry struct {
 // capabilityEntry 用户能力映射
 type capabilityEntry struct {
 	Capabilities map[string]bool
+}
+
+// CapabilityGrant is a temporary, session-bound and target-scoped grant.
+type CapabilityGrant struct {
+	SessionID       string    `json:"session_id"`
+	Subject         string    `json:"subject"`
+	Capability      string    `json:"capability"`
+	Target          string    `json:"target"`
+	AuthorizationID string    `json:"authorization_id,omitempty"`
+	GrantedBy       string    `json:"granted_by"`
+	GrantedAt       time.Time `json:"granted_at"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }
 
 // auditRecord 审计日志记录
@@ -80,21 +110,25 @@ var sensitivePaths = []string{
 
 // DefaultService 默认权限服务实现
 type DefaultService struct {
-	mu           sync.RWMutex
-	permissions  map[string]*permissionEntry // key: sessionID:toolName
-	capabilities map[string]*capabilityEntry // key: userID
-	auditLog     []auditRecord
+	mu            sync.RWMutex
+	permissions   map[string]*permissionEntry // key: sessionID:toolName
+	capabilities  map[string]*capabilityEntry // key: userID
+	sessionGrants []CapabilityGrant
+	auditLog      []auditRecord
 }
 
 // maxAuditLogEntries caps the in-memory audit log to prevent unbounded memory growth.
 const maxAuditLogEntries = 10000
 
+const maxSessionCapabilityGrants = 1024
+
 // NewDefaultService 创建默认权限服务
 func NewDefaultService() *DefaultService {
 	return &DefaultService{
-		permissions:  make(map[string]*permissionEntry),
-		capabilities: make(map[string]*capabilityEntry),
-		auditLog:     make([]auditRecord, 0),
+		permissions:   make(map[string]*permissionEntry),
+		capabilities:  make(map[string]*capabilityEntry),
+		sessionGrants: make([]CapabilityGrant, 0),
+		auditLog:      make([]auditRecord, 0),
 	}
 }
 
@@ -206,6 +240,170 @@ func (ds *DefaultService) RevokeCapability(userID, capability string) {
 	if entry, exists := ds.capabilities[userID]; exists {
 		delete(entry.Capabilities, capability)
 	}
+}
+
+// ListCapabilities lists persistent capabilities for a subject.
+func (ds *DefaultService) ListCapabilities(userID string) []string {
+	userID = strings.ToLower(strings.TrimSpace(userID))
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+	entry, ok := ds.capabilities[userID]
+	if !ok {
+		return nil
+	}
+	capabilities := make([]string, 0, len(entry.Capabilities))
+	for capability, granted := range entry.Capabilities {
+		if granted {
+			capabilities = append(capabilities, capability)
+		}
+	}
+	return capabilities
+}
+
+// GrantSessionCapability grants a temporary capability with an exact target scope.
+func (ds *DefaultService) GrantSessionCapability(grant CapabilityGrant) error {
+	grant.SessionID = strings.TrimSpace(grant.SessionID)
+	grant.Subject = strings.ToLower(strings.TrimSpace(grant.Subject))
+	grant.Capability = strings.ToLower(strings.TrimSpace(grant.Capability))
+	grant.Target = normalizeCapabilityTarget(grant.Target)
+	grant.GrantedBy = strings.TrimSpace(grant.GrantedBy)
+	if grant.SessionID == "" || grant.Subject == "" || grant.Capability == "" || grant.Target == "" {
+		return fmt.Errorf("session_id, subject, capability, and target are required")
+	}
+	if grant.Target == "*" {
+		return fmt.Errorf("target must be bounded")
+	}
+	if grant.GrantedBy == "" {
+		return fmt.Errorf("granted_by is required")
+	}
+	if grant.GrantedAt.IsZero() {
+		grant.GrantedAt = time.Now().UTC()
+	}
+	if grant.ExpiresAt.IsZero() || !grant.ExpiresAt.After(grant.GrantedAt) {
+		return fmt.Errorf("expires_at must be after granted_at")
+	}
+	if !time.Now().UTC().Before(grant.ExpiresAt) {
+		return fmt.Errorf("expires_at must be in the future")
+	}
+
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	now := time.Now().UTC()
+	ds.pruneSessionGrantsLocked(now)
+	for i := range ds.sessionGrants {
+		existing := &ds.sessionGrants[i]
+		if existing.SessionID == grant.SessionID && existing.Subject == grant.Subject &&
+			existing.Capability == grant.Capability && existing.Target == grant.Target {
+			*existing = grant
+			return nil
+		}
+	}
+	if len(ds.sessionGrants) >= maxSessionCapabilityGrants {
+		return fmt.Errorf("session capability grant limit reached")
+	}
+	ds.sessionGrants = append(ds.sessionGrants, grant)
+	return nil
+}
+
+// RevokeSessionCapability revokes matching temporary grants.
+// An empty target revokes every matching target scope.
+func (ds *DefaultService) RevokeSessionCapability(sessionID, subject, capability, target string) []CapabilityGrant {
+	sessionID = strings.TrimSpace(sessionID)
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	capability = strings.ToLower(strings.TrimSpace(capability))
+	target = normalizeCapabilityTarget(target)
+
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	ds.pruneSessionGrantsLocked(time.Now().UTC())
+	kept := ds.sessionGrants[:0]
+	var removed []CapabilityGrant
+	for _, grant := range ds.sessionGrants {
+		matches := grant.SessionID == sessionID && grant.Subject == subject && grant.Capability == capability
+		if matches && (target == "" || grant.Target == target) {
+			removed = append(removed, grant)
+			continue
+		}
+		kept = append(kept, grant)
+	}
+	ds.sessionGrants = kept
+	return removed
+}
+
+// ListSessionCapabilities lists active temporary grants.
+func (ds *DefaultService) ListSessionCapabilities(sessionID, subject string) []CapabilityGrant {
+	sessionID = strings.TrimSpace(sessionID)
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	ds.pruneSessionGrantsLocked(time.Now().UTC())
+	grants := make([]CapabilityGrant, 0, len(ds.sessionGrants))
+	for _, grant := range ds.sessionGrants {
+		if grant.SessionID == sessionID && (subject == "" || grant.Subject == subject) {
+			grants = append(grants, grant)
+		}
+	}
+	return grants
+}
+
+// FindSessionCapability resolves a temporary grant whose target scope matches.
+func (ds *DefaultService) FindSessionCapability(sessionID, subject, capability, target string) (CapabilityGrant, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	capability = strings.ToLower(strings.TrimSpace(capability))
+	target = normalizeCapabilityTarget(target)
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	ds.pruneSessionGrantsLocked(time.Now().UTC())
+	for _, grant := range ds.sessionGrants {
+		if grant.SessionID == sessionID && grant.Subject == subject && grant.Capability == capability &&
+			capabilityTargetMatches(target, grant.Target) {
+			return grant, true
+		}
+	}
+	return CapabilityGrant{}, false
+}
+
+func (ds *DefaultService) pruneSessionGrantsLocked(now time.Time) {
+	kept := ds.sessionGrants[:0]
+	for _, grant := range ds.sessionGrants {
+		if now.Before(grant.ExpiresAt) {
+			kept = append(kept, grant)
+		}
+	}
+	ds.sessionGrants = kept
+}
+
+func normalizeCapabilityTarget(target string) string {
+	target = strings.ToLower(strings.TrimSpace(target))
+	if parsed, err := url.Parse(target); err == nil && parsed.Hostname() != "" {
+		target = parsed.Hostname()
+	}
+	if at := strings.LastIndex(target, "@"); at >= 0 {
+		target = target[at+1:]
+	}
+	if host, _, err := net.SplitHostPort(target); err == nil {
+		target = host
+	}
+	return strings.Trim(target, "[]")
+}
+
+func capabilityTargetMatches(target, allowed string) bool {
+	if target == "" || allowed == "" {
+		return false
+	}
+	if allowed == "*" || target == allowed {
+		return true
+	}
+	if prefix, err := netip.ParsePrefix(allowed); err == nil {
+		address, err := netip.ParseAddr(target)
+		return err == nil && prefix.Contains(address)
+	}
+	if strings.HasPrefix(allowed, "*.") {
+		suffix := strings.TrimPrefix(allowed, "*")
+		return strings.HasSuffix(target, suffix) && target != strings.TrimPrefix(suffix, ".")
+	}
+	return false
 }
 
 // EvaluateRisk 实现 Service.EvaluateRisk - 评估请求风险

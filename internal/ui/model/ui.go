@@ -3162,8 +3162,10 @@ func applyRunModePrefix(content string, mode dialog.RunMode) string {
 }
 
 type slashControlCommand struct {
-	runMode   *dialog.RunMode
-	agentMode *dialog.AgentMode
+	runMode    *dialog.RunMode
+	agentMode  *dialog.AgentMode
+	capability *capabilityControlCommand
+	errorMsg   string
 }
 
 func parseLeadingSlashDirective(content string) (directive, remainder string, ok bool) {
@@ -3181,6 +3183,12 @@ func parseLeadingSlashDirective(content string) (directive, remainder string, ok
 }
 
 func parseSlashControlCommand(content string) (slashControlCommand, bool) {
+	if capabilityCommand, matched, err := parseCapabilityControlCommand(content); matched {
+		if err != nil {
+			return slashControlCommand{errorMsg: err.Error()}, true
+		}
+		return slashControlCommand{capability: &capabilityCommand}, true
+	}
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
 		return slashControlCommand{}, false
@@ -3291,6 +3299,15 @@ func parseAgentDirective(content string) (targetAgent string, normalized string)
 
 func (m *UI) applySlashControlCommand(cmd slashControlCommand) tea.Cmd {
 	var cmds []tea.Cmd
+	if cmd.errorMsg != "" {
+		return util.ReportError(errors.New(cmd.errorMsg))
+	}
+	if cmd.capability != nil {
+		if m.isAgentBusy() {
+			return util.ReportWarn("Agent is busy, please wait before changing capabilities")
+		}
+		return m.applyCapabilityControlCommand(*cmd.capability)
+	}
 	if cmd.runMode != nil {
 		m.runMode = *cmd.runMode
 		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Run mode set to "+string(*cmd.runMode))))
