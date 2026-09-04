@@ -33,7 +33,7 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: bash ./scripts/package_cross_platform.sh
-      - uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
       - name: Generate source SBOM and aggregate checksums
         run: |
           syft dir:. --exclude './dist/**' -o cyclonedx-json=dist/SecOps-${GITHUB_REF_NAME}-sbom.cdx.json
