@@ -7,7 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/catwalk v0.52.13
 	charm.land/fang/v2 v2.0.1
-	charm.land/fantasy v0.41.3
+	charm.land/fantasy v0.34.0
 	charm.land/glamour/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.5
 	charm.land/log/v2 v2.0.0
@@ -74,9 +74,8 @@ require (
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.63.1 // indirect
-	github.com/openai/openai-go/v3 v3.50.0 // indirect
-	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0 // indirect
+	github.com/charmbracelet/anthropic-sdk-go v0.0.0-20260223140439-63879b0b8dab // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 )
 

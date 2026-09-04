@@ -26,7 +26,6 @@ import (
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/charmbracelet/ultraviolet/screen"
 	"github.com/charmbracelet/x/editor"
 	"github.com/chenchunrun/SecOps/internal/agent/notify"
@@ -2586,7 +2585,7 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 	}
 
 	// Add app margins
-	appRect, helpRect := layout.SplitVertical(area, layout.Fixed(area.Dy()-helpHeight))
+	appRect, helpRect := splitVertical(area, area.Dy()-helpHeight)
 	appRect.Min.Y += 1
 	appRect.Max.Y -= 1
 	helpRect.Min.Y -= 1
@@ -2615,7 +2614,7 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 		// ------
 		// help
 
-		headerRect, mainRect := layout.SplitVertical(appRect, layout.Fixed(landingHeaderHeight))
+		headerRect, mainRect := splitVertical(appRect, landingHeaderHeight)
 		uiLayout.header = headerRect
 		uiLayout.main = mainRect
 
@@ -2629,8 +2628,8 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 		// editor
 		// ------
 		// help
-		headerRect, mainRect := layout.SplitVertical(appRect, layout.Fixed(landingHeaderHeight))
-		mainRect, editorRect := layout.SplitVertical(mainRect, layout.Fixed(mainRect.Dy()-editorHeight))
+		headerRect, mainRect := splitVertical(appRect, landingHeaderHeight)
+		mainRect, editorRect := splitVertical(mainRect, mainRect.Dy()-editorHeight)
 		// Remove extra padding from editor (but keep it for header and main)
 		editorRect.Min.X -= 1
 		editorRect.Max.X += 1
@@ -2650,20 +2649,20 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			// ------
 			// help
 			const compactHeaderHeight = 1
-			headerRect, mainRect := layout.SplitVertical(appRect, layout.Fixed(compactHeaderHeight))
+			headerRect, mainRect := splitVertical(appRect, compactHeaderHeight)
 			detailsHeight := min(sessionDetailsMaxHeight, area.Dy()-1) // One row for the header
-			sessionDetailsArea, _ := layout.SplitVertical(appRect, layout.Fixed(detailsHeight))
+			sessionDetailsArea, _ := splitVertical(appRect, detailsHeight)
 			uiLayout.sessionDetails = sessionDetailsArea
 			uiLayout.sessionDetails.Min.Y += compactHeaderHeight // adjust for header
 			// Add one line gap between header and main content
 			mainRect.Min.Y += 1
-			mainRect, editorRect := layout.SplitVertical(mainRect, layout.Fixed(mainRect.Dy()-editorHeight))
+			mainRect, editorRect := splitVertical(mainRect, mainRect.Dy()-editorHeight)
 			mainRect.Max.X -= 1 // Add padding right
 			uiLayout.header = headerRect
 			pillsHeight := m.pillsAreaHeight()
 			if pillsHeight > 0 {
 				pillsHeight = min(pillsHeight, mainRect.Dy())
-				chatRect, pillsRect := layout.SplitVertical(mainRect, layout.Fixed(mainRect.Dy()-pillsHeight))
+				chatRect, pillsRect := splitVertical(mainRect, mainRect.Dy()-pillsHeight)
 				uiLayout.main = chatRect
 				uiLayout.pills = pillsRect
 			} else {
@@ -2682,16 +2681,16 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			// ----------
 			// help
 
-			mainRect, sideRect := layout.SplitHorizontal(appRect, layout.Fixed(appRect.Dx()-sidebarWidth))
+			mainRect, sideRect := splitHorizontal(appRect, appRect.Dx()-sidebarWidth)
 			// Add padding left
 			sideRect.Min.X += 1
-			mainRect, editorRect := layout.SplitVertical(mainRect, layout.Fixed(mainRect.Dy()-editorHeight))
+			mainRect, editorRect := splitVertical(mainRect, mainRect.Dy()-editorHeight)
 			mainRect.Max.X -= 1 // Add padding right
 			uiLayout.sidebar = sideRect
 			pillsHeight := m.pillsAreaHeight()
 			if pillsHeight > 0 {
 				pillsHeight = min(pillsHeight, mainRect.Dy())
-				chatRect, pillsRect := layout.SplitVertical(mainRect, layout.Fixed(mainRect.Dy()-pillsHeight))
+				chatRect, pillsRect := splitVertical(mainRect, mainRect.Dy()-pillsHeight)
 				uiLayout.main = chatRect
 				uiLayout.pills = pillsRect
 			} else {

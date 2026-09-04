@@ -2,7 +2,6 @@ package model
 
 import (
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/chenchunrun/SecOps/internal/agent"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 )
@@ -31,7 +30,7 @@ func (m *UI) landingView() string {
 	parts = append(parts, "", m.modelInfo(width))
 	infoSection := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	_, remainingHeightArea := layout.SplitVertical(m.layout.main, layout.Fixed(lipgloss.Height(infoSection)+1))
+	_, remainingHeightArea := splitVertical(m.layout.main, lipgloss.Height(infoSection)+1)
 
 	mcpLspSectionWidth := min(30, (width-1)/2)
 
