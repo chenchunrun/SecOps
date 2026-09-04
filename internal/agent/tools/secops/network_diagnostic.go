@@ -134,11 +134,7 @@ func (ndt *NetworkDiagnosticTool) Description() string {
 
 // RequiredCapabilities 实现 Tool.RequiredCapabilities
 func (ndt *NetworkDiagnosticTool) RequiredCapabilities() []string {
-	return []string{
-		"network:scan",
-		"network:query",
-		"system:execute",
-	}
+	return []string{"network:scan"}
 }
 
 // ValidateParams 实现 Tool.ValidateParams

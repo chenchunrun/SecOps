@@ -40,3 +40,47 @@ func TestFileEngagementAuthorizationStorePersists(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "redteam:execute", got.Capability)
 }
+
+func TestIssueAndRevokeGlobalEngagementAuthorization(t *testing.T) {
+	store := NewInMemoryEngagementAuthorizationStore()
+	SetGlobalEngagementAuthorizationStore(store)
+	t.Cleanup(func() { SetGlobalEngagementAuthorizationStore(nil) })
+
+	auth, err := IssueGlobalEngagementAuthorization("network:scan", "API.EXAMPLE.COM", "tester", time.Hour)
+	if err != nil {
+		t.Fatalf("issue authorization: %v", err)
+	}
+	if err := ValidateGlobalEngagementAuthorization(auth.ID, "network:scan", "api.example.com", time.Now().UTC()); err != nil {
+		t.Fatalf("validate authorization: %v", err)
+	}
+	if err := RevokeGlobalEngagementAuthorization(auth.ID); err != nil {
+		t.Fatalf("revoke authorization: %v", err)
+	}
+	if err := ValidateGlobalEngagementAuthorization(auth.ID, "network:scan", "api.example.com", time.Now().UTC()); err == nil {
+		t.Fatal("expected revoked authorization to be denied")
+	}
+}
+
+func TestSessionEngagementAuthorizationRejectsOtherSessions(t *testing.T) {
+	store := NewInMemoryEngagementAuthorizationStore()
+	SetGlobalEngagementAuthorizationStore(store)
+	t.Cleanup(func() { SetGlobalEngagementAuthorizationStore(nil) })
+
+	auth, err := IssueSessionEngagementAuthorization(
+		"session-1",
+		"network:scan",
+		"api.example.com",
+		"tester",
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("issue session authorization: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := ValidateGlobalEngagementAuthorizationForSession(auth.ID, "network:scan", "api.example.com", "session-1", now); err != nil {
+		t.Fatalf("validate matching session: %v", err)
+	}
+	if err := ValidateGlobalEngagementAuthorizationForSession(auth.ID, "network:scan", "api.example.com", "session-2", now); err == nil {
+		t.Fatal("expected authorization to be denied in another session")
+	}
+}

@@ -101,6 +101,33 @@ Without this config, the capability `redteam:execute` is never granted to any
 role automatically, and the system will report capability-denied for tools that
 check it explicitly.
 
+#### Temporary Session Authorization
+
+The interactive TUI can issue target-scoped, time-bound capability grants
+without permanently editing `crush.json`. Start or open a session, switch to
+the intended agent, and use:
+
+```text
+/capabilities
+/authorize network:scan --target 106.63.25.253 --ttl 30m
+/revoke network:scan --target 106.63.25.253
+```
+
+`/capabilities` shows the active role, its built-in capabilities, persistent
+configuration grants, and temporary grants for the current session. Temporary
+grants:
+
+- Apply only to the current session and active security/operations role.
+- Require a bounded target; an unrestricted `*` target is rejected.
+- Expire after 30 minutes by default and cannot exceed 24 hours.
+- Produce durable `capability_granted` and `capability_revoked` audit events.
+- Supply the scoped authorization ID automatically to active SecOps probes.
+
+These commands grant capabilities, not roles. There is intentionally no
+interactive `/role admin` self-elevation path. Red-team skills that require a
+signed engagement scope continue to enforce that scope and runtime approval in
+addition to the capability grant.
+
 ## Base Capabilities
 
 - **Multi-model:** works with OpenAI-compatible, Anthropic-compatible, and other provider integrations already present in the upstream base.

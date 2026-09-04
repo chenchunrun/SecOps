@@ -59,7 +59,9 @@ type App struct {
 	Messages    message.Service
 	History     history.Service
 	Permissions permission.Service
-	FileTracker filetracker.Service
+	// SecOpsPermissions owns runtime capability grants shared by every agent.
+	SecOpsPermissions permission.SecOpsService
+	FileTracker       filetracker.Service
 
 	AgentCoordinator agent.Coordinator
 	AuditStore       audit.AuditStore
@@ -93,15 +95,17 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 		return nil, fmt.Errorf("failed to initialize computer runtime: %w", err)
 	}
 
+	secOpsPermissions := permission.NewDefaultService()
 	app := &App{
-		Sessions:        sessions,
-		Messages:        messages,
-		History:         files,
-		Permissions:     bootstrap.NewPermissionService(store),
-		FileTracker:     filetracker.NewService(q),
-		LSPManager:      lsp.NewManager(store),
-		AuditStore:      auditStore,
-		ComputerRuntime: computerRuntime,
+		Sessions:          sessions,
+		Messages:          messages,
+		History:           files,
+		Permissions:       bootstrap.NewPermissionService(store),
+		SecOpsPermissions: secOpsPermissions,
+		FileTracker:       filetracker.NewService(q),
+		LSPManager:        lsp.NewManager(store),
+		AuditStore:        auditStore,
+		ComputerRuntime:   computerRuntime,
 
 		globalCtx: ctx,
 
@@ -587,6 +591,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		Sessions:           app.Sessions,
 		Messages:           app.Messages,
 		Permissions:        app.Permissions,
+		SecOpsPermissions:  app.SecOpsPermissions,
 		History:            app.History,
 		FileTracker:        app.FileTracker,
 		LSPManager:         app.LSPManager,

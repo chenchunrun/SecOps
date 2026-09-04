@@ -13,6 +13,102 @@ func TestNewDefaultService(t *testing.T) {
 	}
 }
 
+func TestDefaultService_SessionCapabilityLifecycle(t *testing.T) {
+	t.Parallel()
+	svc := NewDefaultService()
+	now := time.Now().UTC()
+	grant := CapabilityGrant{
+		SessionID:       "session-1",
+		Subject:         "analyst",
+		Capability:      "network:scan",
+		Target:          "*.example.com",
+		AuthorizationID: "auth-1",
+		GrantedBy:       "tester",
+		GrantedAt:       now,
+		ExpiresAt:       now.Add(time.Hour),
+	}
+	if err := svc.GrantSessionCapability(grant); err != nil {
+		t.Fatalf("grant session capability: %v", err)
+	}
+	resolved, ok := svc.FindSessionCapability("session-1", "analyst", "network:scan", "api.example.com")
+	if !ok || resolved.AuthorizationID != "auth-1" {
+		t.Fatalf("unexpected resolved grant: %#v, ok=%v", resolved, ok)
+	}
+	if _, ok := svc.FindSessionCapability("session-2", "analyst", "network:scan", "api.example.com"); ok {
+		t.Fatal("grant leaked into another session")
+	}
+	if _, ok := svc.FindSessionCapability("session-1", "analyst", "network:scan", "example.com"); ok {
+		t.Fatal("wildcard scope must not include the apex domain")
+	}
+	removed := svc.RevokeSessionCapability("session-1", "analyst", "network:scan", "")
+	if len(removed) != 1 || len(svc.ListSessionCapabilities("session-1", "analyst")) != 0 {
+		t.Fatalf("unexpected revoke result: %#v", removed)
+	}
+}
+
+func TestDefaultService_SessionCapabilityNormalizesTargetsAndSupportsCIDR(t *testing.T) {
+	t.Parallel()
+	svc := NewDefaultService()
+	now := time.Now().UTC()
+	for _, target := range []string{"https://API.EXAMPLE.COM:443/path", "10.20.0.0/16"} {
+		err := svc.GrantSessionCapability(CapabilityGrant{
+			SessionID:  "session-1",
+			Subject:    "analyst",
+			Capability: "network:scan",
+			Target:     target,
+			GrantedBy:  "tester",
+			GrantedAt:  now,
+			ExpiresAt:  now.Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("grant target %q: %v", target, err)
+		}
+	}
+	if _, ok := svc.FindSessionCapability("session-1", "analyst", "network:scan", "api.example.com"); !ok {
+		t.Fatal("expected URL target to match its normalized hostname")
+	}
+	if _, ok := svc.FindSessionCapability("session-1", "analyst", "network:scan", "10.20.8.9"); !ok {
+		t.Fatal("expected address inside CIDR scope to match")
+	}
+	if _, ok := svc.FindSessionCapability("session-1", "analyst", "network:scan", "10.21.8.9"); ok {
+		t.Fatal("address outside CIDR scope matched")
+	}
+}
+
+func TestDefaultService_SessionCapabilityRejectsUnboundedTarget(t *testing.T) {
+	t.Parallel()
+	svc := NewDefaultService()
+	err := svc.GrantSessionCapability(CapabilityGrant{
+		SessionID:  "session-1",
+		Subject:    "analyst",
+		Capability: "network:scan",
+		Target:     "*",
+		GrantedBy:  "tester",
+		GrantedAt:  time.Now().UTC(),
+		ExpiresAt:  time.Now().UTC().Add(time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected unbounded target to be rejected")
+	}
+}
+
+func TestDefaultService_SessionCapabilityExpires(t *testing.T) {
+	t.Parallel()
+	svc := NewDefaultService()
+	err := svc.GrantSessionCapability(CapabilityGrant{
+		SessionID:  "session-1",
+		Subject:    "analyst",
+		Capability: "network:scan",
+		Target:     "127.0.0.1",
+		GrantedBy:  "tester",
+		GrantedAt:  time.Now().Add(-2 * time.Hour),
+		ExpiresAt:  time.Now().Add(-time.Hour),
+	})
+	if err == nil {
+		t.Fatal("expected an already expired grant to be rejected")
+	}
+}
+
 func TestDefaultService_Request_Nil(t *testing.T) {
 	svc := NewDefaultService()
 	err := svc.Request(nil)

@@ -76,7 +76,7 @@ func TestAdapterInfoIncludesParamsSchemaForSecretAuditAndSecurityScan(t *testing
 
 	reg := secops.NewSecOpsToolRegistry()
 	require.NoError(t, RegisterDefaultSecOpsToolSet(reg))
-	adapters := RegisterSecOpsTools(reg, nil, nil)
+	adapters := RegisterSecOpsTools(reg, nil, nil, nil)
 
 	var secretInfo, scanInfo fantasy.ToolInfo
 	for _, tool := range adapters {
@@ -151,7 +151,7 @@ func TestRegisterSecOpsTools_CountMatchesRegistry(t *testing.T) {
 	if err := RegisterDefaultSecOpsToolSet(registry); err != nil {
 		t.Fatalf("RegisterDefaultSecOpsToolSet() error = %v", err)
 	}
-	tools := RegisterSecOpsTools(registry, nil, nil)
+	tools := RegisterSecOpsTools(registry, nil, nil, nil)
 	if len(tools) != 20 {
 		t.Fatalf("expected 20 adapter tools, got %d", len(tools))
 	}
@@ -170,11 +170,11 @@ func TestValidateCapabilitiesWithRoleHierarchy(t *testing.T) {
 	t.Parallel()
 
 	a := &Adapter{secopsPerms: permission.NewDefaultService()}
-	if err := a.validateCapabilities(context.Background(), "admin", []string{"log:read", "log:analyze"}); err != nil {
+	if err := a.validateCapabilities(context.Background(), "admin", []string{"log:read", "log:analyze"}, ""); err != nil {
 		t.Fatalf("expected admin to inherit viewer/operator capabilities, got error: %v", err)
 	}
 
-	if err := a.validateCapabilities(context.Background(), "viewer", []string{"log:analyze"}); err == nil {
+	if err := a.validateCapabilities(context.Background(), "viewer", []string{"log:analyze"}, ""); err == nil {
 		t.Fatal("expected viewer to be denied operator capability")
 	}
 }
@@ -186,8 +186,8 @@ func TestSecOpsRoleFromContext(t *testing.T) {
 	}
 
 	opsCtx := context.WithValue(context.Background(), tools.AgentIDContextKey, config.AgentOpsAgent)
-	if got := secOpsRoleFromContext(opsCtx); got != string(RoleOpsAgent) {
-		t.Fatalf("expected ops role %q, got %q", RoleOpsAgent, got)
+	if got := secOpsRoleFromContext(opsCtx); got != "operator" {
+		t.Fatalf("expected ops role %q, got %q", "operator", got)
 	}
 
 	securityCtx := context.WithValue(context.Background(), tools.AgentIDContextKey, config.AgentSecurityExpertAgent)
@@ -243,7 +243,7 @@ func TestEnforceRiskDecision_CriticalIsBlocked(t *testing.T) {
 		Input: "curl https://example.com --password SuperSecret123",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil, nil)
 	if err == nil {
 		t.Fatal("expected critical risk to be blocked")
 	}
@@ -263,7 +263,7 @@ func TestEnforceRiskDecision_AnalystActiveProbeRequiresScopedAuthorization(t *te
 		assessor:    security.NewRiskAssessor(),
 	}
 	withoutAuthorization := fantasy.ToolCall{ID: "call-no-auth", Input: `{"target":"api.example.com"}`}
-	require.Error(t, a.enforceRiskDecision(context.Background(), withoutAuthorization, "analyst", []string{"active_probe"}))
+	require.Error(t, a.enforceRiskDecision(context.Background(), withoutAuthorization, "analyst", []string{"redteam:execute"}, []string{"active_probe"}))
 
 	now := time.Now().UTC()
 	require.NoError(t, store.Put(security.EngagementAuthorization{
@@ -275,10 +275,10 @@ func TestEnforceRiskDecision_AnalystActiveProbeRequiresScopedAuthorization(t *te
 		ExpiresAt:    now.Add(time.Hour),
 	}))
 	withAuthorization := fantasy.ToolCall{ID: "call-auth", Input: `{"authorization_id":"auth-1","target":"api.example.com"}`}
-	require.NoError(t, a.enforceRiskDecision(context.Background(), withAuthorization, "analyst", []string{"active_probe"}))
+	require.NoError(t, a.enforceRiskDecision(context.Background(), withAuthorization, "analyst", []string{"redteam:execute"}, []string{"active_probe"}))
 
 	outOfScope := fantasy.ToolCall{ID: "call-out-of-scope", Input: `{"authorization_id":"auth-1","target":"evil.test"}`}
-	require.Error(t, a.enforceRiskDecision(context.Background(), outOfScope, "analyst", []string{"active_probe"}))
+	require.Error(t, a.enforceRiskDecision(context.Background(), outOfScope, "analyst", []string{"redteam:execute"}, []string{"active_probe"}))
 }
 
 func TestEnforceRiskDecision_CriticalFromJSONCommandField(t *testing.T) {
@@ -293,7 +293,7 @@ func TestEnforceRiskDecision_CriticalFromJSONCommandField(t *testing.T) {
 		Input: `{"command":"curl https://example.com --password JsonSecret123"}`,
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil, nil)
 	if err == nil {
 		t.Fatal("expected critical JSON command risk to be blocked")
 	}
@@ -314,7 +314,7 @@ func TestEnforceRiskDecision_HighRequiresAdminReview(t *testing.T) {
 		Input: "cat /etc/shadow password=Secret12345",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil, nil)
 	if err == nil {
 		t.Fatal("expected high risk to require admin review")
 	}
@@ -335,7 +335,7 @@ func TestEnforceRiskDecision_MediumNeedsPermissionService(t *testing.T) {
 		Input: "password=MediumRiskSecret",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil, nil)
 	if err == nil {
 		t.Fatal("expected medium risk to require user confirmation")
 	}
@@ -460,7 +460,7 @@ func TestEnforceRiskDecision_MediumUserApproved(t *testing.T) {
 		}`,
 	}
 
-	if err := a.enforceRiskDecision(context.Background(), call, "admin", nil); err != nil {
+	if err := a.enforceRiskDecision(context.Background(), call, "admin", nil, nil); err != nil {
 		t.Fatalf("expected approval to pass, got %v", err)
 	}
 	if len(perms.requests) != 1 {
@@ -519,7 +519,7 @@ func TestEnforceRiskDecision_MediumUserDenied(t *testing.T) {
 		Input: "password=DeniedSecret",
 	}
 
-	err := a.enforceRiskDecision(context.Background(), call, "admin", nil)
+	err := a.enforceRiskDecision(context.Background(), call, "admin", nil, nil)
 	if !errors.Is(err, permission.ErrorPermissionDenied) {
 		t.Fatalf("expected permission denied error, got %v", err)
 	}
@@ -550,7 +550,7 @@ func TestEnforceRiskDecision_OpsAgentLowRiskNeedsConfirmation(t *testing.T) {
 		Input: "{}",
 	}
 
-	if err := a.enforceRiskDecision(context.Background(), call, string(RoleOpsAgent), nil); err != nil {
+	if err := a.enforceRiskDecision(context.Background(), call, "operator", nil, nil); err != nil {
 		t.Fatalf("expected ops agent low-risk approval to pass, got %v", err)
 	}
 	if len(perms.requests) != 1 {
@@ -595,6 +595,49 @@ func TestExecuteAndRespond_DynamicCapabilityGrantByRole(t *testing.T) {
 	if resp.IsError {
 		t.Fatalf("expected dynamic capability grant to allow execution, got %q", resp.Content)
 	}
+}
+
+func TestSessionCapabilityGrantSuppliesScopedAuthorization(t *testing.T) {
+	store := security.NewInMemoryEngagementAuthorizationStore()
+	security.SetGlobalEngagementAuthorizationStore(store)
+	t.Cleanup(func() { security.SetGlobalEngagementAuthorizationStore(nil) })
+
+	now := time.Now().UTC()
+	require.NoError(t, store.Put(security.EngagementAuthorization{
+		ID:           "auth-session",
+		Capability:   "network:scan",
+		Targets:      []string{"api.example.com"},
+		AuthorizedBy: "interactive-user",
+		NotBefore:    now.Add(-time.Minute),
+		ExpiresAt:    now.Add(time.Hour),
+	}))
+	secopsPerms := permission.NewDefaultService()
+	require.NoError(t, secopsPerms.GrantSessionCapability(permission.CapabilityGrant{
+		SessionID:       "session-1",
+		Subject:         "analyst",
+		Capability:      "network:scan",
+		Target:          "api.example.com",
+		AuthorizationID: "auth-session",
+		GrantedBy:       "interactive-user",
+		GrantedAt:       now,
+		ExpiresAt:       now.Add(time.Hour),
+	}))
+	a := &Adapter{
+		tool:        &testNetworkScanTool{},
+		secopsPerms: secopsPerms,
+		assessor:    security.NewRiskAssessor(),
+	}
+	ctx := context.WithValue(context.Background(), tools.SessionIDContextKey, "session-1")
+	ctx = context.WithValue(ctx, tools.AgentIDContextKey, "analyst")
+	require.NoError(t, a.validateCapabilities(ctx, "analyst", []string{"network:scan"}, "api.example.com"))
+	require.NoError(t, a.enforceRiskDecision(
+		ctx,
+		fantasy.ToolCall{ID: "call-session-auth", Input: `{"target":"api.example.com"}`},
+		"analyst",
+		[]string{"network:scan"},
+		[]string{"active_probe"},
+	))
+	require.Error(t, a.validateCapabilities(ctx, "analyst", []string{"network:scan"}, "other.example.com"))
 }
 
 func TestApplySecOpsCapabilityGrants(t *testing.T) {
@@ -844,7 +887,7 @@ func TestEnforceRiskDecision_RemoteAuditIncludesProfileDetails(t *testing.T) {
 	err := a.enforceRiskDecision(context.Background(), fantasy.ToolCall{
 		ID:    "call-remote-audit-profile",
 		Input: `{"remote_host":"10.0.0.9","remote_user":"ops","remote_env":"prod","remote_profile":"prod-web"}`,
-	}, "admin", nil)
+	}, "admin", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected enforceRiskDecision error: %v", err)
 	}

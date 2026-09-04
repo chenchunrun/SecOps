@@ -86,14 +86,15 @@ type Coordinator interface {
 }
 
 type coordinator struct {
-	cfg         *config.ConfigStore
-	sessions    session.Service
-	messages    message.Service
-	permissions permission.Service
-	history     history.Service
-	filetracker filetracker.Service
-	lspManager  *lsp.Manager
-	notify      pubsub.Publisher[notify.Notification]
+	cfg               *config.ConfigStore
+	sessions          session.Service
+	messages          message.Service
+	permissions       permission.Service
+	secopsPermissions permission.SecOpsService
+	history           history.Service
+	filetracker       filetracker.Service
+	lspManager        *lsp.Manager
+	notify            pubsub.Publisher[notify.Notification]
 
 	handoffPromptMu sync.Mutex
 	handoffConsumed map[string]struct{}
@@ -132,21 +133,23 @@ func NewCoordinator(
 	sessions session.Service,
 	messages message.Service,
 	permissions permission.Service,
+	secopsPermissions permission.SecOpsService,
 	history history.Service,
 	filetracker filetracker.Service,
 	lspManager *lsp.Manager,
 	notify pubsub.Publisher[notify.Notification],
 ) (Coordinator, error) {
 	c := &coordinator{
-		cfg:         cfg,
-		sessions:    sessions,
-		messages:    messages,
-		permissions: permissions,
-		history:     history,
-		filetracker: filetracker,
-		lspManager:  lspManager,
-		notify:      notify,
-		agents:      make(map[string]SessionAgent),
+		cfg:               cfg,
+		sessions:          sessions,
+		messages:          messages,
+		permissions:       permissions,
+		secopsPermissions: secopsPermissions,
+		history:           history,
+		filetracker:       filetracker,
+		lspManager:        lspManager,
+		notify:            notify,
+		agents:            make(map[string]SessionAgent),
 		rateLimit: coordinatorRateLimitState{
 			nextAllowedRun: make(map[string]time.Time),
 		},
@@ -772,7 +775,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		return nil, fmt.Errorf("register default secops tool set: %w", err)
 	}
 
-	secOpsTools := RegisterSecOpsTools(secOpsRegistry, c.permissions, c.cfg.Config())
+	secOpsTools := RegisterSecOpsTools(secOpsRegistry, c.permissions, c.secopsPermissions, c.cfg.Config())
 	allTools = append(allTools, secOpsTools...)
 	allTools = append(allTools, compatibilityAliases(allTools)...)
 	slog.Debug("Registered SecOps tools with agent", "count", len(secOpsTools))
