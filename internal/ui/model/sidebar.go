@@ -6,7 +6,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
 	"github.com/chenchunrun/SecOps/internal/ui/logo"
 )
@@ -132,7 +131,7 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		blocks...,
 	)
 
-	_, remainingHeightArea := layout.SplitVertical(m.layout.sidebar, layout.Fixed(lipgloss.Height(sidebarHeader)))
+	_, remainingHeightArea := splitVertical(m.layout.sidebar, lipgloss.Height(sidebarHeader))
 	remainingHeight := remainingHeightArea.Dy() - 10
 	maxFiles, maxLSPs, maxMCPs := getDynamicHeightLimits(remainingHeight)
 
