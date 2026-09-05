@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"io"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 
@@ -15,8 +16,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 	"github.com/chenchunrun/SecOps/internal/ui/util"
-	"github.com/disintegration/imaging"
 	paintbrush "github.com/jordanella/go-ansi-paintbrush"
+	"golang.org/x/image/draw"
 )
 
 // TransmittedMsg is a message indicating that an image has been transmitted to
@@ -98,7 +99,7 @@ func fitImage(id string, img image.Image, cs CellSize, cols, rows int) image.Ima
 	maxWidth := cols * cs.Width
 	maxHeight := rows * cs.Height
 
-	img = imaging.Fit(img, maxWidth, maxHeight, imaging.Lanczos)
+	img = resizeToFit(img, maxWidth, maxHeight)
 
 	cachedMutex.Lock()
 	cachedImages[key] = cachedImage{
@@ -109,6 +110,21 @@ func fitImage(id string, img image.Image, cs CellSize, cols, rows int) image.Ima
 	cachedMutex.Unlock()
 
 	return img
+}
+
+// resizeToFit downsizes without enlarging the source or changing its aspect ratio.
+func resizeToFit(img image.Image, maxWidth, maxHeight int) image.Image {
+	bounds := img.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if maxWidth <= 0 || maxHeight <= 0 || width <= 0 || height <= 0 {
+		return image.NewNRGBA(image.Rectangle{})
+	}
+	scale := min(1.0, float64(maxWidth)/float64(width), float64(maxHeight)/float64(height))
+	width = max(1, int(math.Round(float64(width)*scale)))
+	height = max(1, int(math.Round(float64(height)*scale)))
+	dst := image.NewNRGBA(image.Rect(0, 0, width, height))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, bounds, draw.Src, nil)
+	return dst
 }
 
 // HasTransmitted checks if the image with the given ID has already been
