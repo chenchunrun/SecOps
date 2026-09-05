@@ -144,7 +144,7 @@ func (mqt *MonitoringQueryTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (mqt *MonitoringQueryTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*MonitoringQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -195,8 +195,16 @@ func (mqt *MonitoringQueryTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (mqt *MonitoringQueryTool) Execute(params interface{}) (interface{}, error) {
+	return mqt.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation to monitoring requests.
+func (mqt *MonitoringQueryTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*MonitoringQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -213,7 +221,7 @@ func (mqt *MonitoringQueryTool) Execute(params interface{}) (interface{}, error)
 		Alerts:    make([]*Alert, 0),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	// 根据系统类型执行查询

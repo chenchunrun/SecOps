@@ -892,6 +892,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ttl = DefaultStatusTTL
 		}
 		cmds = append(cmds, clearInfoMsgCmd(ttl))
+	case scanSessionCreatedMsg:
+		cmds = append(cmds, m.loadSession(msg.sessionID))
+	case scanPreparedMsg:
+		cmds = append(cmds, m.handleScanPrepared(msg))
+	case scanViewMsg:
+		m.showScanView(msg)
 	case util.ClearStatusMsg:
 		m.status.ClearInfoMsg()
 	case completions.CompletionItemsLoadedMsg:
@@ -1424,6 +1430,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionRunScanCommand:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.applyScanCommand(msg.Input))
 	case dialog.ActionSummarize:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before summarizing session..."))
@@ -3161,6 +3170,7 @@ func applyRunModePrefix(content string, mode dialog.RunMode) string {
 }
 
 type slashControlCommand struct {
+	scan       *string
 	runMode    *dialog.RunMode
 	agentMode  *dialog.AgentMode
 	capability *capabilityControlCommand
@@ -3182,6 +3192,9 @@ func parseLeadingSlashDirective(content string) (directive, remainder string, ok
 }
 
 func parseSlashControlCommand(content string) (slashControlCommand, bool) {
+	if directive, rest, ok := parseLeadingSlashDirective(content); ok && directive == "/scan" {
+		return slashControlCommand{scan: &rest}, true
+	}
 	if capabilityCommand, matched, err := parseCapabilityControlCommand(content); matched {
 		if err != nil {
 			return slashControlCommand{errorMsg: err.Error()}, true
@@ -3298,6 +3311,9 @@ func parseAgentDirective(content string) (targetAgent string, normalized string)
 
 func (m *UI) applySlashControlCommand(cmd slashControlCommand) tea.Cmd {
 	var cmds []tea.Cmd
+	if cmd.scan != nil {
+		return m.applyScanCommand(*cmd.scan)
+	}
 	if cmd.errorMsg != "" {
 		return util.ReportError(errors.New(cmd.errorMsg))
 	}

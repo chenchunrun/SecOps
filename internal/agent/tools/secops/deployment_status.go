@@ -148,7 +148,7 @@ type DeploymentStatusResult struct {
 // ValidateParams 实现 Tool.ValidateParams
 func (dst *DeploymentStatusTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*DeploymentStatusParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -178,8 +178,24 @@ func (dst *DeploymentStatusTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (dst *DeploymentStatusTool) Execute(params interface{}) (interface{}, error) {
+	return dst.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (dst *DeploymentStatusTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := dst.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (dst *DeploymentStatusTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*DeploymentStatusParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -187,11 +203,11 @@ func (dst *DeploymentStatusTool) Execute(params interface{}) (interface{}, error
 		return nil, err
 	}
 
-	return dst.performCheck(p), nil
+	return dst.performCheck(parentCtx, p), nil
 }
 
 // performCheck 执行部署状态检查
-func (dst *DeploymentStatusTool) performCheck(params *DeploymentStatusParams) *DeploymentStatusResult {
+func (dst *DeploymentStatusTool) performCheck(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
 	result := &DeploymentStatusResult{
 		Platform:   params.Platform,
 		Deployment: params.Deployment,
@@ -201,21 +217,21 @@ func (dst *DeploymentStatusTool) performCheck(params *DeploymentStatusParams) *D
 
 	switch params.Platform {
 	case "kubernetes":
-		result = dst.getK8sDeploymentStatus(params)
+		result = dst.getK8sDeploymentStatus(parentCtx, params)
 	case "aws":
-		result = dst.getAWSDeploymentStatus(params)
+		result = dst.getAWSDeploymentStatus(parentCtx, params)
 	case "gcp":
-		result = dst.getGCPDDeploymentStatus(params)
+		result = dst.getGCPDDeploymentStatus(parentCtx, params)
 	case "azure":
-		result = dst.getAzureDeploymentStatus(params)
+		result = dst.getAzureDeploymentStatus(parentCtx, params)
 	}
 
 	return result
 }
 
 // getK8sDeploymentStatus 获取 Kubernetes 部署状态
-func (dst *DeploymentStatusTool) getK8sDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if live := dst.getK8sDeploymentStatusFromKubectl(params); live != nil {
+func (dst *DeploymentStatusTool) getK8sDeploymentStatus(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
+	if live := dst.getK8sDeploymentStatusFromKubectl(parentCtx, params); live != nil {
 		live.DataSource = "live"
 		return live
 	}
@@ -270,8 +286,8 @@ func (dst *DeploymentStatusTool) getK8sDeploymentStatus(params *DeploymentStatus
 }
 
 // getK8sCanaryStatus 获取 Kubernetes 金丝雀分析
-func (dst *DeploymentStatusTool) getK8sCanaryStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
-	result := dst.getK8sDeploymentStatus(params)
+func (dst *DeploymentStatusTool) getK8sCanaryStatus(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
+	result := dst.getK8sDeploymentStatus(parentCtx, params)
 	result.Rollout = &RolloutInfo{
 		InProgress:     true,
 		Strategy:       "Canary",
@@ -305,8 +321,8 @@ func (dst *DeploymentStatusTool) getK8sCanaryStatus(params *DeploymentStatusPara
 }
 
 // getAWSDeploymentStatus 获取 AWS 部署状态
-func (dst *DeploymentStatusTool) getAWSDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if live := dst.getAWSDeploymentStatusFromCLI(params); live != nil {
+func (dst *DeploymentStatusTool) getAWSDeploymentStatus(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
+	if live := dst.getAWSDeploymentStatusFromCLI(parentCtx, params); live != nil {
 		live.DataSource = "live"
 		return live
 	}
@@ -344,8 +360,8 @@ func (dst *DeploymentStatusTool) getAWSDeploymentStatus(params *DeploymentStatus
 }
 
 // getGCPDDeploymentStatus 获取 GCP 部署状态
-func (dst *DeploymentStatusTool) getGCPDDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if live := dst.getGCPDeploymentStatusFromCLI(params); live != nil {
+func (dst *DeploymentStatusTool) getGCPDDeploymentStatus(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
+	if live := dst.getGCPDeploymentStatusFromCLI(parentCtx, params); live != nil {
 		live.DataSource = "live"
 		return live
 	}
@@ -383,8 +399,8 @@ func (dst *DeploymentStatusTool) getGCPDDeploymentStatus(params *DeploymentStatu
 }
 
 // getAzureDeploymentStatus 获取 Azure 部署状态
-func (dst *DeploymentStatusTool) getAzureDeploymentStatus(params *DeploymentStatusParams) *DeploymentStatusResult {
-	if live := dst.getAzureDeploymentStatusFromCLI(params); live != nil {
+func (dst *DeploymentStatusTool) getAzureDeploymentStatus(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
+	if live := dst.getAzureDeploymentStatusFromCLI(parentCtx, params); live != nil {
 		live.DataSource = "live"
 		return live
 	}
@@ -421,14 +437,14 @@ func (dst *DeploymentStatusTool) getAzureDeploymentStatus(params *DeploymentStat
 	}
 }
 
-func (dst *DeploymentStatusTool) getK8sDeploymentStatusFromKubectl(params *DeploymentStatusParams) *DeploymentStatusResult {
+func (dst *DeploymentStatusTool) getK8sDeploymentStatusFromKubectl(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
 	namespace := strings.TrimSpace(params.Namespace)
 	if namespace == "" {
 		namespace = "default"
 	}
 
 	args := []string{"get", "deployment", params.Deployment, "-n", namespace, "-o", "json"}
-	out, err := dst.commandOutput(params, "kubectl", args...)
+	out, err := dst.commandOutput(parentCtx, params, "kubectl", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -461,8 +477,8 @@ func (dst *DeploymentStatusTool) getK8sDeploymentStatusFromKubectl(params *Deplo
 		return nil
 	}
 
-	rollout := dst.getK8sRolloutInfo(params, namespace, dep.Spec.Strategy.Type)
-	events := dst.getK8sRecentEvents(params, namespace)
+	rollout := dst.getK8sRolloutInfo(parentCtx, params, namespace, dep.Spec.Strategy.Type)
+	events := dst.getK8sRecentEvents(parentCtx, params, namespace)
 	version, prevVersion := inferDeploymentVersions(dep.Metadata.Labels, dep.Metadata.Annotations)
 
 	healthStatus := "unknown"
@@ -520,14 +536,14 @@ func (dst *DeploymentStatusTool) getK8sDeploymentStatusFromKubectl(params *Deplo
 	return result
 }
 
-func (dst *DeploymentStatusTool) getK8sRolloutInfo(params *DeploymentStatusParams, namespace, strategy string) *RolloutInfo {
+func (dst *DeploymentStatusTool) getK8sRolloutInfo(parentCtx context.Context, params *DeploymentStatusParams, namespace, strategy string) *RolloutInfo {
 	rollout := &RolloutInfo{
 		Strategy:   normalizedStrategy(strategy),
 		InProgress: false,
 		Paused:     false,
 		Progress:   "Deployment is complete",
 	}
-	stdout, stderr, err := dst.commandRun(params, "kubectl", "rollout", "status", "deployment/"+params.Deployment, "-n", namespace)
+	stdout, stderr, err := dst.commandRun(parentCtx, params, "kubectl", "rollout", "status", "deployment/"+params.Deployment, "-n", namespace)
 	out := append(append([]byte(nil), stdout...), stderr...)
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -549,8 +565,8 @@ func (dst *DeploymentStatusTool) getK8sRolloutInfo(params *DeploymentStatusParam
 	return rollout
 }
 
-func (dst *DeploymentStatusTool) getK8sRecentEvents(params *DeploymentStatusParams, namespace string) []Event {
-	out, err := dst.commandOutput(
+func (dst *DeploymentStatusTool) getK8sRecentEvents(parentCtx context.Context, params *DeploymentStatusParams, namespace string) []Event {
+	out, err := dst.commandOutput(parentCtx,
 		params,
 		"kubectl", "get", "events", "-n", namespace,
 		"--field-selector", "involvedObject.kind=Deployment,involvedObject.name="+params.Deployment,
@@ -667,7 +683,7 @@ func (dst *DeploymentStatusTool) estimateCanaryAnalysis(result *DeploymentStatus
 	}
 }
 
-func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(params *DeploymentStatusParams) *DeploymentStatusResult {
+func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
 	cluster := strings.TrimSpace(params.Target)
 	if cluster == "" {
 		cluster = "default"
@@ -679,7 +695,7 @@ func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(params *Deploymen
 		"--services", params.Deployment,
 		"--output", "json",
 	}
-	out, err := dst.commandOutput(params, "aws", args...)
+	out, err := dst.commandOutput(parentCtx, params, "aws", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -744,12 +760,12 @@ func (dst *DeploymentStatusTool) getAWSDeploymentStatusFromCLI(params *Deploymen
 	}
 }
 
-func (dst *DeploymentStatusTool) getGCPDeploymentStatusFromCLI(params *DeploymentStatusParams) *DeploymentStatusResult {
+func (dst *DeploymentStatusTool) getGCPDeploymentStatusFromCLI(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
 	args := []string{"run", "services", "describe", params.Deployment, "--format=json"}
 	if region := strings.TrimSpace(params.Target); region != "" {
 		args = append(args, "--region", region)
 	}
-	out, err := dst.commandOutput(params, "gcloud", args...)
+	out, err := dst.commandOutput(parentCtx, params, "gcloud", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -825,13 +841,13 @@ func (dst *DeploymentStatusTool) getGCPDeploymentStatusFromCLI(params *Deploymen
 	}
 }
 
-func (dst *DeploymentStatusTool) getAzureDeploymentStatusFromCLI(params *DeploymentStatusParams) *DeploymentStatusResult {
+func (dst *DeploymentStatusTool) getAzureDeploymentStatusFromCLI(parentCtx context.Context, params *DeploymentStatusParams) *DeploymentStatusResult {
 	resourceGroup := strings.TrimSpace(params.Target)
 	if resourceGroup == "" {
 		return nil
 	}
 
-	out, err := dst.commandOutput(
+	out, err := dst.commandOutput(parentCtx,
 		params,
 		"az", "webapp", "show",
 		"--name", params.Deployment,
@@ -902,8 +918,11 @@ func emptyAs(v, fallback string) string {
 	return v
 }
 
-func (dst *DeploymentStatusTool) commandOutput(params *DeploymentStatusParams, name string, args ...string) ([]byte, error) {
-	stdout, stderr, err := dst.commandRun(params, name, args...)
+func (dst *DeploymentStatusTool) commandOutput(parentCtx context.Context, params *DeploymentStatusParams, name string, args ...string) ([]byte, error) {
+	if err := parentCtx.Err(); err != nil {
+		return nil, err
+	}
+	stdout, stderr, err := dst.commandRun(parentCtx, params, name, args...)
 	if err != nil {
 		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {
@@ -914,11 +933,14 @@ func (dst *DeploymentStatusTool) commandOutput(params *DeploymentStatusParams, n
 	return stdout, nil
 }
 
-func (dst *DeploymentStatusTool) commandRun(params *DeploymentStatusParams, name string, args ...string) ([]byte, []byte, error) {
+func (dst *DeploymentStatusTool) commandRun(parentCtx context.Context, params *DeploymentStatusParams, name string, args ...string) ([]byte, []byte, error) {
+	if err := parentCtx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if dst.runCmd == nil {
 		dst.runCmd = runDeploymentCommand
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 60*time.Second)
 	defer cancel()
 
 	if params != nil && strings.TrimSpace(params.RemoteHost) != "" {

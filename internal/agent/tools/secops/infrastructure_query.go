@@ -122,7 +122,7 @@ type InfrastructureQueryResult struct {
 // ValidateParams 实现 Tool.ValidateParams
 func (iqt *InfrastructureQueryTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*InfrastructureQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -159,8 +159,24 @@ func (iqt *InfrastructureQueryTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (iqt *InfrastructureQueryTool) Execute(params interface{}) (interface{}, error) {
+	return iqt.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (iqt *InfrastructureQueryTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := iqt.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (iqt *InfrastructureQueryTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*InfrastructureQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -168,11 +184,11 @@ func (iqt *InfrastructureQueryTool) Execute(params interface{}) (interface{}, er
 		return nil, err
 	}
 
-	return iqt.performQuery(p), nil
+	return iqt.performQuery(parentCtx, p), nil
 }
 
 // performQuery 执行基础设施查询
-func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryParams) *InfrastructureQueryResult {
+func (iqt *InfrastructureQueryTool) performQuery(parentCtx context.Context, params *InfrastructureQueryParams) *InfrastructureQueryResult {
 	result := &InfrastructureQueryResult{
 		SystemType: params.SystemType,
 		QueryType:  params.QueryType,
@@ -188,16 +204,16 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 
 	switch params.SystemType {
 	case "terraform":
-		result.TerraformState = iqt.getTerraformState(params)
+		result.TerraformState = iqt.getTerraformState(parentCtx, params)
 	case "aws":
-		if resources, live := iqt.getAWSResourcesWithSource(params); live {
+		if resources, live := iqt.getAWSResourcesWithSource(parentCtx, params); live {
 			result.Resources = resources
 		} else {
 			result.Resources = resources
 			markFallback("aws resource query unavailable; returned built-in sample resources")
 		}
 		if params.QueryType == "scaling" {
-			if scaling, live := iqt.getAWSScalingInfoWithSource(params); live {
+			if scaling, live := iqt.getAWSScalingInfoWithSource(parentCtx, params); live {
 				result.ScalingInfo = scaling
 			} else {
 				result.ScalingInfo = scaling
@@ -205,7 +221,7 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 			}
 		}
 		if params.QueryType == "costs" {
-			if costs, live := iqt.getAWSCostsWithSource(params); live {
+			if costs, live := iqt.getAWSCostsWithSource(parentCtx, params); live {
 				result.CostInfo = costs
 			} else {
 				result.CostInfo = costs
@@ -213,14 +229,14 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 			}
 		}
 	case "gcp":
-		if resources, live := iqt.getGCPResourcesWithSource(params); live {
+		if resources, live := iqt.getGCPResourcesWithSource(parentCtx, params); live {
 			result.Resources = resources
 		} else {
 			result.Resources = resources
 			markFallback("gcp resource query unavailable; returned built-in sample resources")
 		}
 		if params.QueryType == "scaling" {
-			if scaling, live := iqt.getGCPScalingInfoWithSource(params); live {
+			if scaling, live := iqt.getGCPScalingInfoWithSource(parentCtx, params); live {
 				result.ScalingInfo = scaling
 			} else {
 				result.ScalingInfo = scaling
@@ -228,7 +244,7 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 			}
 		}
 		if params.QueryType == "costs" {
-			if costs, live := iqt.getGCPCostsWithSource(params); live {
+			if costs, live := iqt.getGCPCostsWithSource(parentCtx, params); live {
 				result.CostInfo = costs
 			} else {
 				result.CostInfo = costs
@@ -236,14 +252,14 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 			}
 		}
 	case "azure":
-		if resources, live := iqt.getAzureResourcesWithSource(params); live {
+		if resources, live := iqt.getAzureResourcesWithSource(parentCtx, params); live {
 			result.Resources = resources
 		} else {
 			result.Resources = resources
 			markFallback("azure resource query unavailable; returned built-in sample resources")
 		}
 		if params.QueryType == "scaling" {
-			if scaling, live := iqt.getAzureScalingInfoWithSource(params); live {
+			if scaling, live := iqt.getAzureScalingInfoWithSource(parentCtx, params); live {
 				result.ScalingInfo = scaling
 			} else {
 				result.ScalingInfo = scaling
@@ -251,7 +267,7 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 			}
 		}
 		if params.QueryType == "costs" {
-			if costs, live := iqt.getAzureCostsWithSource(params); live {
+			if costs, live := iqt.getAzureCostsWithSource(parentCtx, params); live {
 				result.CostInfo = costs
 			} else {
 				result.CostInfo = costs
@@ -259,14 +275,14 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 			}
 		}
 	case "kubernetes":
-		if resources, live := iqt.getK8sResourcesWithSource(params); live {
+		if resources, live := iqt.getK8sResourcesWithSource(parentCtx, params); live {
 			result.Resources = resources
 		} else {
 			result.Resources = resources
 			markFallback("kubernetes resource query unavailable; returned built-in sample resources")
 		}
 		if params.QueryType == "scaling" {
-			if scaling, live := iqt.getK8sScalingInfoWithSource(params); live {
+			if scaling, live := iqt.getK8sScalingInfoWithSource(parentCtx, params); live {
 				result.ScalingInfo = scaling
 			} else {
 				result.ScalingInfo = scaling
@@ -281,86 +297,86 @@ func (iqt *InfrastructureQueryTool) performQuery(params *InfrastructureQueryPara
 	return result
 }
 
-func (iqt *InfrastructureQueryTool) getAWSResourcesWithSource(params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
-	if resources := iqt.getAWSResourcesFromCLI(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getAWSResourcesWithSource(parentCtx context.Context, params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
+	if resources := iqt.getAWSResourcesFromCLI(parentCtx, params); len(resources) > 0 {
 		return resources, true
 	}
-	return iqt.getAWSResources(params), false
+	return iqt.getAWSResources(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getAWSScalingInfoWithSource(params *InfrastructureQueryParams) (*ScalingInfo, bool) {
-	if scaling := iqt.getAWSScalingInfoFromCLI(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getAWSScalingInfoWithSource(parentCtx context.Context, params *InfrastructureQueryParams) (*ScalingInfo, bool) {
+	if scaling := iqt.getAWSScalingInfoFromCLI(parentCtx, params); scaling != nil {
 		return scaling, true
 	}
-	return iqt.getAWSScalingInfo(params), false
+	return iqt.getAWSScalingInfo(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getAWSCostsWithSource(params *InfrastructureQueryParams) ([]CostInfo, bool) {
-	if costs := iqt.getAWSCostsFromCLI(params); len(costs) > 0 {
+func (iqt *InfrastructureQueryTool) getAWSCostsWithSource(parentCtx context.Context, params *InfrastructureQueryParams) ([]CostInfo, bool) {
+	if costs := iqt.getAWSCostsFromCLI(parentCtx, params); len(costs) > 0 {
 		return costs, true
 	}
-	return iqt.getAWSCosts(params), false
+	return iqt.getAWSCosts(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getGCPResourcesWithSource(params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
-	if resources := iqt.getGCPResourcesFromCLI(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getGCPResourcesWithSource(parentCtx context.Context, params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
+	if resources := iqt.getGCPResourcesFromCLI(parentCtx, params); len(resources) > 0 {
 		return resources, true
 	}
-	return iqt.getGCPResources(params), false
+	return iqt.getGCPResources(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getGCPScalingInfoWithSource(params *InfrastructureQueryParams) (*ScalingInfo, bool) {
-	if scaling := iqt.getGCPScalingInfoFromCLI(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getGCPScalingInfoWithSource(parentCtx context.Context, params *InfrastructureQueryParams) (*ScalingInfo, bool) {
+	if scaling := iqt.getGCPScalingInfoFromCLI(parentCtx, params); scaling != nil {
 		return scaling, true
 	}
-	return iqt.getGCPScalingInfo(params), false
+	return iqt.getGCPScalingInfo(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getGCPCostsWithSource(params *InfrastructureQueryParams) ([]CostInfo, bool) {
-	if costs := iqt.getGCPCostsFromCLI(params); len(costs) > 0 {
+func (iqt *InfrastructureQueryTool) getGCPCostsWithSource(parentCtx context.Context, params *InfrastructureQueryParams) ([]CostInfo, bool) {
+	if costs := iqt.getGCPCostsFromCLI(parentCtx, params); len(costs) > 0 {
 		return costs, true
 	}
-	return iqt.getGCPCosts(params), false
+	return iqt.getGCPCosts(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getAzureResourcesWithSource(params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
-	if resources := iqt.getAzureResourcesFromCLI(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getAzureResourcesWithSource(parentCtx context.Context, params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
+	if resources := iqt.getAzureResourcesFromCLI(parentCtx, params); len(resources) > 0 {
 		return resources, true
 	}
-	return iqt.getAzureResources(params), false
+	return iqt.getAzureResources(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getAzureScalingInfoWithSource(params *InfrastructureQueryParams) (*ScalingInfo, bool) {
-	if scaling := iqt.getAzureScalingInfoFromCLI(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getAzureScalingInfoWithSource(parentCtx context.Context, params *InfrastructureQueryParams) (*ScalingInfo, bool) {
+	if scaling := iqt.getAzureScalingInfoFromCLI(parentCtx, params); scaling != nil {
 		return scaling, true
 	}
-	return iqt.getAzureScalingInfo(params), false
+	return iqt.getAzureScalingInfo(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getAzureCostsWithSource(params *InfrastructureQueryParams) ([]CostInfo, bool) {
-	if costs := iqt.getAzureCostsFromCLI(params); len(costs) > 0 {
+func (iqt *InfrastructureQueryTool) getAzureCostsWithSource(parentCtx context.Context, params *InfrastructureQueryParams) ([]CostInfo, bool) {
+	if costs := iqt.getAzureCostsFromCLI(parentCtx, params); len(costs) > 0 {
 		return costs, true
 	}
-	return iqt.getAzureCosts(params), false
+	return iqt.getAzureCosts(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getK8sResourcesWithSource(params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
-	if resources := iqt.getK8sResourcesFromKubectl(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getK8sResourcesWithSource(parentCtx context.Context, params *InfrastructureQueryParams) ([]ResourceInfo, bool) {
+	if resources := iqt.getK8sResourcesFromKubectl(parentCtx, params); len(resources) > 0 {
 		return resources, true
 	}
-	return iqt.getK8sResources(params), false
+	return iqt.getK8sResources(parentCtx, params), false
 }
 
-func (iqt *InfrastructureQueryTool) getK8sScalingInfoWithSource(params *InfrastructureQueryParams) (*ScalingInfo, bool) {
-	if scaling := iqt.getK8sScalingInfoFromKubectl(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getK8sScalingInfoWithSource(parentCtx context.Context, params *InfrastructureQueryParams) (*ScalingInfo, bool) {
+	if scaling := iqt.getK8sScalingInfoFromKubectl(parentCtx, params); scaling != nil {
 		return scaling, true
 	}
-	return iqt.getK8sScalingInfo(params), false
+	return iqt.getK8sScalingInfo(parentCtx, params), false
 }
 
 // getTerraformState 获取 Terraform 状态
-func (iqt *InfrastructureQueryTool) getTerraformState(params *InfrastructureQueryParams) *TerraformState {
-	if state := iqt.getTerraformStateFromCLI(params); state != nil {
+func (iqt *InfrastructureQueryTool) getTerraformState(parentCtx context.Context, params *InfrastructureQueryParams) *TerraformState {
+	if state := iqt.getTerraformStateFromCLI(parentCtx, params); state != nil {
 		return state
 	}
 	if strings.TrimSpace(params.RemoteHost) != "" {
@@ -370,8 +386,8 @@ func (iqt *InfrastructureQueryTool) getTerraformState(params *InfrastructureQuer
 }
 
 // getAWSResources 获取 AWS 资源
-func (iqt *InfrastructureQueryTool) getAWSResources(params *InfrastructureQueryParams) []ResourceInfo {
-	if resources := iqt.getAWSResourcesFromCLI(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getAWSResources(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
+	if resources := iqt.getAWSResourcesFromCLI(parentCtx, params); len(resources) > 0 {
 		return resources
 	}
 	return []ResourceInfo{
@@ -383,8 +399,8 @@ func (iqt *InfrastructureQueryTool) getAWSResources(params *InfrastructureQueryP
 }
 
 // getAWSScalingInfo 获取 AWS 扩缩容信息
-func (iqt *InfrastructureQueryTool) getAWSScalingInfo(params *InfrastructureQueryParams) *ScalingInfo {
-	if scaling := iqt.getAWSScalingInfoFromCLI(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getAWSScalingInfo(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
+	if scaling := iqt.getAWSScalingInfoFromCLI(parentCtx, params); scaling != nil {
 		return scaling
 	}
 	return &ScalingInfo{
@@ -398,8 +414,8 @@ func (iqt *InfrastructureQueryTool) getAWSScalingInfo(params *InfrastructureQuer
 }
 
 // getAWSCosts 获取 AWS 成本
-func (iqt *InfrastructureQueryTool) getAWSCosts(params *InfrastructureQueryParams) []CostInfo {
-	if costs := iqt.getAWSCostsFromCLI(params); len(costs) > 0 {
+func (iqt *InfrastructureQueryTool) getAWSCosts(parentCtx context.Context, params *InfrastructureQueryParams) []CostInfo {
+	if costs := iqt.getAWSCostsFromCLI(parentCtx, params); len(costs) > 0 {
 		return costs
 	}
 	return []CostInfo{
@@ -412,8 +428,8 @@ func (iqt *InfrastructureQueryTool) getAWSCosts(params *InfrastructureQueryParam
 }
 
 // getGCPResources 获取 GCP 资源
-func (iqt *InfrastructureQueryTool) getGCPResources(params *InfrastructureQueryParams) []ResourceInfo {
-	if resources := iqt.getGCPResourcesFromCLI(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getGCPResources(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
+	if resources := iqt.getGCPResourcesFromCLI(parentCtx, params); len(resources) > 0 {
 		return resources
 	}
 	return []ResourceInfo{
@@ -424,8 +440,8 @@ func (iqt *InfrastructureQueryTool) getGCPResources(params *InfrastructureQueryP
 }
 
 // getGCPScalingInfo 获取 GCP 扩缩容信息
-func (iqt *InfrastructureQueryTool) getGCPScalingInfo(params *InfrastructureQueryParams) *ScalingInfo {
-	if scaling := iqt.getGCPScalingInfoFromCLI(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getGCPScalingInfo(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
+	if scaling := iqt.getGCPScalingInfoFromCLI(parentCtx, params); scaling != nil {
 		return scaling
 	}
 	return &ScalingInfo{
@@ -439,8 +455,8 @@ func (iqt *InfrastructureQueryTool) getGCPScalingInfo(params *InfrastructureQuer
 }
 
 // getGCPCosts 获取 GCP 成本
-func (iqt *InfrastructureQueryTool) getGCPCosts(params *InfrastructureQueryParams) []CostInfo {
-	if costs := iqt.getGCPCostsFromCLI(params); len(costs) > 0 {
+func (iqt *InfrastructureQueryTool) getGCPCosts(parentCtx context.Context, params *InfrastructureQueryParams) []CostInfo {
+	if costs := iqt.getGCPCostsFromCLI(parentCtx, params); len(costs) > 0 {
 		return costs
 	}
 	return []CostInfo{
@@ -451,8 +467,8 @@ func (iqt *InfrastructureQueryTool) getGCPCosts(params *InfrastructureQueryParam
 }
 
 // getAzureResources 获取 Azure 资源
-func (iqt *InfrastructureQueryTool) getAzureResources(params *InfrastructureQueryParams) []ResourceInfo {
-	if resources := iqt.getAzureResourcesFromCLI(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getAzureResources(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
+	if resources := iqt.getAzureResourcesFromCLI(parentCtx, params); len(resources) > 0 {
 		return resources
 	}
 	return []ResourceInfo{
@@ -463,8 +479,8 @@ func (iqt *InfrastructureQueryTool) getAzureResources(params *InfrastructureQuer
 }
 
 // getAzureScalingInfo 获取 Azure 扩缩容信息
-func (iqt *InfrastructureQueryTool) getAzureScalingInfo(params *InfrastructureQueryParams) *ScalingInfo {
-	if scaling := iqt.getAzureScalingInfoFromCLI(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getAzureScalingInfo(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
+	if scaling := iqt.getAzureScalingInfoFromCLI(parentCtx, params); scaling != nil {
 		return scaling
 	}
 	return &ScalingInfo{
@@ -478,8 +494,8 @@ func (iqt *InfrastructureQueryTool) getAzureScalingInfo(params *InfrastructureQu
 }
 
 // getAzureCosts 获取 Azure 成本
-func (iqt *InfrastructureQueryTool) getAzureCosts(params *InfrastructureQueryParams) []CostInfo {
-	if costs := iqt.getAzureCostsFromCLI(params); len(costs) > 0 {
+func (iqt *InfrastructureQueryTool) getAzureCosts(parentCtx context.Context, params *InfrastructureQueryParams) []CostInfo {
+	if costs := iqt.getAzureCostsFromCLI(parentCtx, params); len(costs) > 0 {
 		return costs
 	}
 	return []CostInfo{
@@ -490,8 +506,8 @@ func (iqt *InfrastructureQueryTool) getAzureCosts(params *InfrastructureQueryPar
 }
 
 // getK8sResources 获取 Kubernetes 资源
-func (iqt *InfrastructureQueryTool) getK8sResources(params *InfrastructureQueryParams) []ResourceInfo {
-	if resources := iqt.getK8sResourcesFromKubectl(params); len(resources) > 0 {
+func (iqt *InfrastructureQueryTool) getK8sResources(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
+	if resources := iqt.getK8sResourcesFromKubectl(parentCtx, params); len(resources) > 0 {
 		return resources
 	}
 
@@ -505,8 +521,8 @@ func (iqt *InfrastructureQueryTool) getK8sResources(params *InfrastructureQueryP
 }
 
 // getK8sScalingInfo 获取 Kubernetes 扩缩容信息
-func (iqt *InfrastructureQueryTool) getK8sScalingInfo(params *InfrastructureQueryParams) *ScalingInfo {
-	if scaling := iqt.getK8sScalingInfoFromKubectl(params); scaling != nil {
+func (iqt *InfrastructureQueryTool) getK8sScalingInfo(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
+	if scaling := iqt.getK8sScalingInfoFromKubectl(parentCtx, params); scaling != nil {
 		return scaling
 	}
 	return &ScalingInfo{
@@ -519,12 +535,12 @@ func (iqt *InfrastructureQueryTool) getK8sScalingInfo(params *InfrastructureQuer
 	}
 }
 
-func (iqt *InfrastructureQueryTool) getAWSResourcesFromCLI(params *InfrastructureQueryParams) []ResourceInfo {
+func (iqt *InfrastructureQueryTool) getAWSResourcesFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
 	args := []string{"ec2", "describe-instances", "--output", "json"}
 	if region := strings.TrimSpace(params.Region); region != "" {
 		args = append(args, "--region", region)
 	}
-	out, err := iqt.commandOutput(params, "aws", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "aws", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -572,12 +588,12 @@ func (iqt *InfrastructureQueryTool) getAWSResourcesFromCLI(params *Infrastructur
 	return resources
 }
 
-func (iqt *InfrastructureQueryTool) getAWSScalingInfoFromCLI(params *InfrastructureQueryParams) *ScalingInfo {
+func (iqt *InfrastructureQueryTool) getAWSScalingInfoFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
 	args := []string{"autoscaling", "describe-auto-scaling-groups", "--output", "json"}
 	if region := strings.TrimSpace(params.Region); region != "" {
 		args = append(args, "--region", region)
 	}
-	out, err := iqt.commandOutput(params, "aws", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "aws", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -601,7 +617,7 @@ func (iqt *InfrastructureQueryTool) getAWSScalingInfoFromCLI(params *Infrastruct
 	}
 }
 
-func (iqt *InfrastructureQueryTool) getAWSCostsFromCLI(params *InfrastructureQueryParams) []CostInfo {
+func (iqt *InfrastructureQueryTool) getAWSCostsFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) []CostInfo {
 	// Keep lightweight: summarize month-to-date unblended cost by service.
 	now := time.Now().UTC()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
@@ -614,7 +630,7 @@ func (iqt *InfrastructureQueryTool) getAWSCostsFromCLI(params *InfrastructureQue
 		"--group-by", "Type=DIMENSION,Key=SERVICE",
 		"--output", "json",
 	}
-	out, err := iqt.commandOutput(params, "aws", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "aws", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -658,12 +674,12 @@ func (iqt *InfrastructureQueryTool) getAWSCostsFromCLI(params *InfrastructureQue
 	return result
 }
 
-func (iqt *InfrastructureQueryTool) getGCPResourcesFromCLI(params *InfrastructureQueryParams) []ResourceInfo {
+func (iqt *InfrastructureQueryTool) getGCPResourcesFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
 	args := []string{"compute", "instances", "list", "--format=json"}
 	if project := strings.TrimSpace(params.Target); project != "" {
 		args = append(args, "--project", project)
 	}
-	out, err := iqt.commandOutput(params, "gcloud", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "gcloud", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -691,12 +707,12 @@ func (iqt *InfrastructureQueryTool) getGCPResourcesFromCLI(params *Infrastructur
 	return resources
 }
 
-func (iqt *InfrastructureQueryTool) getGCPScalingInfoFromCLI(params *InfrastructureQueryParams) *ScalingInfo {
+func (iqt *InfrastructureQueryTool) getGCPScalingInfoFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
 	args := []string{"compute", "instance-groups", "managed", "list", "--format=json"}
 	if project := strings.TrimSpace(params.Target); project != "" {
 		args = append(args, "--project", project)
 	}
-	out, err := iqt.commandOutput(params, "gcloud", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "gcloud", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -716,12 +732,12 @@ func (iqt *InfrastructureQueryTool) getGCPScalingInfoFromCLI(params *Infrastruct
 	}
 }
 
-func (iqt *InfrastructureQueryTool) getGCPCostsFromCLI(params *InfrastructureQueryParams) []CostInfo {
+func (iqt *InfrastructureQueryTool) getGCPCostsFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) []CostInfo {
 	listArgs := []string{"billing", "accounts", "list", "--format=json"}
 	if project := strings.TrimSpace(params.Target); project != "" {
 		listArgs = append(listArgs, "--project", project)
 	}
-	accountsOut, err := iqt.commandOutput(params, "gcloud", listArgs...)
+	accountsOut, err := iqt.commandOutput(parentCtx, params, "gcloud", listArgs...)
 	if err != nil || len(accountsOut) == 0 {
 		return nil
 	}
@@ -753,7 +769,7 @@ func (iqt *InfrastructureQueryTool) getGCPCostsFromCLI(params *InfrastructureQue
 		return nil
 	}
 
-	budgetOut, err := iqt.commandOutput(params, "gcloud", "billing", "budgets", "list", "--billing-account", accountID, "--format=json")
+	budgetOut, err := iqt.commandOutput(parentCtx, params, "gcloud", "billing", "budgets", "list", "--billing-account", accountID, "--format=json")
 	if err != nil || len(budgetOut) == 0 {
 		return nil
 	}
@@ -806,8 +822,8 @@ func (iqt *InfrastructureQueryTool) getGCPCostsFromCLI(params *InfrastructureQue
 	return result
 }
 
-func (iqt *InfrastructureQueryTool) getAzureResourcesFromCLI(params *InfrastructureQueryParams) []ResourceInfo {
-	out, err := iqt.commandOutput(params, "az", "vm", "list", "-d", "--output", "json")
+func (iqt *InfrastructureQueryTool) getAzureResourcesFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
+	out, err := iqt.commandOutput(parentCtx, params, "az", "vm", "list", "-d", "--output", "json")
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -835,8 +851,8 @@ func (iqt *InfrastructureQueryTool) getAzureResourcesFromCLI(params *Infrastruct
 	return resources
 }
 
-func (iqt *InfrastructureQueryTool) getAzureScalingInfoFromCLI(params *InfrastructureQueryParams) *ScalingInfo {
-	out, err := iqt.commandOutput(params, "az", "vmss", "list", "--output", "json")
+func (iqt *InfrastructureQueryTool) getAzureScalingInfoFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
+	out, err := iqt.commandOutput(parentCtx, params, "az", "vmss", "list", "--output", "json")
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -857,12 +873,12 @@ func (iqt *InfrastructureQueryTool) getAzureScalingInfoFromCLI(params *Infrastru
 	}
 }
 
-func (iqt *InfrastructureQueryTool) getAzureCostsFromCLI(params *InfrastructureQueryParams) []CostInfo {
+func (iqt *InfrastructureQueryTool) getAzureCostsFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) []CostInfo {
 	args := []string{"consumption", "usage", "list", "--top", "200", "--output", "json"}
 	if scope := strings.TrimSpace(params.Target); scope != "" {
 		args = append(args, "--scope", scope)
 	}
-	out, err := iqt.commandOutput(params, "az", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "az", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -918,12 +934,12 @@ func (iqt *InfrastructureQueryTool) getAzureCostsFromCLI(params *InfrastructureQ
 	return result
 }
 
-func (iqt *InfrastructureQueryTool) getK8sScalingInfoFromKubectl(params *InfrastructureQueryParams) *ScalingInfo {
+func (iqt *InfrastructureQueryTool) getK8sScalingInfoFromKubectl(parentCtx context.Context, params *InfrastructureQueryParams) *ScalingInfo {
 	args := []string{"get", "deploy", "-A", "-o", "json"}
 	if ns := strings.TrimSpace(params.Target); ns != "" && !strings.Contains(ns, "cluster") {
 		args = []string{"get", "deploy", "-n", ns, "-o", "json"}
 	}
-	out, err := iqt.commandOutput(params, "kubectl", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "kubectl", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -985,7 +1001,7 @@ func zoneToRegion(zone string) string {
 	return zone
 }
 
-func (iqt *InfrastructureQueryTool) getTerraformStateFromCLI(params *InfrastructureQueryParams) *TerraformState {
+func (iqt *InfrastructureQueryTool) getTerraformStateFromCLI(parentCtx context.Context, params *InfrastructureQueryParams) *TerraformState {
 	workdir := ""
 	if params.Target != "" {
 		// When target points to a directory, use it as terraform working directory.
@@ -1000,7 +1016,7 @@ func (iqt *InfrastructureQueryTool) getTerraformStateFromCLI(params *Infrastruct
 		args = append(args, "-chdir="+workdir)
 	}
 	args = append(args, "show", "-json")
-	out, err := iqt.commandOutput(params, "terraform", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "terraform", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -1178,12 +1194,12 @@ func (iqt *InfrastructureQueryTool) getTerraformStateFromFiles(params *Infrastru
 	return state
 }
 
-func (iqt *InfrastructureQueryTool) getK8sResourcesFromKubectl(params *InfrastructureQueryParams) []ResourceInfo {
+func (iqt *InfrastructureQueryTool) getK8sResourcesFromKubectl(parentCtx context.Context, params *InfrastructureQueryParams) []ResourceInfo {
 	args := []string{"get", "deploy,svc,ingress", "-A", "-o", "json"}
 	if ns := strings.TrimSpace(params.Target); ns != "" && !strings.Contains(ns, "cluster") {
 		args = []string{"get", "deploy,svc,ingress", "-n", ns, "-o", "json"}
 	}
-	out, err := iqt.commandOutput(params, "kubectl", args...)
+	out, err := iqt.commandOutput(parentCtx, params, "kubectl", args...)
 	if err != nil || len(out) == 0 {
 		return nil
 	}
@@ -1235,11 +1251,14 @@ func (iqt *InfrastructureQueryTool) getK8sResourcesFromKubectl(params *Infrastru
 	return resources
 }
 
-func (iqt *InfrastructureQueryTool) commandOutput(params *InfrastructureQueryParams, name string, args ...string) ([]byte, error) {
+func (iqt *InfrastructureQueryTool) commandOutput(parentCtx context.Context, params *InfrastructureQueryParams, name string, args ...string) ([]byte, error) {
+	if err := parentCtx.Err(); err != nil {
+		return nil, err
+	}
 	if iqt.runCmd == nil {
 		iqt.runCmd = runInfrastructureCommand
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 60*time.Second)
 	defer cancel()
 
 	if params != nil && strings.TrimSpace(params.RemoteHost) != "" {

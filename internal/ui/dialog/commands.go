@@ -198,6 +198,10 @@ func (c *Commands) HandleMsg(msg tea.Msg) Action {
 			}
 			c.list.ScrollToSelected()
 		case key.Matches(msg, c.keyMap.Select):
+			query := strings.TrimSpace(c.input.Value())
+			if c.selected == SystemCommands && (query == "scan" || strings.HasPrefix(query, "scan ")) {
+				return ActionRunScanCommand{Input: strings.TrimSpace(strings.TrimPrefix(query, "scan"))}
+			}
 			if selectedItem := c.list.SelectedItem(); selectedItem != nil {
 				if item, ok := selectedItem.(*CommandItem); ok && item != nil {
 					return item.Action()
@@ -217,7 +221,7 @@ func (c *Commands) HandleMsg(msg tea.Msg) Action {
 			var cmd tea.Cmd
 			for _, item := range c.list.FilteredItems() {
 				if item, ok := item.(*CommandItem); ok && item != nil {
-					if msg.String() == item.Shortcut() {
+					if c.input.Value() == "" && msg.String() == item.Shortcut() {
 						return item.Action()
 					}
 				}

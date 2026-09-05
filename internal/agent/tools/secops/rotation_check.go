@@ -71,7 +71,7 @@ func (rct *RotationCheckTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (rct *RotationCheckTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*RotationCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -106,8 +106,16 @@ func (rct *RotationCheckTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (rct *RotationCheckTool) Execute(params interface{}) (interface{}, error) {
+	return rct.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation through collection.
+func (rct *RotationCheckTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*RotationCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -115,16 +123,20 @@ func (rct *RotationCheckTool) Execute(params interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	return rct.performCheck(p), nil
+	result := rct.performCheck(ctx, p)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // performCheck 执行轮换检查
-func (rct *RotationCheckTool) performCheck(params *RotationCheckParams) *RotationCheckResult {
-	if result := rct.rotationFromMetadata(params); result != nil {
+func (rct *RotationCheckTool) performCheck(ctx context.Context, params *RotationCheckParams) *RotationCheckResult {
+	if result := rct.rotationFromMetadata(ctx, params); result != nil {
 		result.DataSource = "metadata"
 		return result
 	}
-	if result := rct.rotationFromTarget(params); result != nil {
+	if result := rct.rotationFromTarget(ctx, params); result != nil {
 		result.DataSource = "target_file"
 		return result
 	}
@@ -225,7 +237,7 @@ type rotationMetadataRecord struct {
 	PolicyDays  int    `json:"policy_days"`
 }
 
-func (rct *RotationCheckTool) rotationFromMetadata(params *RotationCheckParams) *RotationCheckResult {
+func (rct *RotationCheckTool) rotationFromMetadata(ctx context.Context, params *RotationCheckParams) *RotationCheckResult {
 	path := strings.TrimSpace(os.Getenv("SECOPS_ROTATION_METADATA_FILE"))
 	if path == "" {
 		return nil
@@ -233,7 +245,7 @@ func (rct *RotationCheckTool) rotationFromMetadata(params *RotationCheckParams) 
 	var data []byte
 	if strings.TrimSpace(params.RemoteHost) != "" {
 		remoteCmd := "cat " + shellQuoteRotation(path)
-		out, _, err := rct.runRemoteCommand(params, remoteCmd)
+		out, _, err := rct.runRemoteCommand(ctx, params, remoteCmd)
 		if err != nil || len(out) == 0 {
 			return nil
 		}
@@ -255,7 +267,7 @@ func (rct *RotationCheckTool) rotationFromMetadata(params *RotationCheckParams) 
 	return nil
 }
 
-func (rct *RotationCheckTool) rotationFromTarget(params *RotationCheckParams) *RotationCheckResult {
+func (rct *RotationCheckTool) rotationFromTarget(ctx context.Context, params *RotationCheckParams) *RotationCheckResult {
 	target := strings.TrimSpace(params.TargetID)
 	if target == "" {
 		return nil
@@ -265,7 +277,7 @@ func (rct *RotationCheckTool) rotationFromTarget(params *RotationCheckParams) *R
 		remoteCmd := "if [ -f " + shellQuoteRotation(target) + " ]; then " +
 			"stat -c %Y " + shellQuoteRotation(target) + " 2>/dev/null || " +
 			"stat -f %m " + shellQuoteRotation(target) + "; fi"
-		out, _, err := rct.runRemoteCommand(params, remoteCmd)
+		out, _, err := rct.runRemoteCommand(ctx, params, remoteCmd)
 		if err != nil || len(strings.TrimSpace(string(out))) == 0 {
 			return nil
 		}
@@ -377,17 +389,21 @@ func statusByAge(ageDays, policyDays int) string {
 	return "ok"
 }
 
-func (rct *RotationCheckTool) runRemoteCommand(params *RotationCheckParams, remoteCmd string) ([]byte, []byte, error) {
-	if rct.runCmd == nil {
-		rct.runCmd = runRotationCommand
+func (rct *RotationCheckTool) runRemoteCommand(ctx context.Context, params *RotationCheckParams, remoteCmd string) ([]byte, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	runner := rct.runCmd
+	if runner == nil {
+		runner = runRotationCommand
 	}
 	sshArgs, err := buildRotationSSHArgs(params, remoteCmd)
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	return rct.runCmd(ctx, "ssh", sshArgs...)
+	return runner(ctx, "ssh", sshArgs...)
 }
 
 func runRotationCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {

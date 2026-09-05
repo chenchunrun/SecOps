@@ -111,7 +111,7 @@ func TestInfrastructureQueryTool_getAWSResourcesFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			resources := tool.getAWSResourcesFromCLI(tt.params)
+			resources := tool.getAWSResourcesFromCLI(context.Background(), tt.params)
 			tt.check(t, resources)
 		})
 	}
@@ -179,7 +179,7 @@ func TestInfrastructureQueryTool_getAWSScalingInfoFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			scaling := tool.getAWSScalingInfoFromCLI(tt.params)
+			scaling := tool.getAWSScalingInfoFromCLI(context.Background(), tt.params)
 			if tt.wantNil {
 				if scaling != nil {
 					t.Fatalf("期望 nil, 得到 %+v", scaling)
@@ -320,7 +320,7 @@ func TestInfrastructureQueryTool_getAWSCostsFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			costs := tool.getAWSCostsFromCLI(tt.params)
+			costs := tool.getAWSCostsFromCLI(context.Background(), tt.params)
 			if tt.wantNil {
 				if costs != nil {
 					t.Fatalf("期望 nil, 得到 %v", costs)
@@ -410,7 +410,7 @@ func TestInfrastructureQueryTool_getAzureResourcesFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			resources := tool.getAzureResourcesFromCLI(tt.params)
+			resources := tool.getAzureResourcesFromCLI(context.Background(), tt.params)
 			if tt.wantNil {
 				if resources != nil {
 					t.Fatalf("期望 nil, 得到 %v", resources)
@@ -485,7 +485,7 @@ func TestInfrastructureQueryTool_getAzureScalingInfoFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			scaling := tool.getAzureScalingInfoFromCLI(tt.params)
+			scaling := tool.getAzureScalingInfoFromCLI(context.Background(), tt.params)
 			if tt.wantNil {
 				if scaling != nil {
 					t.Fatalf("期望 nil, 得到 %+v", scaling)
@@ -590,7 +590,7 @@ func TestInfrastructureQueryTool_getK8sScalingInfoFromKubectl(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			scaling := tool.getK8sScalingInfoFromKubectl(tt.params)
+			scaling := tool.getK8sScalingInfoFromKubectl(context.Background(), tt.params)
 			if tt.wantNil {
 				if scaling != nil {
 					t.Fatalf("期望 nil, 得到 %+v", scaling)
@@ -713,7 +713,7 @@ func TestInfrastructureQueryTool_getTerraformStateFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			st := tool.getTerraformStateFromCLI(tt.params)
+			st := tool.getTerraformStateFromCLI(context.Background(), tt.params)
 			if tt.wantNil {
 				if st != nil {
 					t.Fatalf("期望 nil, 得到 %+v", st)
@@ -751,7 +751,7 @@ func TestInfrastructureQueryTool_getTerraformStateFromCLI_WorkdirArgs(t *testing
 			}
 
 			params := &InfrastructureQueryParams{SystemType: "terraform", Target: tt.target}
-			_ = tool.getTerraformStateFromCLI(params)
+			_ = tool.getTerraformStateFromCLI(context.Background(), params)
 
 			joined := strings.Join(gotArgs, " ")
 			if tt.wantChdirIn != "" && !strings.Contains(joined, tt.wantChdirIn) {
@@ -939,7 +939,7 @@ func TestInfrastructureQueryTool_getTerraformStateRemoteHostNil(t *testing.T) {
 		return nil, nil, nil
 	}
 
-	st := tool.getTerraformState(&InfrastructureQueryParams{
+	st := tool.getTerraformState(context.Background(), &InfrastructureQueryParams{
 		SystemType: "terraform",
 		RemoteHost: "10.0.0.99",
 	})
@@ -957,7 +957,7 @@ func TestInfrastructureQueryTool_commandOutputRemoteError(t *testing.T) {
 		return []byte(`{"Reservations":[]}`), []byte("warning on stderr"), errors.New("exit status 0")
 	}
 
-	out, err := tool.commandOutput(&InfrastructureQueryParams{
+	out, err := tool.commandOutput(context.Background(), &InfrastructureQueryParams{
 		RemoteHost: "10.0.0.99",
 		RemoteUser: "ops",
 	}, "aws", "ec2", "describe-instances", "--output", "json")
@@ -977,7 +977,7 @@ func TestInfrastructureQueryTool_commandOutputRemoteStdoutEmptyError(t *testing.
 		return nil, []byte("connection refused"), errors.New("connection refused")
 	}
 
-	_, err := tool.commandOutput(&InfrastructureQueryParams{
+	_, err := tool.commandOutput(context.Background(), &InfrastructureQueryParams{
 		RemoteHost: "10.0.0.99",
 	}, "aws", "ec2", "describe-instances")
 	if err == nil {
@@ -995,7 +995,7 @@ func TestInfrastructureQueryTool_commandOutputLocalError(t *testing.T) {
 		return nil, []byte("local failure"), errors.New("local failure")
 	}
 
-	_, err := tool.commandOutput(&InfrastructureQueryParams{}, "aws", "ec2", "describe-instances")
+	_, err := tool.commandOutput(context.Background(), &InfrastructureQueryParams{}, "aws", "ec2", "describe-instances")
 	if err == nil {
 		t.Fatal("期望错误, 得到 nil")
 	}
@@ -1013,7 +1013,7 @@ func TestInfrastructureQueryTool_commandOutputNilRunCmd(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", "/nonexistent")
 
-	_, err := tool.commandOutput(&InfrastructureQueryParams{}, "aws", "ec2", "describe-instances")
+	_, err := tool.commandOutput(context.Background(), &InfrastructureQueryParams{}, "aws", "ec2", "describe-instances")
 	if err == nil {
 		t.Fatal("期望错误（命令不存在）, 得到 nil")
 	}
@@ -1101,7 +1101,7 @@ func TestInfrastructureQueryTool_getGCPResourcesFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			resources := tool.getGCPResourcesFromCLI(tt.params)
+			resources := tool.getGCPResourcesFromCLI(context.Background(), tt.params)
 			if tt.wantNil {
 				if resources != nil {
 					t.Fatalf("期望 nil, 得到 %v", resources)
@@ -1168,7 +1168,7 @@ func TestInfrastructureQueryTool_getGCPScalingInfoFromCLI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			scaling := tool.getGCPScalingInfoFromCLI(tt.params)
+			scaling := tool.getGCPScalingInfoFromCLI(context.Background(), tt.params)
 			if tt.wantNil {
 				if scaling != nil {
 					t.Fatalf("期望 nil, 得到 %+v", scaling)
@@ -1269,7 +1269,7 @@ func TestInfrastructureQueryTool_getK8sResourcesFromKubectl_StatusBranches(t *te
 		t.Run(tt.name, func(t *testing.T) {
 			tool := NewInfrastructureQueryTool(nil)
 			tool.runCmd = tt.runCmd
-			resources := tool.getK8sResourcesFromKubectl(&InfrastructureQueryParams{
+			resources := tool.getK8sResourcesFromKubectl(context.Background(), &InfrastructureQueryParams{
 				SystemType: "kubernetes",
 				Target:     "prod",
 			})

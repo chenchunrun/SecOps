@@ -140,7 +140,7 @@ func (ndt *NetworkDiagnosticTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (ndt *NetworkDiagnosticTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*NetworkDiagnosticParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -180,8 +180,16 @@ func (ndt *NetworkDiagnosticTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (ndt *NetworkDiagnosticTool) Execute(params interface{}) (interface{}, error) {
+	return ndt.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation through every diagnostic.
+func (ndt *NetworkDiagnosticTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*NetworkDiagnosticParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -201,15 +209,19 @@ func (ndt *NetworkDiagnosticTool) Execute(params interface{}) (interface{}, erro
 	// 执行诊断
 	switch p.Type {
 	case DiagnosticTraceroute:
-		ndt.performTraceroute(p, result)
+		ndt.performTraceroute(ctx, p, result)
 	case DiagnosticMTR:
-		ndt.performMTR(p, result)
+		ndt.performMTR(ctx, p, result)
 	case DiagnosticPortScan:
-		ndt.performPortScan(p, result)
+		ndt.performPortScan(ctx, p, result)
 	case DiagnosticDNS:
-		ndt.performDNSLookup(p, result)
+		ndt.performDNSLookup(ctx, p, result)
 	case DiagnosticPing:
-		ndt.performPing(p, result)
+		ndt.performPing(ctx, p, result)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// 分析结果
@@ -231,12 +243,12 @@ func (ndt *NetworkDiagnosticTool) isValidType(t NetworkDiagnosticType) bool {
 }
 
 // performTraceroute 执行 traceroute
-func (ndt *NetworkDiagnosticTool) performTraceroute(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
+func (ndt *NetworkDiagnosticTool) performTraceroute(ctx context.Context, params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
 	start := time.Now()
-	hops := ndt.runTracerouteCommand(params.Target, params.Timeout, params)
+	hops := ndt.runTracerouteCommand(ctx, params.Target, params.Timeout, params)
 	if len(hops) == 0 {
-		if strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
-			hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+		if ctx.Err() == nil && strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
+			hops = ndt.fallbackTraceHops(ctx, params.Target, params.Timeout)
 		} else {
 			result.Status = "error"
 			result.Issues = append(result.Issues, "Traceroute returned no data")
@@ -247,12 +259,12 @@ func (ndt *NetworkDiagnosticTool) performTraceroute(params *NetworkDiagnosticPar
 }
 
 // performMTR 执行 MTR
-func (ndt *NetworkDiagnosticTool) performMTR(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
+func (ndt *NetworkDiagnosticTool) performMTR(ctx context.Context, params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
 	start := time.Now()
-	hops := ndt.runMTRCommand(params.Target, params.Timeout, params)
+	hops := ndt.runMTRCommand(ctx, params.Target, params.Timeout, params)
 	if len(hops) == 0 {
-		if strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
-			hops = ndt.fallbackTraceHops(params.Target, params.Timeout)
+		if ctx.Err() == nil && strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
+			hops = ndt.fallbackTraceHops(ctx, params.Target, params.Timeout)
 		} else {
 			result.Status = "error"
 			result.Issues = append(result.Issues, "MTR returned no data")
@@ -264,7 +276,7 @@ func (ndt *NetworkDiagnosticTool) performMTR(params *NetworkDiagnosticParams, re
 }
 
 // performPortScan 执行端口扫描
-func (ndt *NetworkDiagnosticTool) performPortScan(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
+func (ndt *NetworkDiagnosticTool) performPortScan(ctx context.Context, params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
 	start := time.Now()
 	results := make([]*PortInfo, 0, len(params.Ports))
 	timeout := time.Duration(params.Timeout) * time.Second
@@ -273,8 +285,11 @@ func (ndt *NetworkDiagnosticTool) performPortScan(params *NetworkDiagnosticParam
 	}
 
 	for _, port := range params.Ports {
+		if ctx.Err() != nil {
+			return
+		}
 		address := net.JoinHostPort(params.Target, strconv.Itoa(port))
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
 		conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", address)
 		cancel()
 		state := "closed"
@@ -300,9 +315,9 @@ func (ndt *NetworkDiagnosticTool) performPortScan(params *NetworkDiagnosticParam
 }
 
 // performDNSLookup 执行 DNS 查询
-func (ndt *NetworkDiagnosticTool) performDNSLookup(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
+func (ndt *NetworkDiagnosticTool) performDNSLookup(ctx context.Context, params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
 	start := time.Now()
-	records := ndt.lookupDNS(params.Target, params.Timeout)
+	records := ndt.lookupDNS(ctx, params.Target, params.Timeout)
 	result.DNSRecords = records
 	if len(records) == 0 {
 		result.Status = "error"
@@ -312,12 +327,12 @@ func (ndt *NetworkDiagnosticTool) performDNSLookup(params *NetworkDiagnosticPara
 }
 
 // performPing 执行 ping
-func (ndt *NetworkDiagnosticTool) performPing(params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
+func (ndt *NetworkDiagnosticTool) performPing(ctx context.Context, params *NetworkDiagnosticParams, result *NetworkDiagnosticResult) {
 	start := time.Now()
-	pingResult := ndt.runPing(params)
+	pingResult := ndt.runPing(ctx, params)
 	if pingResult == nil {
-		if strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
-			pingResult = ndt.fallbackPingViaTCP(params)
+		if ctx.Err() == nil && strings.TrimSpace(params.RemoteHost) == "" && networkDiagFallbackEnabled() {
+			pingResult = ndt.fallbackPingViaTCP(ctx, params)
 		} else {
 			result.Status = "error"
 			result.Issues = append(result.Issues, "Ping returned no data")
@@ -432,8 +447,8 @@ func (ndt *NetworkDiagnosticTool) analyzePing(result *NetworkDiagnosticResult) {
 	}
 }
 
-func (ndt *NetworkDiagnosticTool) runTracerouteCommand(target string, timeoutSec int, params *NetworkDiagnosticParams) []*HopInfo {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+func (ndt *NetworkDiagnosticTool) runTracerouteCommand(ctx context.Context, target string, timeoutSec int, params *NetworkDiagnosticParams) []*HopInfo {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	out, err := ndt.runDiagnosticCommand(ctx, params, "traceroute", "-n", "-q", "1", target)
@@ -465,8 +480,8 @@ func (ndt *NetworkDiagnosticTool) runTracerouteCommand(target string, timeoutSec
 	return hops
 }
 
-func (ndt *NetworkDiagnosticTool) runMTRCommand(target string, timeoutSec int, params *NetworkDiagnosticParams) []*HopInfo {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+func (ndt *NetworkDiagnosticTool) runMTRCommand(ctx context.Context, target string, timeoutSec int, params *NetworkDiagnosticParams) []*HopInfo {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	out, err := ndt.runDiagnosticCommand(ctx, params, "mtr", "--report", "--report-cycles", "3", "--no-dns", target)
@@ -504,7 +519,7 @@ func (ndt *NetworkDiagnosticTool) runMTRCommand(target string, timeoutSec int, p
 	return hops
 }
 
-func (ndt *NetworkDiagnosticTool) runPing(params *NetworkDiagnosticParams) *PingResult {
+func (ndt *NetworkDiagnosticTool) runPing(ctx context.Context, params *NetworkDiagnosticParams) *PingResult {
 	count := params.PacketCount
 	if count <= 0 {
 		count = 4
@@ -515,7 +530,7 @@ func (ndt *NetworkDiagnosticTool) runPing(params *NetworkDiagnosticParams) *Ping
 		timeout = 30
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	out, err := ndt.runDiagnosticCommand(ctx, params, "ping", "-c", strconv.Itoa(count), params.Target)
@@ -631,8 +646,8 @@ func runNetworkDiagCommand(ctx context.Context, name string, args ...string) ([]
 	return cmd.Output()
 }
 
-func (ndt *NetworkDiagnosticTool) lookupDNS(target string, timeoutSec int) []*DNSRecord {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+func (ndt *NetworkDiagnosticTool) lookupDNS(ctx context.Context, target string, timeoutSec int) []*DNSRecord {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	records := make([]*DNSRecord, 0)
@@ -680,18 +695,18 @@ func (ndt *NetworkDiagnosticTool) averageLoss(hops []*HopInfo) float64 {
 	return total / float64(len(hops))
 }
 
-func (ndt *NetworkDiagnosticTool) fallbackTraceHops(target string, timeoutSec int) []*HopInfo {
+func (ndt *NetworkDiagnosticTool) fallbackTraceHops(ctx context.Context, target string, timeoutSec int) []*HopInfo {
 	timeout := time.Duration(timeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 3 * time.Second
 	}
 
 	address := target
-	if ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", target); err == nil && len(ips) > 0 {
+	if ips, err := net.DefaultResolver.LookupIP(ctx, "ip", target); err == nil && len(ips) > 0 {
 		address = ips[0].String()
 	}
 
-	if rtt, ok := measureTCPRTT(target, timeout, []int{443, 80}); ok {
+	if rtt, ok := measureTCPRTT(ctx, target, timeout, []int{443, 80}); ok {
 		return []*HopInfo{
 			{
 				Hop:     1,
@@ -720,7 +735,7 @@ func (ndt *NetworkDiagnosticTool) fallbackTraceHops(target string, timeoutSec in
 	}
 }
 
-func (ndt *NetworkDiagnosticTool) fallbackPingViaTCP(params *NetworkDiagnosticParams) *PingResult {
+func (ndt *NetworkDiagnosticTool) fallbackPingViaTCP(ctx context.Context, params *NetworkDiagnosticParams) *PingResult {
 	count := params.PacketCount
 	if count <= 0 {
 		count = 4
@@ -733,8 +748,11 @@ func (ndt *NetworkDiagnosticTool) fallbackPingViaTCP(params *NetworkDiagnosticPa
 	samples := make([]float64, 0, count)
 	received := 0
 	for i := 0; i < count; i++ {
+		if ctx.Err() != nil {
+			return nil
+		}
 		start := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
 		conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", net.JoinHostPort(params.Target, "443"))
 		cancel()
 		if err != nil {
@@ -776,10 +794,13 @@ func (ndt *NetworkDiagnosticTool) fallbackPingViaTCP(params *NetworkDiagnosticPa
 	}
 }
 
-func measureTCPRTT(target string, timeout time.Duration, ports []int) (float64, bool) {
+func measureTCPRTT(ctx context.Context, target string, timeout time.Duration, ports []int) (float64, bool) {
 	for _, port := range ports {
+		if ctx.Err() != nil {
+			return 0, false
+		}
 		start := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
 		conn, err := (&net.Dialer{Timeout: timeout}).DialContext(ctx, "tcp", net.JoinHostPort(target, strconv.Itoa(port)))
 		cancel()
 		if err != nil {

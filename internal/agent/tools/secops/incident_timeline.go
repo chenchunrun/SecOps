@@ -87,7 +87,7 @@ type IncidentTimelineResult struct {
 // ValidateParams 实现 Tool.ValidateParams
 func (itt *IncidentTimelineTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*IncidentTimelineParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -103,8 +103,24 @@ func (itt *IncidentTimelineTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (itt *IncidentTimelineTool) Execute(params interface{}) (interface{}, error) {
+	return itt.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (itt *IncidentTimelineTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := itt.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (itt *IncidentTimelineTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*IncidentTimelineParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -112,11 +128,11 @@ func (itt *IncidentTimelineTool) Execute(params interface{}) (interface{}, error
 		return nil, err
 	}
 
-	return itt.performTimeline(p), nil
+	return itt.performTimeline(parentCtx, p), nil
 }
 
 // performTimeline 生成事件时间线
-func (itt *IncidentTimelineTool) performTimeline(params *IncidentTimelineParams) *IncidentTimelineResult {
+func (itt *IncidentTimelineTool) performTimeline(parentCtx context.Context, params *IncidentTimelineParams) *IncidentTimelineResult {
 	if len(params.Events) > 0 {
 		out := itt.buildTimelineFromEvents(params)
 		out.DataSource = "input_events"
@@ -132,7 +148,7 @@ func (itt *IncidentTimelineTool) performTimeline(params *IncidentTimelineParams)
 		return out
 	}
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		if events := itt.loadExternalIncidentEventsRemote(params); len(events) > 0 {
+		if events := itt.loadExternalIncidentEventsRemote(parentCtx, params); len(events) > 0 {
 			out := itt.buildTimelineFromEvents(&IncidentTimelineParams{
 				IncidentID: params.IncidentID,
 				Events:     events,
@@ -235,7 +251,7 @@ func parseIncidentEventJSONL(data []byte, incidentID string) []TimelineEvent {
 	return events
 }
 
-func (itt *IncidentTimelineTool) loadExternalIncidentEventsRemote(params *IncidentTimelineParams) []TimelineEvent {
+func (itt *IncidentTimelineTool) loadExternalIncidentEventsRemote(parentCtx context.Context, params *IncidentTimelineParams) []TimelineEvent {
 	path := strings.TrimSpace(params.EventsFilePath)
 	if path == "" {
 		path = strings.TrimSpace(os.Getenv("SECOPS_INCIDENT_EVENTS_FILE"))
@@ -243,7 +259,7 @@ func (itt *IncidentTimelineTool) loadExternalIncidentEventsRemote(params *Incide
 	if path == "" {
 		return nil
 	}
-	content, err := itt.readRemoteFile(params, path)
+	content, err := itt.readRemoteFile(parentCtx, params, path)
 	if err != nil || len(content) == 0 {
 		return nil
 	}
@@ -274,7 +290,10 @@ func toTimelineEvent(r timelineEventRecord) TimelineEvent {
 	}
 }
 
-func (itt *IncidentTimelineTool) readRemoteFile(params *IncidentTimelineParams, path string) ([]byte, error) {
+func (itt *IncidentTimelineTool) readRemoteFile(parentCtx context.Context, params *IncidentTimelineParams, path string) ([]byte, error) {
+	if err := parentCtx.Err(); err != nil {
+		return nil, err
+	}
 	if itt.runCmd == nil {
 		itt.runCmd = runIncidentCommand
 	}
@@ -282,7 +301,7 @@ func (itt *IncidentTimelineTool) readRemoteFile(params *IncidentTimelineParams, 
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 20*time.Second)
 	defer cancel()
 	stdout, stderr, cmdErr := itt.runCmd(ctx, "ssh", sshArgs...)
 	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {

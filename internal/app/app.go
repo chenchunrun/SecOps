@@ -33,6 +33,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/filetracker"
 	"github.com/chenchunrun/SecOps/internal/format"
 	"github.com/chenchunrun/SecOps/internal/history"
+	"github.com/chenchunrun/SecOps/internal/investigation/scan"
 	"github.com/chenchunrun/SecOps/internal/log"
 	"github.com/chenchunrun/SecOps/internal/lsp"
 	"github.com/chenchunrun/SecOps/internal/message"
@@ -66,6 +67,7 @@ type App struct {
 	AgentCoordinator agent.Coordinator
 	AuditStore       audit.AuditStore
 	ComputerRuntime  *bootstrap.ComputerRuntime
+	Scans            *scan.Service
 
 	LSPManager *lsp.Manager
 
@@ -118,6 +120,9 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	}
 	if auditCleanup != nil {
 		app.cleanupFuncs = append(app.cleanupFuncs, auditCleanup)
+	}
+	if err := app.initScans(cfg); err != nil {
+		return nil, err
 	}
 	app.cleanupFuncs = append(app.cleanupFuncs, func(ctx context.Context) error {
 		return app.ComputerRuntime.Computers.DestroyAll(ctx)

@@ -69,7 +69,7 @@ func (bct *BackupCheckTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (bct *BackupCheckTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*BackupCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -99,8 +99,16 @@ func (bct *BackupCheckTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (bct *BackupCheckTool) Execute(params interface{}) (interface{}, error) {
+	return bct.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation through tool execution.
+func (bct *BackupCheckTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*BackupCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -108,11 +116,15 @@ func (bct *BackupCheckTool) Execute(params interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	return bct.performCheck(p), nil
+	result := bct.performCheck(ctx, p)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // performCheck 执行备份检查
-func (bct *BackupCheckTool) performCheck(params *BackupCheckParams) *BackupCheckResult {
+func (bct *BackupCheckTool) performCheck(ctx context.Context, params *BackupCheckParams) *BackupCheckResult {
 	now := time.Now()
 	result := &BackupCheckResult{
 		Status:     "missing",
@@ -127,7 +139,7 @@ func (bct *BackupCheckTool) performCheck(params *BackupCheckParams) *BackupCheck
 		err    error
 	)
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		latest, sizeGB, found, err = bct.findLatestBackupRemote(params)
+		latest, sizeGB, found, err = bct.findLatestBackupRemote(ctx, params)
 		if err != nil {
 			result.LastBackupTime = "unknown"
 			result.AgeHours = 0
@@ -135,7 +147,7 @@ func (bct *BackupCheckTool) performCheck(params *BackupCheckParams) *BackupCheck
 			return result
 		}
 	} else {
-		latest, sizeGB, found = bct.findLatestBackup(params)
+		latest, sizeGB, found = bct.findLatestBackup(ctx, params)
 	}
 	if !found {
 		result.LastBackupTime = "unknown"
@@ -168,13 +180,16 @@ func (bct *BackupCheckTool) performCheck(params *BackupCheckParams) *BackupCheck
 	return result
 }
 
-func (bct *BackupCheckTool) findLatestBackup(params *BackupCheckParams) (time.Time, float64, bool) {
+func (bct *BackupCheckTool) findLatestBackup(ctx context.Context, params *BackupCheckParams) (time.Time, float64, bool) {
 	candidates := backupPathCandidates(params)
 	latest := time.Time{}
 	var latestSize int64
 	found := false
 
 	for _, p := range candidates {
+		if ctx.Err() != nil {
+			return time.Time{}, 0, false
+		}
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
@@ -202,6 +217,9 @@ func (bct *BackupCheckTool) findLatestBackup(params *BackupCheckParams) (time.Ti
 		}
 
 		_ = filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if err != nil {
 				return nil
 			}
@@ -230,9 +248,10 @@ func (bct *BackupCheckTool) findLatestBackup(params *BackupCheckParams) (time.Ti
 	return latest, float64(latestSize) / (1024 * 1024 * 1024), true
 }
 
-func (bct *BackupCheckTool) findLatestBackupRemote(params *BackupCheckParams) (time.Time, float64, bool, error) {
-	if bct.runCmd == nil {
-		bct.runCmd = runBackupCommand
+func (bct *BackupCheckTool) findLatestBackupRemote(ctx context.Context, params *BackupCheckParams) (time.Time, float64, bool, error) {
+	runner := bct.runCmd
+	if runner == nil {
+		runner = runBackupCommand
 	}
 
 	candidates := backupPathCandidates(params)
@@ -262,9 +281,9 @@ func (bct *BackupCheckTool) findLatestBackupRemote(params *BackupCheckParams) (t
 		return time.Time{}, 0, false, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	stdout, stderr, cmdErr := bct.runCmd(ctx, "ssh", sshArgs...)
+	stdout, stderr, cmdErr := runner(ctx, "ssh", sshArgs...)
 	errMsg := ""
 	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
 		errMsg = strings.TrimSpace(string(stderr))

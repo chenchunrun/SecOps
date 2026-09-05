@@ -61,10 +61,40 @@ func TestConnectorWritesRequireApprovalAndAudit(t *testing.T) {
 	require.ErrorContains(t, err, "requires approval")
 	require.Empty(t, transport.requests)
 
-	_, err = client.Execute(context.Background(), ExecuteRequest{Operation: "write", ApprovalID: "approval-1"})
+	client.approvals = approvalVerifierFunc(func(context.Context, ApprovalRequest) error { return nil })
+	_, err = client.Execute(context.Background(), ExecuteRequest{Operation: "write", ApprovalID: "approval-1", SessionID: "session-1"})
 	require.NoError(t, err)
 	require.Equal(t, 1, auditor.calls)
 	require.Equal(t, "approval-1", auditor.last.ApprovalID)
+}
+
+type approvalVerifierFunc func(context.Context, ApprovalRequest) error
+
+func (f approvalVerifierFunc) VerifyApproval(ctx context.Context, request ApprovalRequest) error {
+	return f(ctx, request)
+}
+
+func TestWritesFailClosedAndNeverRetry(t *testing.T) {
+	t.Parallel()
+	transport := &fakeTransport{responses: []TransportResponse{{StatusCode: 503}, {StatusCode: 200}}}
+	client := newTestClient(t, transport, &fakeAuditor{})
+	request := ExecuteRequest{Operation: "write", ApprovalID: "approval-1", SessionID: "s", Payload: []byte("target=a")}
+	_, err := client.Execute(t.Context(), request)
+	require.ErrorContains(t, err, "approval verifier")
+	require.Empty(t, transport.requests)
+	client.approvals = approvalVerifierFunc(func(_ context.Context, scope ApprovalRequest) error {
+		require.Equal(t, "s", scope.SessionID)
+		require.Equal(t, "/write", scope.Path)
+		require.Len(t, scope.PayloadHash, 64)
+		return errors.New("expired or revoked")
+	})
+	_, err = client.Execute(t.Context(), request)
+	require.ErrorContains(t, err, "expired or revoked")
+	require.Empty(t, transport.requests)
+	client.approvals = approvalVerifierFunc(func(context.Context, ApprovalRequest) error { return nil })
+	_, err = client.Execute(t.Context(), request)
+	require.ErrorContains(t, err, "503")
+	require.Len(t, transport.requests, 1)
 }
 
 func newTestClient(t *testing.T, transport Transport, auditor Auditor) *Client {

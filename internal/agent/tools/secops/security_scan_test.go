@@ -90,7 +90,6 @@ func TestSecurityScanTool_Execute(t *testing.T) {
 		Scanner:    ScannerTrivy,
 		Target:     TargetImage,
 		TargetPath: "ubuntu:latest",
-		Full:       true,
 	}
 
 	result, err := tool.Execute(params)

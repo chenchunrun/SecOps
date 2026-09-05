@@ -3,6 +3,7 @@ package skills
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,18 +26,20 @@ const (
 )
 
 type SkillManifest struct {
-	APIVersion    string                `yaml:"api_version"`
-	Name          string                `yaml:"name"`
-	Version       string                `yaml:"version"`
-	Description   string                `yaml:"description"`
-	Roles         []string              `yaml:"roles"`
-	Capabilities  ManifestCaps          `yaml:"capabilities"`
-	Risk          ManifestRisk          `yaml:"risk"`
-	Runtime       ManifestRuntime       `yaml:"runtime"`
-	InputSchema   string                `yaml:"input_schema"`
-	OutputSchema  string                `yaml:"output_schema"`
-	Integrity     ManifestIntegrity     `yaml:"integrity"`
-	Authorization ManifestAuthorization `yaml:"authorization,omitempty"`
+	inputValidator  *jsonschema.Resolved
+	outputValidator *jsonschema.Resolved
+	APIVersion      string                `yaml:"api_version"`
+	Name            string                `yaml:"name"`
+	Version         string                `yaml:"version"`
+	Description     string                `yaml:"description"`
+	Roles           []string              `yaml:"roles"`
+	Capabilities    ManifestCaps          `yaml:"capabilities"`
+	Risk            ManifestRisk          `yaml:"risk"`
+	Runtime         ManifestRuntime       `yaml:"runtime"`
+	InputSchema     string                `yaml:"input_schema"`
+	OutputSchema    string                `yaml:"output_schema"`
+	Integrity       ManifestIntegrity     `yaml:"integrity"`
+	Authorization   ManifestAuthorization `yaml:"authorization,omitempty"`
 }
 
 type ManifestCaps struct {
@@ -98,7 +102,31 @@ func loadManifest(path string, skillContent []byte) (*SkillManifest, error) {
 	if err := manifest.validate(filepath.Dir(path), skillContent); err != nil {
 		return nil, err
 	}
+	manifest.inputValidator, err = compileContract(filepath.Join(filepath.Dir(path), manifest.InputSchema))
+	if err != nil {
+		return nil, err
+	}
+	manifest.outputValidator, err = compileContract(filepath.Join(filepath.Dir(path), manifest.OutputSchema))
+	if err != nil {
+		return nil, err
+	}
 	return &manifest, nil
+}
+
+func compileContract(path string) (*jsonschema.Resolved, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read skill schema: %w", err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return nil, fmt.Errorf("decode skill schema: %w", err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		return nil, fmt.Errorf("resolve skill schema: %w", err)
+	}
+	return resolved, nil
 }
 
 func (m *SkillManifest) EffectiveRisk(activeParameters map[string]bool) RiskLevel {

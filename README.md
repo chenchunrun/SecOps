@@ -149,6 +149,12 @@ addition to the capability grant.
 
 ## Documentation
 
+- Reviewed local scans and Elastic connection checks:
+  [`docs/guides/SCANNING_WORKFLOW.md`](docs/guides/SCANNING_WORKFLOW.md).
+  The `/scan` workflow currently supports local Trivy directory scans with
+  explicit human review. The Elastic adapter supports a read-only connection
+  check; other provider manifests do not yet imply live integration support.
+
 - Product and usage guide:
   [`docs/guides/secops_README.md`](docs/guides/secops_README.md)
 - Installation guide:

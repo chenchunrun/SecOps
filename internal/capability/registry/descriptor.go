@@ -1,7 +1,10 @@
 package registry
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 )
 
@@ -34,9 +37,17 @@ type Descriptor struct {
 }
 
 func decodeJSONInto[T any](raw json.RawMessage) (any, error) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, errors.New("tool parameters must be a JSON object")
+	}
 	var params T
-	if err := json.Unmarshal(raw, &params); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&params); err != nil {
 		return nil, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, errors.New("tool parameters must contain exactly one JSON object")
 	}
 	return &params, nil
 }

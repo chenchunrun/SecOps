@@ -2,6 +2,11 @@ Run vulnerability scans using industry-standard scanners.
 
 Supported scanners: **Trivy**, **Grype**, **Nuclei**, **ClamAV**.
 
+Session cancellation stops local scanner execution. `full=true` and
+`fix_vulns=true` are rejected because comprehensive-scan and automatic-fix
+semantics are not implemented. Remote SSH cancellation closes the local SSH
+process; termination of remote descendants depends on the remote host.
+
 ## Usage
 
 - `scanner` — required: `trivy`, `grype`, `nuclei`, or `clamav`.

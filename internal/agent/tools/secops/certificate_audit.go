@@ -123,7 +123,7 @@ func (cat *CertificateAuditTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (cat *CertificateAuditTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*CertificateAuditParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -158,8 +158,24 @@ func (cat *CertificateAuditTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (cat *CertificateAuditTool) Execute(params interface{}) (interface{}, error) {
+	return cat.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (cat *CertificateAuditTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := cat.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (cat *CertificateAuditTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*CertificateAuditParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -174,7 +190,7 @@ func (cat *CertificateAuditTool) Execute(params interface{}) (interface{}, error
 	}
 
 	// 收集证书
-	certs := cat.collectCertificates(p)
+	certs := cat.collectCertificates(parentCtx, p)
 
 	// 审计证书
 	for _, cert := range certs {
@@ -210,7 +226,7 @@ func (cat *CertificateAuditTool) Execute(params interface{}) (interface{}, error
 // 私有方法
 
 // collectCertificates 收集证书
-func (cat *CertificateAuditTool) collectCertificates(params *CertificateAuditParams) []*CertificateInfo {
+func (cat *CertificateAuditTool) collectCertificates(parentCtx context.Context, params *CertificateAuditParams) []*CertificateInfo {
 	certs := make([]*CertificateInfo, 0)
 	seen := make(map[string]struct{})
 
@@ -228,6 +244,9 @@ func (cat *CertificateAuditTool) collectCertificates(params *CertificateAuditPar
 
 	// 从指定路径收集
 	for _, path := range params.Paths {
+		if parentCtx.Err() != nil {
+			return certs
+		}
 		cert := cat.parseCertificateFile(path)
 		appendCert(cert)
 	}
@@ -235,6 +254,9 @@ func (cat *CertificateAuditTool) collectCertificates(params *CertificateAuditPar
 	// 从搜索目录收集
 	for _, dir := range params.SearchDirs {
 		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if parentCtx.Err() != nil {
+				return parentCtx.Err()
+			}
 			if err != nil || d == nil || d.IsDir() {
 				return nil
 			}
@@ -249,7 +271,7 @@ func (cat *CertificateAuditTool) collectCertificates(params *CertificateAuditPar
 
 	// 从服务端口收集
 	for _, service := range params.ServicePorts {
-		cert := cat.fetchCertificateFromService(service, params)
+		cert := cat.fetchCertificateFromService(parentCtx, service, params)
 		appendCert(cert)
 	}
 
@@ -389,7 +411,7 @@ func (cat *CertificateAuditTool) CheckRSAKeyStrength(key *rsa.PublicKey) bool {
 	return key.N.BitLen() >= 2048
 }
 
-func (cat *CertificateAuditTool) fetchCertificateFromService(service string, params *CertificateAuditParams) *CertificateInfo {
+func (cat *CertificateAuditTool) fetchCertificateFromService(parentCtx context.Context, service string, params *CertificateAuditParams) *CertificateInfo {
 	target := strings.TrimSpace(service)
 	if target == "" {
 		return nil
@@ -399,7 +421,7 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 		target = net.JoinHostPort("127.0.0.1", target)
 	}
 	if params != nil && strings.TrimSpace(params.RemoteHost) != "" {
-		return cat.fetchCertificateFromServiceRemote(target, params)
+		return cat.fetchCertificateFromServiceRemote(parentCtx, target, params)
 	}
 
 	netDialer := &net.Dialer{Timeout: 2 * time.Second}
@@ -413,7 +435,7 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 	} else if net.ParseIP(hostForVerify) == nil {
 		tlsConfig.ServerName = hostForVerify
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 2*time.Second)
 	defer cancel()
 
 	dialer := &tls.Dialer{
@@ -452,7 +474,10 @@ func (cat *CertificateAuditTool) fetchCertificateFromService(service string, par
 	)
 }
 
-func (cat *CertificateAuditTool) fetchCertificateFromServiceRemote(target string, params *CertificateAuditParams) *CertificateInfo {
+func (cat *CertificateAuditTool) fetchCertificateFromServiceRemote(parentCtx context.Context, target string, params *CertificateAuditParams) *CertificateInfo {
+	if err := parentCtx.Err(); err != nil {
+		return nil
+	}
 	if cat.runCmd == nil {
 		cat.runCmd = runCertCommand
 	}
@@ -460,7 +485,7 @@ func (cat *CertificateAuditTool) fetchCertificateFromServiceRemote(target string
 	if err != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 15*time.Second)
 	defer cancel()
 	stdout, _, cmdErr := cat.runCmd(ctx, "ssh", sshArgs...)
 	if cmdErr != nil && len(stdout) == 0 {

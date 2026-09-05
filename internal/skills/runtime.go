@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/chenchunrun/SecOps/internal/evidence"
 )
 
 var (
@@ -37,16 +39,35 @@ type SkillExecutor interface {
 
 type Runner struct {
 	executor SkillExecutor
+	evidence EvidenceReader
 }
 
-func NewRunner(executor SkillExecutor) (*Runner, error) {
+// EvidenceReader verifies that skill citations refer to stored task evidence.
+type EvidenceReader interface {
+	GetEvidence(context.Context, string) (evidence.Evidence, []byte, error)
+}
+
+func NewRunner(executor SkillExecutor, readers ...EvidenceReader) (*Runner, error) {
 	if executor == nil {
 		return nil, errors.New("initialize skill runner: executor is nil")
 	}
-	return &Runner{executor: executor}, nil
+	runner := &Runner{executor: executor}
+	if len(readers) > 0 {
+		runner.evidence = readers[0]
+	}
+	return runner, nil
 }
 
 func (r *Runner) Run(ctx context.Context, manifest SkillManifest, request RuntimeRequest) (RuntimeResult, error) {
+	if err := ctx.Err(); err != nil {
+		return RuntimeResult{}, err
+	}
+	if manifest.inputValidator == nil || manifest.outputValidator == nil {
+		return RuntimeResult{}, errors.New("skill must be loaded with validated schema contracts")
+	}
+	if err := manifest.inputValidator.Validate(request.Input); err != nil {
+		return RuntimeResult{}, fmt.Errorf("invalid skill input: %w", err)
+	}
 	risk, err := manifest.AuthorizeExecution(ExecutionRequest{
 		Platform: request.Platform, ActiveParameters: request.ActiveParameters, SignedScope: request.SignedScope,
 	})
@@ -72,7 +93,7 @@ func (r *Runner) Run(ctx context.Context, manifest SkillManifest, request Runtim
 		}
 		return RuntimeResult{}, fmt.Errorf("execute skill %s: %w", manifest.Name, err)
 	}
-	if err := validateStructuredOutput(output); err != nil {
+	if err := runCtx.Err(); err != nil {
 		return RuntimeResult{}, err
 	}
 	encoded, err := json.Marshal(output)
@@ -82,13 +103,54 @@ func (r *Runner) Run(ctx context.Context, manifest SkillManifest, request Runtim
 	if int64(len(encoded)) > manifest.Runtime.OutputLimit {
 		return RuntimeResult{}, ErrOutputLimit
 	}
+	// Normalize typed slices and maps to their JSON representation.
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		return RuntimeResult{}, err
+	}
+	if err := manifest.outputValidator.Validate(output); err != nil {
+		return RuntimeResult{}, fmt.Errorf("%w: %v", ErrInvalidOutput, err)
+	}
+	if output["task_id"] != request.Input["task_id"] {
+		return RuntimeResult{}, fmt.Errorf("%w: task_id mismatch", ErrInvalidOutput)
+	}
+	if err := r.validateReferences(ctx, request.Input["task_id"].(string), output); err != nil {
+		return RuntimeResult{}, err
+	}
 	return RuntimeResult{Risk: risk, Output: output}, nil
 }
 
-func validateStructuredOutput(output map[string]interface{}) error {
-	for _, field := range []string{"task_id", "evidence_ids", "facts", "findings", "verification"} {
-		if _, ok := output[field]; !ok {
-			return fmt.Errorf("%w: missing %s", ErrInvalidOutput, field)
+func (r *Runner) validateReferences(ctx context.Context, taskID string, value interface{}) error {
+	switch value := value.(type) {
+	case map[string]interface{}:
+		if id, ok := value["task_id"]; ok && id != taskID {
+			return fmt.Errorf("%w: cross-task record", ErrInvalidOutput)
+		}
+		for key, child := range value {
+			if key == "evidence_ids" {
+				ids, ok := child.([]interface{})
+				if !ok {
+					return fmt.Errorf("%w: evidence_ids must be an array", ErrInvalidOutput)
+				}
+				for _, rawID := range ids {
+					id, ok := rawID.(string)
+					if !ok || id == "" || r.evidence == nil {
+						return fmt.Errorf("%w: evidence citation cannot be verified", ErrInvalidOutput)
+					}
+					item, _, err := r.evidence.GetEvidence(ctx, id)
+					if err != nil || item.TaskID != taskID || item.Completeness != evidence.CompletenessComplete {
+						return fmt.Errorf("%w: invalid evidence citation %s", ErrInvalidOutput, id)
+					}
+				}
+			}
+			if err := r.validateReferences(ctx, taskID, child); err != nil {
+				return err
+			}
+		}
+	case []interface{}:
+		for _, child := range value {
+			if err := r.validateReferences(ctx, taskID, child); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

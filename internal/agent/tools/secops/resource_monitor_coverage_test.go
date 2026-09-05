@@ -356,7 +356,7 @@ func remoteParams() *ResourceMonitorParams {
 func TestGetRemoteMetrics_CPU(t *testing.T) {
 	out := "%Cpu(s):  5.0 us,  2.0 sy, 90.0 id, 3.0 wa\n0.50 loadavg\n"
 	tool := newRemoteTool(out, nil)
-	m := tool.getRemoteMetrics("cpu", remoteParams())
+	m := tool.getRemoteMetrics(context.Background(), "cpu", remoteParams())
 	if len(m) != 3 {
 		t.Fatalf("期望3个cpu指标, got %d (%+v)", len(m), m)
 	}
@@ -373,7 +373,7 @@ func TestGetRemoteMetrics_CPU(t *testing.T) {
 
 func TestGetRemoteMetrics_CPU错误降级零值(t *testing.T) {
 	tool := newRemoteTool("", errors.New("ssh dial failed"))
-	m := tool.getRemoteMetrics("cpu", remoteParams())
+	m := tool.getRemoteMetrics(context.Background(), "cpu", remoteParams())
 	if len(m) != 3 {
 		t.Fatalf("错误路径仍应返回3个零值指标, got %d", len(m))
 	}
@@ -387,7 +387,7 @@ func TestGetRemoteMetrics_CPU错误降级零值(t *testing.T) {
 func TestGetRemoteMetrics_Memory解析(t *testing.T) {
 	out := "Mem: 17179869184 8589934592 0 0 6442450944 6442450944\n"
 	tool := newRemoteTool(out, nil)
-	m := tool.getRemoteMetrics("memory", remoteParams())
+	m := tool.getRemoteMetrics(context.Background(), "memory", remoteParams())
 	if len(m) != 5 {
 		t.Fatalf("期望5个memory指标, got %d (%+v)", len(m), m)
 	}
@@ -410,7 +410,7 @@ func TestGetRemoteMetrics_Memory解析(t *testing.T) {
 
 func TestGetRemoteMetrics_Memory错误返回nil(t *testing.T) {
 	tool := newRemoteTool("", errors.New("boom"))
-	if m := tool.getRemoteMetrics("memory", remoteParams()); m != nil {
+	if m := tool.getRemoteMetrics(context.Background(), "memory", remoteParams()); m != nil {
 		t.Errorf("memory错误路径应返回nil, got %+v", m)
 	}
 }
@@ -418,7 +418,7 @@ func TestGetRemoteMetrics_Memory错误返回nil(t *testing.T) {
 func TestGetRemoteMetrics_Disk解析(t *testing.T) {
 	out := "Filesystem 1K-blocks Used Avail Use% Mounted\n/dev/sda1 524288000 340000000 184288000 65% /\n"
 	tool := newRemoteTool(out, nil)
-	m := tool.getRemoteMetrics("disk", remoteParams())
+	m := tool.getRemoteMetrics(context.Background(), "disk", remoteParams())
 	if len(m) != 6 {
 		t.Fatalf("期望6个disk指标, got %d (%+v)", len(m), m)
 	}
@@ -436,7 +436,7 @@ func TestGetRemoteMetrics_Disk解析(t *testing.T) {
 
 func TestGetRemoteMetrics_Disk错误返回nil(t *testing.T) {
 	tool := newRemoteTool("", errors.New("boom"))
-	if m := tool.getRemoteMetrics("disk", remoteParams()); m != nil {
+	if m := tool.getRemoteMetrics(context.Background(), "disk", remoteParams()); m != nil {
 		t.Errorf("disk错误路径应返回nil, got %+v", m)
 	}
 }
@@ -444,7 +444,7 @@ func TestGetRemoteMetrics_Disk错误返回nil(t *testing.T) {
 func TestGetRemoteMetrics_Network解析(t *testing.T) {
 	out := "Inter-| recv | trans\n face | b p | b p\n eth0: 1048576 1000 0 0 0 0 0 0 2097152 2000 0 0 0 0 0 0\n"
 	tool := newRemoteTool(out, nil)
-	m := tool.getRemoteMetrics("network", remoteParams())
+	m := tool.getRemoteMetrics(context.Background(), "network", remoteParams())
 	if len(m) != 8 {
 		t.Fatalf("期望8个network指标, got %d (%+v)", len(m), m)
 	}
@@ -460,7 +460,7 @@ func TestGetRemoteMetrics_Network解析(t *testing.T) {
 func TestGetRemoteMetrics_Process解析(t *testing.T) {
 	out := "R 50.0 5.0\nS 1.0 2.0\nR 80.0 60.0\n"
 	tool := newRemoteTool(out, nil)
-	m := tool.getRemoteMetrics("process", remoteParams())
+	m := tool.getRemoteMetrics(context.Background(), "process", remoteParams())
 	if len(m) != 8 {
 		t.Fatalf("期望8个process指标, got %d (%+v)", len(m), m)
 	}
@@ -489,7 +489,7 @@ func TestGetRemoteMetrics_Process解析(t *testing.T) {
 
 func TestGetRemoteMetrics_未知metric返回nil(t *testing.T) {
 	tool := newRemoteTool("anything", nil)
-	if m := tool.getRemoteMetrics("unknown-metric", remoteParams()); m != nil {
+	if m := tool.getRemoteMetrics(context.Background(), "unknown-metric", remoteParams()); m != nil {
 		t.Errorf("未知metric应返回nil, got %+v", m)
 	}
 }
@@ -503,7 +503,7 @@ func TestRunRemoteCommand_成功路径(t *testing.T) {
 		gotArgs = append([]string(nil), args...)
 		return []byte("remote-output"), nil, nil
 	}
-	out, err := tool.runRemoteCommand(remoteParams(), "uptime")
+	out, err := tool.runRemoteCommand(context.Background(), remoteParams(), "uptime")
 	if err != nil {
 		t.Fatalf("期望无错误, got %v", err)
 	}
@@ -524,7 +524,7 @@ func TestRunRemoteCommand_错误且有stdout仍返回stdout(t *testing.T) {
 		// cmdErr != nil 但 stdout 非空：函数保留 stdout 返回
 		return []byte("partial"), []byte("ignored"), errors.New("exit code 1")
 	}
-	out, err := tool.runRemoteCommand(remoteParams(), "top")
+	out, err := tool.runRemoteCommand(context.Background(), remoteParams(), "top")
 	if err != nil {
 		t.Fatalf("stdout非空时不应返回错误, got %v", err)
 	}
@@ -538,7 +538,7 @@ func TestRunRemoteCommand_错误且空stdout返回error(t *testing.T) {
 	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 		return nil, []byte("permission denied"), errors.New("exit 255")
 	}
-	out, err := tool.runRemoteCommand(remoteParams(), "uptime")
+	out, err := tool.runRemoteCommand(context.Background(), remoteParams(), "uptime")
 	if err == nil {
 		t.Fatal("期望错误, got nil")
 	}
@@ -553,7 +553,7 @@ func TestRunRemoteCommand_错误且空stdout返回error(t *testing.T) {
 	tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 		return nil, nil, errors.New("dial tcp: timeout")
 	}
-	if _, err := tool.runRemoteCommand(remoteParams(), "uptime"); err == nil ||
+	if _, err := tool.runRemoteCommand(context.Background(), remoteParams(), "uptime"); err == nil ||
 		!strings.Contains(err.Error(), "dial tcp: timeout") {
 		t.Errorf("空stderr应回退到cmdErr, got %v", err)
 	}
@@ -685,7 +685,7 @@ func TestSampleNetwork_非Linux返回零(t *testing.T) {
 
 func TestSampleCPUUsage_无CPUStat环境返回零(t *testing.T) {
 	// readCPUStat 失败 → 直接 (0,0)，不睡眠。interval 极小避免拖慢。
-	usage, iowait := sampleCPUUsage(time.Millisecond)
+	usage, iowait := sampleCPUUsage(context.Background(), time.Millisecond)
 	if usage != 0 || iowait != 0 {
 		t.Errorf("无CPU stat 环境 sampleCPUUsage 应为 (0,0), got (%v,%v)", usage, iowait)
 	}

@@ -203,7 +203,7 @@ func (cct *ComplianceCheckTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (cct *ComplianceCheckTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*ComplianceCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -249,8 +249,24 @@ func (cct *ComplianceCheckTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (cct *ComplianceCheckTool) Execute(params interface{}) (interface{}, error) {
+	return cct.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (cct *ComplianceCheckTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := cct.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (cct *ComplianceCheckTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*ComplianceCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -259,14 +275,14 @@ func (cct *ComplianceCheckTool) Execute(params interface{}) (interface{}, error)
 	}
 
 	// 执行合规检查
-	result := cct.runComplianceCheck(p)
+	result := cct.runComplianceCheck(parentCtx, p)
 	return result, nil
 }
 
 // 私有方法
 
 // runComplianceCheck 运行合规检查
-func (cct *ComplianceCheckTool) runComplianceCheck(params *ComplianceCheckParams) *ComplianceCheckResult {
+func (cct *ComplianceCheckTool) runComplianceCheck(parentCtx context.Context, params *ComplianceCheckParams) *ComplianceCheckResult {
 	result := &ComplianceCheckResult{
 		Framework:       params.Framework,
 		CheckTime:       time.Now(),
@@ -284,7 +300,7 @@ func (cct *ComplianceCheckTool) runComplianceCheck(params *ComplianceCheckParams
 
 	// 执行检查
 	for _, rule := range rules {
-		cct.checkRule(rule, params.Full, params)
+		cct.checkRule(parentCtx, rule, params.Full, params)
 		result.Rules = append(result.Rules, rule)
 
 		// 统计
@@ -574,51 +590,51 @@ func (cct *ComplianceCheckTool) filterRulesByID(rules []*ComplianceRule, ruleIDs
 }
 
 // checkRule 检查单个规则
-func (cct *ComplianceCheckTool) checkRule(rule *ComplianceRule, full bool, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) checkRule(parentCtx context.Context, rule *ComplianceRule, full bool, params *ComplianceCheckParams) {
 	rule.LastChecked = time.Now()
-	cct.evaluateRule(rule, params)
+	cct.evaluateRule(parentCtx, rule, params)
 	if rule.Status == StatusFailed && full {
 		rule.Evidence = "Detailed check: " + rule.Evidence
 	}
 }
 
-func (cct *ComplianceCheckTool) evaluateRule(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evaluateRule(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	switch rule.ID {
 	case "cis_1_1":
-		cct.evalCISFilesystem(rule, params)
+		cct.evalCISFilesystem(parentCtx, rule, params)
 	case "cis_2_1":
-		cct.evalCISXWindow(rule, params)
+		cct.evalCISXWindow(parentCtx, rule, params)
 	case "cis_3_1":
-		cct.evalCISIPForward(rule, params)
+		cct.evalCISIPForward(parentCtx, rule, params)
 	case "pci_2_1":
 		cct.evalPCIDefaults(rule)
 	case "soc2_cc1":
-		cct.evalSOC2AccessControl(rule, params)
+		cct.evalSOC2AccessControl(parentCtx, rule, params)
 	case "hipaa_164_308":
-		cct.evalHIPAASafeguards(rule, params)
+		cct.evalHIPAASafeguards(parentCtx, rule, params)
 	case "gdpr_30_1":
-		cct.evalGDPRDataAccessRecords(rule, params)
+		cct.evalGDPRDataAccessRecords(parentCtx, rule, params)
 	case "gdpr_32_1":
-		cct.evalGDPREncryption(rule, params)
+		cct.evalGDPREncryption(parentCtx, rule, params)
 	case "gdpr_5_1_e":
-		cct.evalGDPRRetention(rule, params)
+		cct.evalGDPRRetention(parentCtx, rule, params)
 	case "iso27001_5_1":
-		cct.evalISO27001Policy(rule, params)
+		cct.evalISO27001Policy(parentCtx, rule, params)
 	case "iso27001_8_15":
-		cct.evalISO27001Logging(rule, params)
+		cct.evalISO27001Logging(parentCtx, rule, params)
 	case "iso27001_8_3":
-		cct.evalISO27001AccessControl(rule, params)
+		cct.evalISO27001AccessControl(parentCtx, rule, params)
 	case "docker_bench_1_1":
-		cct.evalDockerBenchDaemonConfig(rule, params)
+		cct.evalDockerBenchDaemonConfig(parentCtx, rule, params)
 	case "docker_bench_1_2":
-		cct.evalDockerBenchSocketPermissions(rule, params)
+		cct.evalDockerBenchSocketPermissions(parentCtx, rule, params)
 	case "docker_bench_1_3":
-		cct.evalDockerBenchIPForward(rule, params)
+		cct.evalDockerBenchIPForward(parentCtx, rule, params)
 	}
 }
 
-func (cct *ComplianceCheckTool) evalCISFilesystem(rule *ComplianceRule, params *ComplianceCheckParams) {
-	info, err := cct.statPath(params, "/etc/fstab")
+func (cct *ComplianceCheckTool) evalCISFilesystem(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
+	info, err := cct.statPath(parentCtx, params, "/etc/fstab")
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot verify /etc/fstab: %v", err)
@@ -634,14 +650,14 @@ func (cct *ComplianceCheckTool) evalCISFilesystem(rule *ComplianceRule, params *
 	rule.Evidence = fmt.Sprintf("/etc/fstab permissions are restricted (%#o)", mode)
 }
 
-func (cct *ComplianceCheckTool) evalCISXWindow(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalCISXWindow(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	xPaths := []string{
 		"/usr/bin/Xorg",
 		"/usr/bin/startx",
 		"/usr/X11/bin/Xorg",
 	}
 	for _, p := range xPaths {
-		if _, err := cct.statPath(params, p); err == nil {
+		if _, err := cct.statPath(parentCtx, params, p); err == nil {
 			rule.Status = StatusWarning
 			rule.Evidence = fmt.Sprintf("X Window component detected: %s", p)
 			return
@@ -651,8 +667,8 @@ func (cct *ComplianceCheckTool) evalCISXWindow(rule *ComplianceRule, params *Com
 	rule.Evidence = "X Window System binaries not detected"
 }
 
-func (cct *ComplianceCheckTool) evalCISIPForward(rule *ComplianceRule, params *ComplianceCheckParams) {
-	data, err := cct.readFile(params, "/proc/sys/net/ipv4/ip_forward")
+func (cct *ComplianceCheckTool) evalCISIPForward(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
+	data, err := cct.readFile(parentCtx, params, "/proc/sys/net/ipv4/ip_forward")
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot read ip_forward: %v", err)
@@ -691,7 +707,7 @@ func (cct *ComplianceCheckTool) evalPCIDefaults(rule *ComplianceRule) {
 	rule.Evidence = "No obvious vendor default credentials detected"
 }
 
-func (cct *ComplianceCheckTool) evalSOC2AccessControl(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalSOC2AccessControl(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	type target struct {
 		path    string
 		maxPerm os.FileMode
@@ -701,7 +717,7 @@ func (cct *ComplianceCheckTool) evalSOC2AccessControl(rule *ComplianceRule, para
 		{path: "/etc/shadow", maxPerm: 0o640},
 	}
 	for _, t := range targets {
-		info, err := cct.statPath(params, t.path)
+		info, err := cct.statPath(parentCtx, params, t.path)
 		if err != nil {
 			rule.Status = StatusWarning
 			rule.Evidence = fmt.Sprintf("cannot verify %s: %v", t.path, err)
@@ -718,14 +734,14 @@ func (cct *ComplianceCheckTool) evalSOC2AccessControl(rule *ComplianceRule, para
 	rule.Evidence = "Critical account files have restricted permissions"
 }
 
-func (cct *ComplianceCheckTool) evalHIPAASafeguards(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalHIPAASafeguards(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	auditCandidates := []string{
 		"/var/log/audit/audit.log",
 		"/var/log/auth.log",
 		"/var/log/secure",
 	}
 	for _, p := range auditCandidates {
-		info, err := cct.statPath(params, p)
+		info, err := cct.statPath(parentCtx, params, p)
 		if err != nil {
 			continue
 		}
@@ -740,9 +756,9 @@ func (cct *ComplianceCheckTool) evalHIPAASafeguards(rule *ComplianceRule, params
 	rule.Evidence = "audit trail files not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalGDPRDataAccessRecords(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalGDPRDataAccessRecords(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range gdprDataAccessLogPaths {
-		info, err := cct.statPath(params, path)
+		info, err := cct.statPath(parentCtx, params, path)
 		if err != nil || info.IsDir || info.Size == 0 {
 			continue
 		}
@@ -754,9 +770,9 @@ func (cct *ComplianceCheckTool) evalGDPRDataAccessRecords(rule *ComplianceRule, 
 	rule.Evidence = "personal data access records not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalGDPREncryption(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalGDPREncryption(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range gdprEncryptionConfigPaths {
-		data, err := cct.readFile(params, path)
+		data, err := cct.readFile(parentCtx, params, path)
 		if err != nil || len(data) == 0 {
 			continue
 		}
@@ -774,9 +790,9 @@ func (cct *ComplianceCheckTool) evalGDPREncryption(rule *ComplianceRule, params 
 	rule.Evidence = "encryption configuration not found"
 }
 
-func (cct *ComplianceCheckTool) evalGDPRRetention(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalGDPRRetention(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range gdprRetentionPolicyPaths {
-		data, err := cct.readFile(params, path)
+		data, err := cct.readFile(parentCtx, params, path)
 		if err != nil || len(data) == 0 {
 			continue
 		}
@@ -806,9 +822,9 @@ func (cct *ComplianceCheckTool) evalGDPRRetention(rule *ComplianceRule, params *
 	rule.Evidence = "data retention policy not found"
 }
 
-func (cct *ComplianceCheckTool) evalISO27001Policy(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalISO27001Policy(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range iso27001PolicyPaths {
-		info, err := cct.statPath(params, path)
+		info, err := cct.statPath(parentCtx, params, path)
 		if err != nil {
 			continue
 		}
@@ -823,9 +839,9 @@ func (cct *ComplianceCheckTool) evalISO27001Policy(rule *ComplianceRule, params 
 	rule.Evidence = "security policy file not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalISO27001Logging(rule *ComplianceRule, params *ComplianceCheckParams) {
+func (cct *ComplianceCheckTool) evalISO27001Logging(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
 	for _, path := range iso27001AuditLogPaths {
-		info, err := cct.statPath(params, path)
+		info, err := cct.statPath(parentCtx, params, path)
 		if err != nil {
 			continue
 		}
@@ -840,8 +856,8 @@ func (cct *ComplianceCheckTool) evalISO27001Logging(rule *ComplianceRule, params
 	rule.Evidence = "audit logs not found or empty"
 }
 
-func (cct *ComplianceCheckTool) evalISO27001AccessControl(rule *ComplianceRule, params *ComplianceCheckParams) {
-	info, err := cct.statPath(params, iso27001AccessControlPath)
+func (cct *ComplianceCheckTool) evalISO27001AccessControl(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
+	info, err := cct.statPath(parentCtx, params, iso27001AccessControlPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot verify %s: %v", iso27001AccessControlPath, err)
@@ -866,8 +882,8 @@ func (cct *ComplianceCheckTool) evalISO27001AccessControl(rule *ComplianceRule, 
 	rule.Evidence = fmt.Sprintf("%s permissions are restricted (%#o)", iso27001AccessControlPath, mode)
 }
 
-func (cct *ComplianceCheckTool) evalDockerBenchDaemonConfig(rule *ComplianceRule, params *ComplianceCheckParams) {
-	data, err := cct.readFile(params, dockerBenchDaemonConfigPath)
+func (cct *ComplianceCheckTool) evalDockerBenchDaemonConfig(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
+	data, err := cct.readFile(parentCtx, params, dockerBenchDaemonConfigPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot read %s: %v", dockerBenchDaemonConfigPath, err)
@@ -901,8 +917,8 @@ func (cct *ComplianceCheckTool) evalDockerBenchDaemonConfig(rule *ComplianceRule
 	rule.Evidence = fmt.Sprintf("daemon config %s does not enable core hardening controls", dockerBenchDaemonConfigPath)
 }
 
-func (cct *ComplianceCheckTool) evalDockerBenchSocketPermissions(rule *ComplianceRule, params *ComplianceCheckParams) {
-	info, err := cct.statPath(params, dockerBenchSocketPath)
+func (cct *ComplianceCheckTool) evalDockerBenchSocketPermissions(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
+	info, err := cct.statPath(parentCtx, params, dockerBenchSocketPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot verify %s: %v", dockerBenchSocketPath, err)
@@ -926,8 +942,8 @@ func (cct *ComplianceCheckTool) evalDockerBenchSocketPermissions(rule *Complianc
 	rule.Evidence = fmt.Sprintf("docker socket permissions are restricted (%#o)", mode)
 }
 
-func (cct *ComplianceCheckTool) evalDockerBenchIPForward(rule *ComplianceRule, params *ComplianceCheckParams) {
-	data, err := cct.readFile(params, dockerBenchIPForwardPath)
+func (cct *ComplianceCheckTool) evalDockerBenchIPForward(parentCtx context.Context, rule *ComplianceRule, params *ComplianceCheckParams) {
+	data, err := cct.readFile(parentCtx, params, dockerBenchIPForwardPath)
 	if err != nil {
 		rule.Status = StatusWarning
 		rule.Evidence = fmt.Sprintf("cannot read %s: %v", dockerBenchIPForwardPath, err)
@@ -1013,7 +1029,7 @@ type compliancePathInfo struct {
 	Perm  os.FileMode
 }
 
-func (cct *ComplianceCheckTool) statPath(params *ComplianceCheckParams, path string) (*compliancePathInfo, error) {
+func (cct *ComplianceCheckTool) statPath(parentCtx context.Context, params *ComplianceCheckParams, path string) (*compliancePathInfo, error) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -1026,7 +1042,7 @@ func (cct *ComplianceCheckTool) statPath(params *ComplianceCheckParams, path str
 		}, nil
 	}
 	cmd := "stat -c '%F|%s|%a' " + shellQuoteCompliance(path)
-	out, err := cct.runRemoteCommand(params, cmd)
+	out, err := cct.runRemoteCommand(parentCtx, params, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -1049,18 +1065,21 @@ func (cct *ComplianceCheckTool) statPath(params *ComplianceCheckParams, path str
 	}, nil
 }
 
-func (cct *ComplianceCheckTool) readFile(params *ComplianceCheckParams, path string) ([]byte, error) {
+func (cct *ComplianceCheckTool) readFile(parentCtx context.Context, params *ComplianceCheckParams, path string) ([]byte, error) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
 		return os.ReadFile(path)
 	}
-	out, err := cct.runRemoteCommand(params, "cat "+shellQuoteCompliance(path))
+	out, err := cct.runRemoteCommand(parentCtx, params, "cat "+shellQuoteCompliance(path))
 	if err != nil {
 		return nil, err
 	}
 	return []byte(out), nil
 }
 
-func (cct *ComplianceCheckTool) runRemoteCommand(params *ComplianceCheckParams, remoteCommand string) (string, error) {
+func (cct *ComplianceCheckTool) runRemoteCommand(parentCtx context.Context, params *ComplianceCheckParams, remoteCommand string) (string, error) {
+	if err := parentCtx.Err(); err != nil {
+		return "", err
+	}
 	if params == nil {
 		return "", fmt.Errorf("remote params are required")
 	}
@@ -1088,7 +1107,7 @@ func (cct *ComplianceCheckTool) runRemoteCommand(params *ComplianceCheckParams, 
 	}
 	args = append(args, target, "sh", "-lc", remoteCommand)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 20*time.Second)
 	defer cancel()
 	out, err := cct.runCmd(ctx, "ssh", args...)
 	if err != nil {

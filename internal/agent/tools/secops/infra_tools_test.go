@@ -2073,7 +2073,7 @@ echo '[]'
 		t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 
-	costs := tool.getGCPCostsFromCLI(&InfrastructureQueryParams{
+	costs := tool.getGCPCostsFromCLI(context.Background(), &InfrastructureQueryParams{
 		SystemType: "gcp",
 		QueryType:  "costs",
 	})
@@ -2113,7 +2113,7 @@ echo '[]'
 		t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 
-	costs := tool.getAzureCostsFromCLI(&InfrastructureQueryParams{
+	costs := tool.getAzureCostsFromCLI(context.Background(), &InfrastructureQueryParams{
 		SystemType: "azure",
 		QueryType:  "costs",
 	})

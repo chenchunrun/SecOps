@@ -80,7 +80,7 @@ func (rmt *ResourceMonitorTool) RequiredCapabilities() []string {
 // ValidateParams implements Tool.ValidateParams
 func (rmt *ResourceMonitorTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*ResourceMonitorParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -123,8 +123,24 @@ func (rmt *ResourceMonitorTool) ValidateParams(params interface{}) error {
 
 // Execute implements Tool.Execute
 func (rmt *ResourceMonitorTool) Execute(params interface{}) (interface{}, error) {
+	return rmt.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (rmt *ResourceMonitorTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := rmt.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (rmt *ResourceMonitorTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*ResourceMonitorParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -132,11 +148,11 @@ func (rmt *ResourceMonitorTool) Execute(params interface{}) (interface{}, error)
 		return nil, err
 	}
 
-	return rmt.performMonitoring(p), nil
+	return rmt.performMonitoring(parentCtx, p), nil
 }
 
 // performMonitoring executes the resource monitoring
-func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams) *ResourceMonitorResult {
+func (rmt *ResourceMonitorTool) performMonitoring(parentCtx context.Context, params *ResourceMonitorParams) *ResourceMonitorResult {
 	result := &ResourceMonitorResult{
 		Target:  params.Target,
 		Metrics: make([]ResourceMetric, 0),
@@ -155,7 +171,7 @@ func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams)
 	// Gather metrics from remote host over SSH when explicitly requested.
 	if strings.TrimSpace(params.RemoteHost) != "" {
 		for _, metric := range params.Metrics {
-			result.Metrics = append(result.Metrics, rmt.getRemoteMetrics(metric, params)...)
+			result.Metrics = append(result.Metrics, rmt.getRemoteMetrics(parentCtx, metric, params)...)
 		}
 		rmt.detectAnomalies(result)
 		return result
@@ -165,15 +181,15 @@ func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams)
 	for _, metric := range params.Metrics {
 		switch metric {
 		case "cpu":
-			result.Metrics = append(result.Metrics, rmt.getCPUMetrics(params.Target, interval, duration)...)
+			result.Metrics = append(result.Metrics, rmt.getCPUMetrics(parentCtx, params.Target, interval, duration)...)
 		case "memory":
-			result.Metrics = append(result.Metrics, rmt.getMemoryMetrics(params.Target)...)
+			result.Metrics = append(result.Metrics, rmt.getMemoryMetrics(parentCtx, params.Target)...)
 		case "disk":
-			result.Metrics = append(result.Metrics, rmt.getDiskMetrics(params.Target)...)
+			result.Metrics = append(result.Metrics, rmt.getDiskMetrics(parentCtx, params.Target)...)
 		case "network":
-			result.Metrics = append(result.Metrics, rmt.getNetworkMetrics(params.Target)...)
+			result.Metrics = append(result.Metrics, rmt.getNetworkMetrics(parentCtx, params.Target)...)
 		case "process":
-			result.Metrics = append(result.Metrics, rmt.getProcessMetrics(params.Target)...)
+			result.Metrics = append(result.Metrics, rmt.getProcessMetrics(parentCtx, params.Target)...)
 		}
 	}
 
@@ -183,11 +199,11 @@ func (rmt *ResourceMonitorTool) performMonitoring(params *ResourceMonitorParams)
 	return result
 }
 
-func (rmt *ResourceMonitorTool) getRemoteMetrics(metric string, params *ResourceMonitorParams) []ResourceMetric {
+func (rmt *ResourceMonitorTool) getRemoteMetrics(parentCtx context.Context, metric string, params *ResourceMonitorParams) []ResourceMetric {
 	now := time.Now()
 	switch metric {
 	case "cpu":
-		out, err := rmt.runRemoteCommand(params, "top -bn1 2>/dev/null | head -n 5; cat /proc/loadavg 2>/dev/null")
+		out, err := rmt.runRemoteCommand(parentCtx, params, "top -bn1 2>/dev/null | head -n 5; cat /proc/loadavg 2>/dev/null")
 		if err != nil {
 			return []ResourceMetric{
 				{Name: "cpu_usage_percent", Value: 0, Unit: "%", Timestamp: now},
@@ -202,7 +218,7 @@ func (rmt *ResourceMonitorTool) getRemoteMetrics(metric string, params *Resource
 			{Name: "cpu_iowait_percent", Value: iowait, Unit: "%", Timestamp: now},
 		}
 	case "memory":
-		out, err := rmt.runRemoteCommand(params, "free -b 2>/dev/null || cat /proc/meminfo 2>/dev/null")
+		out, err := rmt.runRemoteCommand(parentCtx, params, "free -b 2>/dev/null || cat /proc/meminfo 2>/dev/null")
 		if err != nil {
 			return nil
 		}
@@ -219,7 +235,7 @@ func (rmt *ResourceMonitorTool) getRemoteMetrics(metric string, params *Resource
 			{Name: "swap_usage_percent", Value: swapPct, Unit: "%", Timestamp: now},
 		}
 	case "disk":
-		out, err := rmt.runRemoteCommand(params, "df -k / 2>/dev/null")
+		out, err := rmt.runRemoteCommand(parentCtx, params, "df -k / 2>/dev/null")
 		if err != nil {
 			return nil
 		}
@@ -237,7 +253,7 @@ func (rmt *ResourceMonitorTool) getRemoteMetrics(metric string, params *Resource
 			{Name: "disk_io_write_mb_s", Value: 0, Unit: "MB/s", Timestamp: now},
 		}
 	case "network":
-		out, err := rmt.runRemoteCommand(params, "cat /proc/net/dev 2>/dev/null")
+		out, err := rmt.runRemoteCommand(parentCtx, params, "cat /proc/net/dev 2>/dev/null")
 		if err != nil {
 			return nil
 		}
@@ -253,7 +269,7 @@ func (rmt *ResourceMonitorTool) getRemoteMetrics(metric string, params *Resource
 			{Name: "network_drop_rate", Value: 0.0, Unit: "%", Timestamp: now},
 		}
 	case "process":
-		out, err := rmt.runRemoteCommand(params, "ps -A -o state=,%cpu=,%mem= 2>/dev/null")
+		out, err := rmt.runRemoteCommand(parentCtx, params, "ps -A -o state=,%cpu=,%mem= 2>/dev/null")
 		if err != nil {
 			return nil
 		}
@@ -340,7 +356,7 @@ func (rmt *ResourceMonitorTool) detectAnomalies(result *ResourceMonitorResult) {
 }
 
 // getCPUMetrics gathers CPU metrics
-func (rmt *ResourceMonitorTool) getCPUMetrics(target string, interval, duration time.Duration) []ResourceMetric {
+func (rmt *ResourceMonitorTool) getCPUMetrics(parentCtx context.Context, target string, interval, duration time.Duration) []ResourceMetric {
 	if !isLocalTarget(target) {
 		return []ResourceMetric{
 			{Name: "cpu_usage_percent", Value: 60.0, Unit: "%", Timestamp: time.Now()},
@@ -350,8 +366,8 @@ func (rmt *ResourceMonitorTool) getCPUMetrics(target string, interval, duration 
 	}
 
 	now := time.Now()
-	usage, iowait := sampleCPUUsage(interval)
-	load := sampleLoadAverage()
+	usage, iowait := sampleCPUUsage(parentCtx, interval)
+	load := sampleLoadAverage(parentCtx)
 	return []ResourceMetric{
 		{Name: "cpu_usage_percent", Value: usage, Unit: "%", Timestamp: now},
 		{Name: "load_avg_1m", Value: load, Unit: "", Timestamp: now},
@@ -360,7 +376,7 @@ func (rmt *ResourceMonitorTool) getCPUMetrics(target string, interval, duration 
 }
 
 // getMemoryMetrics gathers memory metrics
-func (rmt *ResourceMonitorTool) getMemoryMetrics(target string) []ResourceMetric {
+func (rmt *ResourceMonitorTool) getMemoryMetrics(parentCtx context.Context, target string) []ResourceMetric {
 	if !isLocalTarget(target) {
 		return []ResourceMetric{
 			{Name: "memory_total_gb", Value: 32.0, Unit: "GB", Timestamp: time.Now()},
@@ -371,7 +387,7 @@ func (rmt *ResourceMonitorTool) getMemoryMetrics(target string) []ResourceMetric
 		}
 	}
 
-	total, used, available, swapUsedPct := sampleMemory()
+	total, used, available, swapUsedPct := sampleMemory(parentCtx)
 	usagePct := 0.0
 	if total > 0 {
 		usagePct = (used / total) * 100
@@ -386,7 +402,7 @@ func (rmt *ResourceMonitorTool) getMemoryMetrics(target string) []ResourceMetric
 }
 
 // getDiskMetrics gathers disk metrics
-func (rmt *ResourceMonitorTool) getDiskMetrics(target string) []ResourceMetric {
+func (rmt *ResourceMonitorTool) getDiskMetrics(parentCtx context.Context, target string) []ResourceMetric {
 	if !isLocalTarget(target) {
 		return []ResourceMetric{
 			{Name: "disk_total_gb", Value: 500.0, Unit: "GB", Timestamp: time.Now()},
@@ -398,7 +414,7 @@ func (rmt *ResourceMonitorTool) getDiskMetrics(target string) []ResourceMetric {
 		}
 	}
 
-	total, used, inodesPct := sampleDisk("/")
+	total, used, inodesPct := sampleDisk(parentCtx, "/")
 	usagePct := 0.0
 	if total > 0 {
 		usagePct = (used / total) * 100
@@ -414,7 +430,7 @@ func (rmt *ResourceMonitorTool) getDiskMetrics(target string) []ResourceMetric {
 }
 
 // getNetworkMetrics gathers network metrics
-func (rmt *ResourceMonitorTool) getNetworkMetrics(target string) []ResourceMetric {
+func (rmt *ResourceMonitorTool) getNetworkMetrics(parentCtx context.Context, target string) []ResourceMetric {
 	if !isLocalTarget(target) {
 		return []ResourceMetric{
 			{Name: "network_bytes_in_sec", Value: 1024.5, Unit: "KB/s", Timestamp: time.Now()},
@@ -429,8 +445,8 @@ func (rmt *ResourceMonitorTool) getNetworkMetrics(target string) []ResourceMetri
 	}
 
 	inKBs, outKBs, pktIn, pktOut := sampleNetwork()
-	conns := sampleConnectionCount()
-	latencyMS := sampleLocalLookupLatencyMS()
+	conns := sampleConnectionCount(parentCtx)
+	latencyMS := sampleLocalLookupLatencyMS(parentCtx)
 	return []ResourceMetric{
 		{Name: "network_bytes_in_sec", Value: inKBs, Unit: "KB/s", Timestamp: time.Now()},
 		{Name: "network_bytes_out_sec", Value: outKBs, Unit: "KB/s", Timestamp: time.Now()},
@@ -444,7 +460,7 @@ func (rmt *ResourceMonitorTool) getNetworkMetrics(target string) []ResourceMetri
 }
 
 // getProcessMetrics gathers process-level metrics
-func (rmt *ResourceMonitorTool) getProcessMetrics(target string) []ResourceMetric {
+func (rmt *ResourceMonitorTool) getProcessMetrics(parentCtx context.Context, target string) []ResourceMetric {
 	if !isLocalTarget(target) {
 		return []ResourceMetric{
 			{Name: "total_processes", Value: 300, Unit: "", Timestamp: time.Now()},
@@ -458,7 +474,7 @@ func (rmt *ResourceMonitorTool) getProcessMetrics(target string) []ResourceMetri
 		}
 	}
 
-	total, running, topCPU, topMem := sampleProcessStats()
+	total, running, topCPU, topMem := sampleProcessStats(parentCtx)
 	return []ResourceMetric{
 		{Name: "total_processes", Value: total, Unit: "", Timestamp: time.Now()},
 		{Name: "running_processes", Value: running, Unit: "", Timestamp: time.Now()},
@@ -471,7 +487,7 @@ func (rmt *ResourceMonitorTool) getProcessMetrics(target string) []ResourceMetri
 	}
 }
 
-func sampleCPUUsage(interval time.Duration) (usagePercent float64, iowaitPercent float64) {
+func sampleCPUUsage(parentCtx context.Context, interval time.Duration) (usagePercent float64, iowaitPercent float64) {
 	if interval <= 0 {
 		interval = 100 * time.Millisecond
 	}
@@ -483,7 +499,13 @@ func sampleCPUUsage(interval time.Duration) (usagePercent float64, iowaitPercent
 	if !ok {
 		return 0, 0
 	}
-	time.Sleep(interval)
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-parentCtx.Done():
+		return 0, 0
+	case <-timer.C:
+	}
 	b, ok := readCPUStat()
 	if !ok {
 		return 0, 0
@@ -542,7 +564,7 @@ func readCPUStat() (cpuSample, bool) {
 	return cpuSample{}, false
 }
 
-func sampleLoadAverage() float64 {
+func sampleLoadAverage(parentCtx context.Context) float64 {
 	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
 		fields := strings.Fields(string(data))
 		if len(fields) > 0 {
@@ -551,7 +573,7 @@ func sampleLoadAverage() float64 {
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "uptime").Output()
@@ -578,11 +600,11 @@ func sampleLoadAverage() float64 {
 	return 0
 }
 
-func sampleMemory() (total, used, available, swapUsedPct float64) {
+func sampleMemory(parentCtx context.Context) (total, used, available, swapUsedPct float64) {
 	if runtime.GOOS == "linux" {
 		return sampleMemoryLinux()
 	}
-	return sampleMemoryDarwin()
+	return sampleMemoryDarwin(parentCtx)
 }
 
 func sampleMemoryLinux() (total, used, available, swapUsedPct float64) {
@@ -617,8 +639,8 @@ func sampleMemoryLinux() (total, used, available, swapUsedPct float64) {
 	return total, used, available, clampPercent(swapUsedPct)
 }
 
-func sampleMemoryDarwin() (total, used, available, swapUsedPct float64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func sampleMemoryDarwin(parentCtx context.Context) (total, used, available, swapUsedPct float64) {
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	totalOut, err := exec.CommandContext(ctx, "sysctl", "-n", "hw.memsize").Output()
@@ -629,7 +651,7 @@ func sampleMemoryDarwin() (total, used, available, swapUsedPct float64) {
 	if err != nil {
 		return 0, 0, 0, 0
 	}
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 	vmOut, err := exec.CommandContext(ctx, "vm_stat").Output()
 	if err != nil {
@@ -668,8 +690,8 @@ func parseVMStatPages(output []byte, label string) float64 {
 	return 0
 }
 
-func sampleDisk(path string) (total, used, inodesPct float64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func sampleDisk(parentCtx context.Context, path string) (total, used, inodesPct float64) {
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "df", "-k", path).Output()
@@ -735,8 +757,8 @@ func sampleNetwork() (inKBs, outKBs, pktIn, pktOut float64) {
 	return 0, 0, 0, 0
 }
 
-func sampleConnectionCount() float64 {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func sampleConnectionCount(parentCtx context.Context) float64 {
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "netstat", "-an").Output()
@@ -752,8 +774,8 @@ func sampleConnectionCount() float64 {
 	return count
 }
 
-func sampleProcessStats() (total, running, topCPU, topMem float64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func sampleProcessStats(parentCtx context.Context) (total, running, topCPU, topMem float64) {
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "ps", "-A", "-o", "state=,%cpu=,%mem=").Output()
@@ -785,9 +807,9 @@ func sampleProcessStats() (total, running, topCPU, topMem float64) {
 	return total, running, topCPU, topMem
 }
 
-func sampleLocalLookupLatencyMS() float64 {
+func sampleLocalLookupLatencyMS(parentCtx context.Context) float64 {
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 2*time.Second)
 	defer cancel()
 
 	_, err := (&net.Resolver{}).LookupHost(ctx, "localhost")
@@ -797,7 +819,10 @@ func sampleLocalLookupLatencyMS() float64 {
 	return float64(time.Since(start).Microseconds()) / 1000
 }
 
-func (rmt *ResourceMonitorTool) runRemoteCommand(params *ResourceMonitorParams, command string) ([]byte, error) {
+func (rmt *ResourceMonitorTool) runRemoteCommand(parentCtx context.Context, params *ResourceMonitorParams, command string) ([]byte, error) {
+	if err := parentCtx.Err(); err != nil {
+		return nil, err
+	}
 	if rmt.runCmd == nil {
 		rmt.runCmd = runResourceCommand
 	}
@@ -805,7 +830,7 @@ func (rmt *ResourceMonitorTool) runRemoteCommand(params *ResourceMonitorParams, 
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 45*time.Second)
 	defer cancel()
 	stdout, stderr, cmdErr := rmt.runCmd(ctx, "ssh", sshArgs...)
 	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {

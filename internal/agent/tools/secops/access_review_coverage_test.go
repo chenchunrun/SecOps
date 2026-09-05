@@ -65,7 +65,7 @@ func TestAccessReviewTool_getAWSAccessEntries_ParsesIAMJSON(t *testing.T) {
 	makePathStub(t, tmp, "aws", body)
 	prependToPATH(t, tmp)
 
-	entries := tool.getAWSAccessEntries(&AccessReviewParams{SystemType: "aws"})
+	entries := tool.getAWSAccessEntries(t.Context(), &AccessReviewParams{SystemType: "aws"})
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
@@ -111,7 +111,7 @@ func TestAccessReviewTool_getAWSAccessEntries_NoCLIGraceful(t *testing.T) {
 	makeMissingStub(t, tmp, "aws")
 	prependToPATH(t, tmp)
 
-	entries := tool.getAWSAccessEntries(&AccessReviewParams{SystemType: "aws"})
+	entries := tool.getAWSAccessEntries(t.Context(), &AccessReviewParams{SystemType: "aws"})
 	if entries != nil {
 		t.Fatalf("expected nil entries when aws CLI absent, got %v", entries)
 	}
@@ -126,7 +126,7 @@ func TestAccessReviewTool_getAWSAccessEntries_GarbageOutput(t *testing.T) {
 	makePathStub(t, tmp, "aws", "not valid json at all")
 	prependToPATH(t, tmp)
 
-	entries := tool.getAWSAccessEntries(&AccessReviewParams{SystemType: "aws"})
+	entries := tool.getAWSAccessEntries(t.Context(), &AccessReviewParams{SystemType: "aws"})
 	if entries != nil {
 		t.Fatalf("expected nil on unparseable aws output, got %v", entries)
 	}
@@ -148,7 +148,7 @@ func TestAccessReviewTool_getGCPAccessEntries_ParsesIamPolicy(t *testing.T) {
 	makePathStub(t, tmp, "gcloud", body)
 	prependToPATH(t, tmp)
 
-	entries := tool.getGCPAccessEntries(&AccessReviewParams{
+	entries := tool.getGCPAccessEntries(t.Context(), &AccessReviewParams{
 		SystemType: "gcp",
 		Target:     "project-id",
 	})
@@ -191,7 +191,7 @@ func TestAccessReviewTool_getGCPAccessEntries_EmptyTarget(t *testing.T) {
 	makePathStub(t, tmp, "gcloud", `{"bindings":[]}`)
 	prependToPATH(t, tmp)
 
-	entries := tool.getGCPAccessEntries(&AccessReviewParams{SystemType: "gcp"})
+	entries := tool.getGCPAccessEntries(t.Context(), &AccessReviewParams{SystemType: "gcp"})
 	if entries != nil {
 		t.Fatalf("expected nil entries for empty target, got %v", entries)
 	}
@@ -206,7 +206,7 @@ func TestAccessReviewTool_getGCPAccessEntries_NoCLIGraceful(t *testing.T) {
 	makeMissingStub(t, tmp, "gcloud")
 	prependToPATH(t, tmp)
 
-	entries := tool.getGCPAccessEntries(&AccessReviewParams{
+	entries := tool.getGCPAccessEntries(t.Context(), &AccessReviewParams{
 		SystemType: "gcp",
 		Target:     "project-id",
 	})
@@ -289,7 +289,7 @@ func TestAccessReviewTool_runRemoteCommand(t *testing.T) {
 			return []byte("line-one\nline-two\n"), nil, nil
 		}
 
-		out, err := tool.runRemoteCommand(&AccessReviewParams{
+		out, err := tool.runRemoteCommand(t.Context(), &AccessReviewParams{
 			RemoteHost: "10.0.0.20",
 			RemoteUser: "ops",
 		}, "cat /etc/passwd")
@@ -314,7 +314,7 @@ func TestAccessReviewTool_runRemoteCommand(t *testing.T) {
 			// stdout 为空 + error → 消息取自 stderr。
 			return []byte(""), []byte("  permission denied (publickey)  \n"), fmt.Errorf("exit status 255")
 		}
-		_, err := tool.runRemoteCommand(&AccessReviewParams{
+		_, err := tool.runRemoteCommand(t.Context(), &AccessReviewParams{
 			RemoteHost: "10.0.0.20",
 		}, "cat /etc/passwd")
 		if err == nil {
@@ -330,7 +330,7 @@ func TestAccessReviewTool_runRemoteCommand(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return []byte(""), []byte(""), fmt.Errorf("connection reset")
 		}
-		_, err := tool.runRemoteCommand(&AccessReviewParams{
+		_, err := tool.runRemoteCommand(t.Context(), &AccessReviewParams{
 			RemoteHost: "10.0.0.20",
 		}, "cat /etc/passwd")
 		if err == nil {
@@ -347,7 +347,7 @@ func TestAccessReviewTool_runRemoteCommand(t *testing.T) {
 			// stdout 非空即使有 error 也返回 stdout（不进 error 分支）。
 			return []byte("partial-output\n"), []byte("warn"), fmt.Errorf("exit status 1")
 		}
-		out, err := tool.runRemoteCommand(&AccessReviewParams{
+		out, err := tool.runRemoteCommand(t.Context(), &AccessReviewParams{
 			RemoteHost: "10.0.0.20",
 		}, "cat /etc/passwd")
 		if err != nil {
@@ -359,21 +359,22 @@ func TestAccessReviewTool_runRemoteCommand(t *testing.T) {
 	})
 }
 
-// TestAccessReviewTool_runRemoteCommand_NilRunCmdRestoresDefault confirms the
-// runRemoteCommand nil-runCmd self-heal branch assigns runAccessCommand. This
-// test mutates PATH so it does NOT run in parallel.
-func TestAccessReviewTool_runRemoteCommand_NilRunCmdRestoresDefault(t *testing.T) {
+// TestAccessReviewTool_runRemoteCommand_NilRunCmdUsesDefault confirms the
+// default runner is used without mutating shared tool state.
+func TestAccessReviewTool_runRemoteCommand_NilRunCmdUsesDefault(t *testing.T) {
 	tool := &AccessReviewTool{registry: nil, runCmd: nil}
 
-	// 让 ssh 不可被 LookPath 找到，使 runAccessCommand 走到 exec 失败但不会真正
-	// 发起网络连接；重点验证 runCmd nil 分支自愈为 runAccessCommand（非 nil）。
+	// Use a failing stub so the test never opens a network connection.
 	tmp := t.TempDir()
 	makeMissingStub(t, tmp, "ssh")
 	prependToPATH(t, tmp)
 
-	_, _ = tool.runRemoteCommand(&AccessReviewParams{RemoteHost: "10.0.0.20"}, "echo hi")
-	if tool.runCmd == nil {
-		t.Fatal("expected runCmd to be self-healed to runAccessCommand")
+	_, err := tool.runRemoteCommand(t.Context(), &AccessReviewParams{RemoteHost: "10.0.0.20"}, "echo hi")
+	if err == nil {
+		t.Fatal("expected default runner to return the stub failure")
+	}
+	if tool.runCmd != nil {
+		t.Fatal("default runner must not mutate shared tool state")
 	}
 }
 
@@ -581,7 +582,7 @@ func TestAccessReviewTool_getLinuxAccessEntriesRemote_EdgeCases(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return []byte("   \n"), nil, nil
 		}
-		entries := tool.getLinuxAccessEntriesRemote(&AccessReviewParams{
+		entries := tool.getLinuxAccessEntriesRemote(t.Context(), &AccessReviewParams{
 			RemoteHost: "10.0.0.20",
 		})
 		if entries != nil {
@@ -608,7 +609,7 @@ func TestAccessReviewTool_getLinuxAccessEntriesRemote_EdgeCases(t *testing.T) {
 			return []byte("deploy ALL=(ALL) NOPASSWD: /bin/systemctl\n"), nil, nil
 		}
 
-		entries := tool.getLinuxAccessEntriesRemote(&AccessReviewParams{
+		entries := tool.getLinuxAccessEntriesRemote(t.Context(), &AccessReviewParams{
 			RemoteHost: "10.0.0.20",
 			RemoteUser: "ops",
 		})
@@ -645,7 +646,7 @@ func TestAccessReviewTool_getLinuxAccessEntriesRemote_EdgeCases(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return nil, []byte("ssh unreachable"), fmt.Errorf("ssh unreachable")
 		}
-		entries := tool.getLinuxAccessEntriesRemote(&AccessReviewParams{
+		entries := tool.getLinuxAccessEntriesRemote(t.Context(), &AccessReviewParams{
 			RemoteHost: "10.0.0.20",
 		})
 		if entries != nil {
