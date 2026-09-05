@@ -463,7 +463,15 @@ func (a *Adapter) executeAndRespond(ctx context.Context, call fantasy.ToolCall, 
 		}
 	}
 	startedAt := timeNowUTC()
-	result, err := a.tool.Execute(params)
+	var result interface{}
+	var err error
+	if err = ctx.Err(); err == nil {
+		if tool, ok := a.tool.(secops.ContextTool); ok {
+			result, err = tool.ExecuteContext(ctx, params)
+		} else {
+			result, err = a.tool.Execute(params)
+		}
+	}
 	a.recordExecutionAuditEvent(ctx, call, role, startedAt, err)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(err.Error()), nil

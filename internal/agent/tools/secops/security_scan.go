@@ -160,6 +160,9 @@ func (sst *SecurityScanTool) ValidateParams(params interface{}) error {
 	if p.TargetPath == "" {
 		return fmt.Errorf("target_path is required")
 	}
+	if p.Full || p.FixVulns {
+		return fmt.Errorf("full and fix_vulns are not supported; request a scan with explicit scan_type and review remediation separately")
+	}
 
 	validScanners := map[ScannerType]bool{
 		ScannerTrivy:  true,
@@ -189,6 +192,14 @@ func (sst *SecurityScanTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (sst *SecurityScanTool) Execute(params interface{}) (interface{}, error) {
+	return sst.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext runs a bounded scan that stops when its session is canceled.
+func (sst *SecurityScanTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*SecurityScanParams)
 	if !ok {
 		return nil, ErrInvalidParams
@@ -198,10 +209,13 @@ func (sst *SecurityScanTool) Execute(params interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	result, err := sst.performScan(ctx, p)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -424,15 +438,17 @@ func shellQuoteScan(v string) string {
 
 func parseTrivyOutput(out []byte) ([]*Vulnerability, *ScanStats, error) {
 	type trivyVuln struct {
-		ID           string                        `json:"VulnerabilityID"`
-		Title        string                        `json:"Title"`
-		Description  string                        `json:"Description"`
-		Severity     string                        `json:"Severity"`
-		Package      string                        `json:"PkgName"`
-		Version      string                        `json:"InstalledVersion"`
-		FixedVersion string                        `json:"FixedVersion"`
-		PrimaryURL   string                        `json:"PrimaryURL"`
-		CVSS         map[string]map[string]float64 `json:"CVSS"`
+		ID           string `json:"VulnerabilityID"`
+		Title        string `json:"Title"`
+		Description  string `json:"Description"`
+		Severity     string `json:"Severity"`
+		Package      string `json:"PkgName"`
+		Version      string `json:"InstalledVersion"`
+		FixedVersion string `json:"FixedVersion"`
+		PrimaryURL   string `json:"PrimaryURL"`
+		CVSS         map[string]struct {
+			V3Score float64 `json:"V3Score"`
+		} `json:"CVSS"`
 	}
 	type trivyResult struct {
 		Vulnerabilities []trivyVuln `json:"Vulnerabilities"`
@@ -449,8 +465,8 @@ func parseTrivyOutput(out []byte) ([]*Vulnerability, *ScanStats, error) {
 		for _, v := range res.Vulnerabilities {
 			cvss := 0.0
 			for _, source := range v.CVSS {
-				if score, ok := source["V3Score"]; ok && score > cvss {
-					cvss = score
+				if source.V3Score > cvss {
+					cvss = source.V3Score
 				}
 			}
 			fix := &Fix{Available: v.FixedVersion != "", Version: v.FixedVersion}

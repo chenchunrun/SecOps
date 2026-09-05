@@ -30,7 +30,7 @@ func TestCoreSkillRuntimeContracts(t *testing.T) {
 			require.NoError(t, err)
 			result, err := runner.Run(context.Background(), manifest, RuntimeRequest{
 				Platform: platform, SignedScope: manifest.Authorization.Required,
-				GrantedCapabilities: grants, Input: map[string]interface{}{"task_id": "task-contract", "parameters": map[string]interface{}{}},
+				GrantedCapabilities: grants, Input: contractInput(manifest, "task-contract"),
 			})
 			require.NoError(t, err)
 			require.Equal(t, manifest.Risk.Base, result.Risk)
@@ -40,7 +40,7 @@ func TestCoreSkillRuntimeContracts(t *testing.T) {
 			require.NoError(t, err)
 			_, err = failureRunner.Run(context.Background(), manifest, RuntimeRequest{
 				Platform: platform, SignedScope: manifest.Authorization.Required,
-				GrantedCapabilities: grants, Input: map[string]interface{}{"task_id": "task-failure"},
+				GrantedCapabilities: grants, Input: contractInput(manifest, "task-failure"),
 			})
 			require.ErrorContains(t, err, "tool failed")
 
@@ -50,13 +50,13 @@ func TestCoreSkillRuntimeContracts(t *testing.T) {
 			require.NoError(t, err)
 			_, err = timeoutRunner.Run(context.Background(), timeoutManifest, RuntimeRequest{
 				Platform: platform, SignedScope: manifest.Authorization.Required,
-				GrantedCapabilities: grants, Input: map[string]interface{}{"task_id": "task-timeout"},
+				GrantedCapabilities: grants, Input: contractInput(manifest, "task-timeout"),
 			})
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 
 			_, err = runner.Run(context.Background(), manifest, RuntimeRequest{
 				Platform: platform, SignedScope: manifest.Authorization.Required,
-				GrantedCapabilities: map[string]bool{}, Input: map[string]interface{}{"task_id": "task-denied"},
+				GrantedCapabilities: map[string]bool{}, Input: contractInput(manifest, "task-denied"),
 			})
 			require.ErrorIs(t, err, ErrCapabilityDenied)
 		})
@@ -71,7 +71,7 @@ func TestRunnerRejectsInvalidAndOversizedOutput(t *testing.T) {
 	runner, err := NewRunner(&contractExecutor{output: validRuntimeOutput("task-output")})
 	require.NoError(t, err)
 	_, err = runner.Run(context.Background(), manifest, RuntimeRequest{
-		Platform: runtime.GOOS, GrantedCapabilities: grants, Input: map[string]interface{}{"task_id": "task-output"},
+		Platform: runtime.GOOS, GrantedCapabilities: grants, Input: contractInput(manifest, "task-output"),
 	})
 	require.ErrorIs(t, err, ErrOutputLimit)
 
@@ -79,7 +79,7 @@ func TestRunnerRejectsInvalidAndOversizedOutput(t *testing.T) {
 	require.NoError(t, err)
 	manifest.Runtime.OutputLimit = 1024
 	_, err = runner.Run(context.Background(), manifest, RuntimeRequest{
-		Platform: runtime.GOOS, GrantedCapabilities: grants, Input: map[string]interface{}{"task_id": "missing-fields"},
+		Platform: runtime.GOOS, GrantedCapabilities: grants, Input: contractInput(manifest, "missing-fields"),
 	})
 	require.ErrorIs(t, err, ErrInvalidOutput)
 }
@@ -120,7 +120,34 @@ func capabilityGrants(manifest SkillManifest) map[string]bool {
 
 func validRuntimeOutput(taskID string) map[string]interface{} {
 	return map[string]interface{}{
-		"task_id": taskID, "evidence_ids": []string{"evidence-1"}, "facts": []interface{}{},
+		"task_id": taskID, "evidence_ids": []string{}, "facts": []interface{}{},
 		"findings": []interface{}{}, "verification": []interface{}{},
+	}
+}
+
+func contractInput(manifest SkillManifest, taskID string) map[string]interface{} {
+	if manifest.Name == "phishing-analysis" {
+		return map[string]interface{}{"task_id": taskID, "message_reference": "message-1"}
+	}
+	return map[string]interface{}{"task_id": taskID, "parameters": map[string]interface{}{}}
+}
+
+func TestRunnerRejectsWrongTypesTaskAndUnknownEvidence(t *testing.T) {
+	t.Parallel()
+	manifest := loadCommittedManifest(t, "sca-analyzer")
+	for _, mutate := range []func(map[string]interface{}){
+		func(out map[string]interface{}) { out["facts"] = "not-an-array" },
+		func(out map[string]interface{}) { out["task_id"] = "other-task" },
+		func(out map[string]interface{}) { out["evidence_ids"] = []string{"unknown"} },
+		func(out map[string]interface{}) {
+			out["findings"] = []interface{}{map[string]interface{}{"task_id": "other-task"}}
+		},
+	} {
+		output := validRuntimeOutput("task-1")
+		mutate(output)
+		runner, err := NewRunner(&contractExecutor{output: output})
+		require.NoError(t, err)
+		_, err = runner.Run(t.Context(), manifest, RuntimeRequest{Platform: runtime.GOOS, GrantedCapabilities: capabilityGrants(manifest), Input: contractInput(manifest, "task-1")})
+		require.ErrorIs(t, err, ErrInvalidOutput)
 	}
 }

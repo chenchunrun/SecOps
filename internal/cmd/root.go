@@ -43,6 +43,7 @@ func init() {
 	rootCmd.MarkFlagsMutuallyExclusive("session", "continue")
 
 	rootCmd.AddCommand(
+		newConnectorCmd(),
 		runCmd,
 		dirsCmd,
 		projectsCmd,

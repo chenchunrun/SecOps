@@ -1,5 +1,12 @@
 package secops
 
+import "context"
+
+// ContextTool propagates session cancellation into external execution.
+type ContextTool interface {
+	ExecuteContext(context.Context, interface{}) (interface{}, error)
+}
+
 // ToolType 工具类型
 type ToolType string
 
