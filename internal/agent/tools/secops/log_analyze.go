@@ -204,6 +204,14 @@ func (lat *LogAnalyzeTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (lat *LogAnalyzeTool) Execute(params interface{}) (interface{}, error) {
+	return lat.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation through tool execution.
+func (lat *LogAnalyzeTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*LogAnalyzeParams)
 	if !ok {
 		return nil, ErrInvalidParams
@@ -214,7 +222,10 @@ func (lat *LogAnalyzeTool) Execute(params interface{}) (interface{}, error) {
 	}
 
 	// 执行日志分析
-	result, err := lat.analyzeLogs(p)
+	result, err := lat.analyzeLogs(ctx, p)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -224,14 +235,14 @@ func (lat *LogAnalyzeTool) Execute(params interface{}) (interface{}, error) {
 // 私有方法
 
 // analyzeLogs 分析日志
-func (lat *LogAnalyzeTool) analyzeLogs(params *LogAnalyzeParams) (*LogAnalyzeResult, error) {
+func (lat *LogAnalyzeTool) analyzeLogs(ctx context.Context, params *LogAnalyzeParams) (*LogAnalyzeResult, error) {
 	result := &LogAnalyzeResult{
 		Entries:     make([]*LogEntry, 0),
 		TopPatterns: make([]*Pattern, 0),
 		Anomalies:   make([]*Anomaly, 0),
 	}
 
-	allEntries, err := lat.readLogs(params)
+	allEntries, err := lat.readLogs(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -257,9 +268,9 @@ func (lat *LogAnalyzeTool) analyzeLogs(params *LogAnalyzeParams) (*LogAnalyzeRes
 	return result, nil
 }
 
-func (lat *LogAnalyzeTool) readLogs(params *LogAnalyzeParams) ([]*LogEntry, error) {
+func (lat *LogAnalyzeTool) readLogs(ctx context.Context, params *LogAnalyzeParams) ([]*LogEntry, error) {
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		return lat.readLogsRemote(params)
+		return lat.readLogsRemote(ctx, params)
 	}
 
 	patterns := sourcePatterns(params.Source)
@@ -269,6 +280,9 @@ func (lat *LogAnalyzeTool) readLogs(params *LogAnalyzeParams) ([]*LogEntry, erro
 
 	fileSet := make(map[string]struct{})
 	for _, pattern := range patterns {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		matches, err := lat.glob(pattern)
 		if err != nil {
 			continue
@@ -287,9 +301,15 @@ func (lat *LogAnalyzeTool) readLogs(params *LogAnalyzeParams) ([]*LogEntry, erro
 	entries := make([]*LogEntry, 0)
 	const maxEntries = 5000
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		content, err := lat.readFile(file)
 		if err != nil {
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		parsed := lat.parseLogLines(content, params.Source)
 		entries = append(entries, parsed...)
@@ -302,9 +322,10 @@ func (lat *LogAnalyzeTool) readLogs(params *LogAnalyzeParams) ([]*LogEntry, erro
 	return entries, nil
 }
 
-func (lat *LogAnalyzeTool) readLogsRemote(params *LogAnalyzeParams) ([]*LogEntry, error) {
-	if lat.runCmd == nil {
-		lat.runCmd = runLogCommand
+func (lat *LogAnalyzeTool) readLogsRemote(ctx context.Context, params *LogAnalyzeParams) ([]*LogEntry, error) {
+	runner := lat.runCmd
+	if runner == nil {
+		runner = runLogCommand
 	}
 	patterns := sourcePatterns(params.Source)
 	if override := strings.TrimSpace(sourcePatternsOverride(params.Source)); override != "" {
@@ -332,9 +353,9 @@ func (lat *LogAnalyzeTool) readLogsRemote(params *LogAnalyzeParams) ([]*LogEntry
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	stdout, stderr, cmdErr := lat.runCmd(ctx, "ssh", sshArgs...)
+	stdout, stderr, cmdErr := runner(ctx, "ssh", sshArgs...)
 	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
 		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {

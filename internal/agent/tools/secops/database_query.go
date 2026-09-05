@@ -108,6 +108,14 @@ func (dqt *DatabaseQueryTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (dqt *DatabaseQueryTool) Execute(params interface{}) (interface{}, error) {
+	return dqt.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation through tool execution.
+func (dqt *DatabaseQueryTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*DatabaseQueryParams)
 	if !ok {
 		return nil, ErrInvalidParams
@@ -117,7 +125,11 @@ func (dqt *DatabaseQueryTool) Execute(params interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	return dqt.performQuery(p), nil
+	result := dqt.performQuery(ctx, p)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // ValidateParams 仅允许 SELECT 语句，阻止 INSERT/UPDATE/DELETE/DROP 等写操作
@@ -150,7 +162,7 @@ func (p *DatabaseQueryParams) ValidateParams() error {
 }
 
 // performQuery 执行数据库查询
-func (dqt *DatabaseQueryTool) performQuery(params *DatabaseQueryParams) *DatabaseQueryResult {
+func (dqt *DatabaseQueryTool) performQuery(ctx context.Context, params *DatabaseQueryParams) *DatabaseQueryResult {
 	start := time.Now()
 	result := &DatabaseQueryResult{
 		System:  params.System,
@@ -159,7 +171,7 @@ func (dqt *DatabaseQueryTool) performQuery(params *DatabaseQueryParams) *Databas
 	}
 
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		remoteResult, err := dqt.performRemoteQuery(params)
+		remoteResult, err := dqt.performRemoteQuery(ctx, params)
 		if err != nil {
 			result.Error = err.Error()
 			result.Duration = time.Since(start).String()
@@ -169,12 +181,16 @@ func (dqt *DatabaseQueryTool) performQuery(params *DatabaseQueryParams) *Databas
 		remoteResult.Duration = time.Since(start).String()
 		return remoteResult
 	}
-	if localResult, err := dqt.performLocalQuery(params); err == nil {
+	if localResult, err := dqt.performLocalQuery(ctx, params); err == nil {
 		localResult.DataSource = "live_local"
 		localResult.Duration = time.Since(start).String()
 		return localResult
 	}
 
+	if ctx.Err() != nil {
+		result.Error = ctx.Err().Error()
+		return result
+	}
 	switch params.System {
 	case "mysql":
 		result.Columns = []string{"id", "hostname", "status", "created_at"}
@@ -217,22 +233,23 @@ func (dqt *DatabaseQueryTool) performQuery(params *DatabaseQueryParams) *Databas
 	return result
 }
 
-func (dqt *DatabaseQueryTool) performLocalQuery(params *DatabaseQueryParams) (*DatabaseQueryResult, error) {
-	if dqt.runCmd == nil {
-		dqt.runCmd = runDatabaseCommand
+func (dqt *DatabaseQueryTool) performLocalQuery(ctx context.Context, params *DatabaseQueryParams) (*DatabaseQueryResult, error) {
+	runner := dqt.runCmd
+	if runner == nil {
+		runner = runDatabaseCommand
 	}
 	timeout := params.TimeoutSec
 	if timeout <= 0 {
 		timeout = 30
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	cmdName, cmdArgs, err := buildDatabaseLocalCommand(params)
 	if err != nil {
 		return nil, err
 	}
-	stdout, stderr, err := dqt.runCmd(ctx, cmdName, cmdArgs...)
+	stdout, stderr, err := runner(ctx, cmdName, cmdArgs...)
 	if err != nil {
 		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {
@@ -253,22 +270,23 @@ func (dqt *DatabaseQueryTool) performLocalQuery(params *DatabaseQueryParams) (*D
 	}, nil
 }
 
-func (dqt *DatabaseQueryTool) performRemoteQuery(params *DatabaseQueryParams) (*DatabaseQueryResult, error) {
-	if dqt.runCmd == nil {
-		dqt.runCmd = runDatabaseCommand
+func (dqt *DatabaseQueryTool) performRemoteQuery(ctx context.Context, params *DatabaseQueryParams) (*DatabaseQueryResult, error) {
+	runner := dqt.runCmd
+	if runner == nil {
+		runner = runDatabaseCommand
 	}
 	timeout := params.TimeoutSec
 	if timeout <= 0 {
 		timeout = 30
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	sshArgs, err := buildDatabaseRemoteSSHArgs(params)
 	if err != nil {
 		return nil, err
 	}
-	stdout, stderr, err := dqt.runCmd(ctx, "ssh", sshArgs...)
+	stdout, stderr, err := runner(ctx, "ssh", sshArgs...)
 	if err != nil {
 		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {
