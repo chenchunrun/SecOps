@@ -381,7 +381,7 @@ func TestNetworkDiagnosticTool_AnalyzePortScan(t *testing.T) {
 
 func TestNetworkDiagnosticTool_FallbackTraceHops(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
-	hops := tool.fallbackTraceHops("example.com", 3)
+	hops := tool.fallbackTraceHops(t.Context(), "example.com", 3)
 
 	if len(hops) > 0 {
 		if hops[0].Hop != 1 {
@@ -423,7 +423,7 @@ func TestNetworkDiagnosticTool_PortScanProducesResults(t *testing.T) {
 
 func TestNetworkDiagnosticTool_LookupDNS(t *testing.T) {
 	tool := NewNetworkDiagnosticTool(nil)
-	records := tool.lookupDNS("example.com", 5)
+	records := tool.lookupDNS(t.Context(), "example.com", 5)
 
 	if len(records) > 0 {
 		for _, record := range records {
@@ -442,7 +442,7 @@ func TestNetworkDiagnosticTool_FallbackPingViaTCP(t *testing.T) {
 		PacketCount: 2,
 		Timeout:     3,
 	}
-	result := tool.fallbackPingViaTCP(params)
+	result := tool.fallbackPingViaTCP(t.Context(), params)
 	if result != nil {
 		if result.Sent != 2 {
 			t.Errorf("expected 2 packets sent, got %d", result.Sent)
@@ -475,7 +475,7 @@ func TestNetworkDiagnosticTool_RemoteTracerouteUsesSSH(t *testing.T) {
 		RemoteKeyPath:   "/tmp/id_ed25519",
 		RemoteProxyJump: "bastion",
 	}
-	hops := tool.runTracerouteCommand("example.com", 5, params)
+	hops := tool.runTracerouteCommand(t.Context(), "example.com", 5, params)
 	if len(hops) != 1 {
 		t.Fatalf("expected one hop, got %d", len(hops))
 	}
@@ -514,7 +514,7 @@ func TestNetworkDiagnosticTool_LocalTracerouteUsesDirectCommand(t *testing.T) {
 		Target:  "example.com",
 		Timeout: 5,
 	}
-	hops := tool.runTracerouteCommand("example.com", 5, params)
+	hops := tool.runTracerouteCommand(t.Context(), "example.com", 5, params)
 	if len(hops) != 1 {
 		t.Fatalf("expected one hop, got %d", len(hops))
 	}
