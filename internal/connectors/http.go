@@ -3,6 +3,8 @@ package connectors
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -21,11 +23,29 @@ type HTTPTransport struct {
 }
 
 func NewHTTPTransport(endpoint string) (*HTTPTransport, error) {
+	return NewHTTPTransportWithCA(endpoint, nil)
+}
+
+// NewHTTPTransportWithCA adds a private CA without disabling TLS verification.
+func NewHTTPTransportWithCA(endpoint string, caPEM []byte) (*HTTPTransport, error) {
 	base, err := url.Parse(endpoint)
 	if err != nil || base.Scheme != "https" || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || (base.Path != "" && base.Path != "/") {
 		return nil, errors.New("connector endpoint must be an HTTPS origin without credentials, path or query")
 	}
-	return &HTTPTransport{base: base, client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if caPEM != nil {
+		roots, err := x509.SystemCertPool()
+		if err != nil {
+			return nil, fmt.Errorf("load system certificate roots: %w", err)
+		}
+		if !roots.AppendCertsFromPEM(caPEM) {
+			return nil, errors.New("CA file contains no valid certificates")
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+		client.Transport = transport
+	}
+	return &HTTPTransport{base: base, client: client}, nil
 }
 
 func (t *HTTPTransport) Do(ctx context.Context, input TransportRequest) (TransportResponse, error) {

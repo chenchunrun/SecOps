@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,26 @@ import (
 )
 
 type apiKeyCredentials struct{}
+
+func TestPrivateCATransport(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer server.Close()
+	transport, err := NewHTTPTransport(server.URL)
+	require.NoError(t, err)
+	_, err = transport.Do(t.Context(), TransportRequest{Method: "GET", Path: "/"})
+	require.Error(t, err)
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	transport, err = NewHTTPTransportWithCA(server.URL, ca)
+	require.NoError(t, err)
+	response, err := transport.Do(t.Context(), TransportRequest{Method: "GET", Path: "/"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	for _, invalid := range [][]byte{{}, []byte("invalid")} {
+		_, err := NewHTTPTransportWithCA(server.URL, invalid)
+		require.ErrorContains(t, err, "no valid certificates")
+	}
+}
 
 func (apiKeyCredentials) Credential(context.Context, Manifest) (Credential, error) {
 	return Credential{Token: "test-key", ExpiresAt: time.Now().Add(time.Minute), Scheme: "ApiKey"}, nil

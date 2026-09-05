@@ -93,5 +93,10 @@ health and a document count. This is a connection smoke test, not a full alert
 ingestion or case-management integration. The other connector manifests remain
 contracts pending provider-specific implementation and live acceptance.
 
+For a private or local HTTPS endpoint, add `--ca-file /absolute/path/ca.crt`
+to trust its PEM CA certificate for this connector only. System roots remain
+trusted; certificate and hostname verification remain enabled. This does not
+modify the operating system trust store. Empty or invalid CA files are rejected.
+
 Protocol references: [Elastic API key authentication](https://www.elastic.co/docs/api/doc/elasticsearch/authentication)
 and [search API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-search-2).
