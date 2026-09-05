@@ -72,10 +72,11 @@ jobs:
           tar -xzf trivy.tar.gz trivy
           echo "$trivy_dir" >> "$GITHUB_PATH"
       - name: Verify scanner and TUI command lifecycle
+        # Both packages use Trivy's default DB cache; avoid concurrent DB updates.
         env:
           SECOPS_TEST_TRIVY: '1'
           TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2
         run: >-
-          go test -mod=readonly ./internal/agent/tools/secops ./internal/ui/model
+          go test -mod=readonly -p 1 ./internal/agent/tools/secops ./internal/ui/model
           -run 'TestRealTrivyCompatibility|TestRealTrivyScanCommandsEndToEnd'
           -count=1 -v
