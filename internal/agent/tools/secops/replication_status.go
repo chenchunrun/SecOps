@@ -98,6 +98,14 @@ func (rst *ReplicationStatusTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (rst *ReplicationStatusTool) Execute(params interface{}) (interface{}, error) {
+	return rst.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation through collection.
+func (rst *ReplicationStatusTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*ReplicationStatusParams)
 	if !ok {
 		return nil, ErrInvalidParams
@@ -107,18 +115,22 @@ func (rst *ReplicationStatusTool) Execute(params interface{}) (interface{}, erro
 		return nil, err
 	}
 
-	return rst.performCheck(p), nil
+	result := rst.performCheck(ctx, p)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // performCheck 执行复制状态检查
-func (rst *ReplicationStatusTool) performCheck(params *ReplicationStatusParams) *ReplicationStatusResult {
+func (rst *ReplicationStatusTool) performCheck(ctx context.Context, params *ReplicationStatusParams) *ReplicationStatusResult {
 	result := &ReplicationStatusResult{
 		MasterHost: params.Host,
 		SlaveHosts: []string{},
 	}
 
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		if live := rst.readReplicationStatusFromRemoteCLI(params); live != nil {
+		if live := rst.readReplicationStatusFromRemoteCLI(ctx, params); live != nil {
 			live.DataSource = "live_remote"
 			return live
 		}
@@ -135,7 +147,7 @@ func (rst *ReplicationStatusTool) performCheck(params *ReplicationStatusParams) 
 		return live
 	}
 
-	if live := rst.readReplicationStatusFromCLI(params); live != nil {
+	if live := rst.readReplicationStatusFromCLI(ctx, params); live != nil {
 		live.DataSource = "live_cli"
 		return live
 	}
@@ -201,34 +213,34 @@ func (rst *ReplicationStatusTool) readReplicationStatusFromFile(params *Replicat
 	return nil
 }
 
-func (rst *ReplicationStatusTool) readReplicationStatusFromCLI(params *ReplicationStatusParams) *ReplicationStatusResult {
+func (rst *ReplicationStatusTool) readReplicationStatusFromCLI(ctx context.Context, params *ReplicationStatusParams) *ReplicationStatusResult {
 	switch params.System {
 	case "mysql":
-		return rst.readMySQLReplicationFromCLI(params)
+		return rst.readMySQLReplicationFromCLI(ctx, params)
 	case "postgresql":
-		return rst.readPostgresReplicationFromCLI(params)
+		return rst.readPostgresReplicationFromCLI(ctx, params)
 	default:
 		return nil
 	}
 }
 
-func (rst *ReplicationStatusTool) readReplicationStatusFromRemoteCLI(params *ReplicationStatusParams) *ReplicationStatusResult {
+func (rst *ReplicationStatusTool) readReplicationStatusFromRemoteCLI(ctx context.Context, params *ReplicationStatusParams) *ReplicationStatusResult {
 	switch params.System {
 	case "mysql":
-		return rst.readMySQLReplicationFromRemoteCLI(params)
+		return rst.readMySQLReplicationFromRemoteCLI(ctx, params)
 	case "postgresql":
-		return rst.readPostgresReplicationFromRemoteCLI(params)
+		return rst.readPostgresReplicationFromRemoteCLI(ctx, params)
 	default:
 		return nil
 	}
 }
 
-func (rst *ReplicationStatusTool) readMySQLReplicationFromCLI(params *ReplicationStatusParams) *ReplicationStatusResult {
+func (rst *ReplicationStatusTool) readMySQLReplicationFromCLI(ctx context.Context, params *ReplicationStatusParams) *ReplicationStatusResult {
 	if _, err := exec.LookPath("mysql"); err != nil {
 		return nil
 	}
 	query := "SHOW SLAVE STATUS\\G"
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "mysql", "-Nse", query).CombinedOutput()
@@ -258,8 +270,8 @@ func (rst *ReplicationStatusTool) readMySQLReplicationFromCLI(params *Replicatio
 	}
 }
 
-func (rst *ReplicationStatusTool) readMySQLReplicationFromRemoteCLI(params *ReplicationStatusParams) *ReplicationStatusResult {
-	stdout, _, err := rst.runRemoteCommand(params, "mysql -Nse 'SHOW SLAVE STATUS\\G'")
+func (rst *ReplicationStatusTool) readMySQLReplicationFromRemoteCLI(ctx context.Context, params *ReplicationStatusParams) *ReplicationStatusResult {
+	stdout, _, err := rst.runRemoteCommand(ctx, params, "mysql -Nse 'SHOW SLAVE STATUS\\G'")
 	if err != nil || len(stdout) == 0 {
 		return nil
 	}
@@ -286,12 +298,12 @@ func (rst *ReplicationStatusTool) readMySQLReplicationFromRemoteCLI(params *Repl
 	}
 }
 
-func (rst *ReplicationStatusTool) readPostgresReplicationFromCLI(params *ReplicationStatusParams) *ReplicationStatusResult {
+func (rst *ReplicationStatusTool) readPostgresReplicationFromCLI(ctx context.Context, params *ReplicationStatusParams) *ReplicationStatusResult {
 	if _, err := exec.LookPath("psql"); err != nil {
 		return nil
 	}
 	query := "SELECT COALESCE(COUNT(*),0), COALESCE(MAX(EXTRACT(EPOCH FROM replay_lag)::int),0) FROM pg_stat_replication;"
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "psql", "-t", "-A", "-c", query).CombinedOutput()
@@ -322,9 +334,9 @@ func (rst *ReplicationStatusTool) readPostgresReplicationFromCLI(params *Replica
 	}
 }
 
-func (rst *ReplicationStatusTool) readPostgresReplicationFromRemoteCLI(params *ReplicationStatusParams) *ReplicationStatusResult {
+func (rst *ReplicationStatusTool) readPostgresReplicationFromRemoteCLI(ctx context.Context, params *ReplicationStatusParams) *ReplicationStatusResult {
 	query := "psql -t -A -c \"SELECT COALESCE(COUNT(*),0), COALESCE(MAX(EXTRACT(EPOCH FROM replay_lag)::int),0) FROM pg_stat_replication;\""
-	stdout, _, err := rst.runRemoteCommand(params, query)
+	stdout, _, err := rst.runRemoteCommand(ctx, params, query)
 	if err != nil || len(stdout) == 0 {
 		return nil
 	}
@@ -400,17 +412,21 @@ func defaultString(v, fallback string) string {
 	return v
 }
 
-func (rst *ReplicationStatusTool) runRemoteCommand(params *ReplicationStatusParams, command string) ([]byte, []byte, error) {
-	if rst.runCmd == nil {
-		rst.runCmd = runReplicationCommand
+func (rst *ReplicationStatusTool) runRemoteCommand(ctx context.Context, params *ReplicationStatusParams, command string) ([]byte, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	runner := rst.runCmd
+	if runner == nil {
+		runner = runReplicationCommand
 	}
 	sshArgs, err := buildReplicationSSHArgs(params, command)
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	return rst.runCmd(ctx, "ssh", sshArgs...)
+	return runner(ctx, "ssh", sshArgs...)
 }
 
 func runReplicationCommand(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {

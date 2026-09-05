@@ -116,6 +116,14 @@ func (art *AccessReviewTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (art *AccessReviewTool) Execute(params interface{}) (interface{}, error) {
+	return art.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext propagates session cancellation through collection.
+func (art *AccessReviewTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, ok := params.(*AccessReviewParams)
 	if !ok {
 		return nil, ErrInvalidParams
@@ -125,18 +133,22 @@ func (art *AccessReviewTool) Execute(params interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	return art.performReview(p), nil
+	result := art.performReview(ctx, p)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // performReview 执行访问审计
-func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessReviewResult {
+func (art *AccessReviewTool) performReview(ctx context.Context, params *AccessReviewParams) *AccessReviewResult {
 	result := &AccessReviewResult{
 		Entries: make([]AccessEntry, 0),
 	}
 
 	switch params.SystemType {
 	case "aws":
-		if entries := art.getAWSAccessEntries(params); len(entries) > 0 {
+		if entries := art.getAWSAccessEntries(ctx, params); len(entries) > 0 {
 			result.Entries = entries
 			result.DataSource = "live"
 			break
@@ -187,7 +199,7 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 		}
 
 	case "gcp":
-		if entries := art.getGCPAccessEntries(params); len(entries) > 0 {
+		if entries := art.getGCPAccessEntries(ctx, params); len(entries) > 0 {
 			result.Entries = entries
 			result.DataSource = "live"
 			break
@@ -214,7 +226,7 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 		}
 
 	case "linux":
-		if entries := art.getLinuxAccessEntries(params); len(entries) > 0 {
+		if entries := art.getLinuxAccessEntries(ctx, params); len(entries) > 0 {
 			result.Entries = entries
 			result.DataSource = "live"
 			break
@@ -303,11 +315,11 @@ func (art *AccessReviewTool) performReview(params *AccessReviewParams) *AccessRe
 	return result
 }
 
-func (art *AccessReviewTool) getAWSAccessEntries(params *AccessReviewParams) []AccessEntry {
+func (art *AccessReviewTool) getAWSAccessEntries(ctx context.Context, params *AccessReviewParams) []AccessEntry {
 	if _, err := exec.LookPath("aws"); err != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "aws", "iam", "list-users", "--output", "json").Output()
@@ -353,7 +365,7 @@ func (art *AccessReviewTool) getAWSAccessEntries(params *AccessReviewParams) []A
 	return entries
 }
 
-func (art *AccessReviewTool) getGCPAccessEntries(params *AccessReviewParams) []AccessEntry {
+func (art *AccessReviewTool) getGCPAccessEntries(ctx context.Context, params *AccessReviewParams) []AccessEntry {
 	if _, err := exec.LookPath("gcloud"); err != nil {
 		return nil
 	}
@@ -361,7 +373,7 @@ func (art *AccessReviewTool) getGCPAccessEntries(params *AccessReviewParams) []A
 	if project == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, "gcloud", "projects", "get-iam-policy", project, "--format=json").Output()
@@ -399,9 +411,9 @@ func (art *AccessReviewTool) getGCPAccessEntries(params *AccessReviewParams) []A
 	return entries
 }
 
-func (art *AccessReviewTool) getLinuxAccessEntries(params *AccessReviewParams) []AccessEntry {
+func (art *AccessReviewTool) getLinuxAccessEntries(ctx context.Context, params *AccessReviewParams) []AccessEntry {
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		return art.getLinuxAccessEntriesRemote(params)
+		return art.getLinuxAccessEntriesRemote(ctx, params)
 	}
 
 	passwdPath := strings.TrimSpace(os.Getenv("SECOPS_LINUX_PASSWD_PATH"))
@@ -459,12 +471,12 @@ func (art *AccessReviewTool) getLinuxAccessEntries(params *AccessReviewParams) [
 	return entries
 }
 
-func (art *AccessReviewTool) getLinuxAccessEntriesRemote(params *AccessReviewParams) []AccessEntry {
-	passwdRaw, err := art.runRemoteCommand(params, "cat /etc/passwd 2>/dev/null")
+func (art *AccessReviewTool) getLinuxAccessEntriesRemote(ctx context.Context, params *AccessReviewParams) []AccessEntry {
+	passwdRaw, err := art.runRemoteCommand(ctx, params, "cat /etc/passwd 2>/dev/null")
 	if err != nil || strings.TrimSpace(passwdRaw) == "" {
 		return nil
 	}
-	sudoersRaw, _ := art.runRemoteCommand(params, "cat /etc/sudoers /etc/sudoers.d/* 2>/dev/null")
+	sudoersRaw, _ := art.runRemoteCommand(ctx, params, "cat /etc/sudoers /etc/sudoers.d/* 2>/dev/null")
 
 	lines := strings.Split(passwdRaw, "\n")
 	entries := make([]AccessEntry, 0)
@@ -551,17 +563,21 @@ func formatRFC3339OrNow(v string) string {
 	return time.Now().Format("2006-01-02 15:04")
 }
 
-func (art *AccessReviewTool) runRemoteCommand(params *AccessReviewParams, command string) (string, error) {
-	if art.runCmd == nil {
-		art.runCmd = runAccessCommand
+func (art *AccessReviewTool) runRemoteCommand(ctx context.Context, params *AccessReviewParams, command string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	runner := art.runCmd
+	if runner == nil {
+		runner = runAccessCommand
 	}
 	sshArgs, err := buildAccessSSHArgs(params, command)
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	stdout, stderr, cmdErr := art.runCmd(ctx, "ssh", sshArgs...)
+	stdout, stderr, cmdErr := runner(ctx, "ssh", sshArgs...)
 	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {
 		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {

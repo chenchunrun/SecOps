@@ -10,7 +10,7 @@ import (
 
 func TestDataToolsCancelRunningCommand(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"database-local", "database-remote", "logs-remote", "backup-remote"} {
+	for _, name := range []string{"database-local", "database-remote", "logs-remote", "backup-remote", "replication-mysql", "replication-postgres", "access-remote", "rotation-remote"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			started := make(chan struct{})
@@ -22,6 +22,22 @@ func TestDataToolsCancelRunningCommand(t *testing.T) {
 			var tool ContextTool
 			var params interface{}
 			switch name {
+			case "replication-mysql", "replication-postgres":
+				replication := NewReplicationStatusTool(nil)
+				replication.runCmd = runner
+				system := "mysql"
+				if name == "replication-postgres" {
+					system = "postgresql"
+				}
+				tool, params = replication, &ReplicationStatusParams{System: system, Host: "localhost", RemoteHost: "localhost"}
+			case "access-remote":
+				access := NewAccessReviewTool(nil)
+				access.runCmd = runner
+				tool, params = access, &AccessReviewParams{SystemType: "linux", RemoteHost: "localhost"}
+			case "rotation-remote":
+				rotation := NewRotationCheckTool(nil)
+				rotation.runCmd = runner
+				tool, params = rotation, &RotationCheckParams{SystemType: "aws", KeyType: "api_key", TargetID: "/tmp/key", RemoteHost: "localhost"}
 			case "database-local", "database-remote":
 				db := NewDatabaseQueryTool(nil)
 				db.runCmd = runner
@@ -68,13 +84,30 @@ func TestDataToolsCancelRunningCommand(t *testing.T) {
 
 func TestDataToolsCanceledBeforeExecution(t *testing.T) {
 	t.Parallel()
-	for _, tool := range []ContextTool{NewDatabaseQueryTool(nil), NewLogAnalyzeTool(nil), NewBackupCheckTool(nil)} {
+	for _, tool := range []ContextTool{NewDatabaseQueryTool(nil), NewLogAnalyzeTool(nil), NewBackupCheckTool(nil), NewReplicationStatusTool(nil), NewAccessReviewTool(nil), NewRotationCheckTool(nil)} {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		result, err := tool.ExecuteContext(ctx, nil)
 		require.Nil(t, result)
 		require.ErrorIs(t, err, context.Canceled)
 	}
+}
+
+func TestAccessCancellationSkipsSubsequentSSHCommand(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tool := NewAccessReviewTool(nil)
+	calls := 0
+	tool.runCmd = func(context.Context, string, ...string) ([]byte, []byte, error) {
+		calls++
+		cancel()
+		return []byte("root:x:0:0:root:/root:/bin/sh"), nil, nil
+	}
+	result, err := tool.ExecuteContext(ctx, &AccessReviewParams{SystemType: "linux", RemoteHost: "localhost"})
+	require.Nil(t, result)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, calls, "must not collect sudoers after cancellation")
 }
 
 func TestLogReadStopsBetweenFiles(t *testing.T) {
