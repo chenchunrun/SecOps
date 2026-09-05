@@ -21,6 +21,9 @@ import (
 // ActionClose is a message to close the current dialog.
 type ActionClose struct{}
 
+// ActionRunScanCommand routes an explicit local scan command, never an LLM prompt.
+type ActionRunScanCommand struct{ Input string }
+
 // ActionQuit is a message to quit the application.
 type ActionQuit = tea.QuitMsg
 

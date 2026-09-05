@@ -28,7 +28,7 @@ func TestAuthorizeScanEvidenceReviewReportRevoke(t *testing.T) {
 	scanner := scannerFunc(func(_ context.Context, input interface{}) (interface{}, error) {
 		p := input.(*secops.SecurityScanParams)
 		require.Equal(t, secops.TargetFilesystem, p.Target)
-		return &secops.ScanResult{TotalVulnerabilities: 1, HighCount: 1}, nil
+		return &secops.ScanResult{Scanner: secops.ScannerTrivy, Target: p.TargetPath, ScanTime: time.Now(), TotalVulnerabilities: 1, HighCount: 1, Vulnerabilities: []*secops.Vulnerability{{ID: "CVE-test", Severity: secops.VulnHigh}}}, nil
 	})
 	authorize := func(session, subject, scope string) error {
 		if !authorized.Load() || session != "session-1" || subject != "analyst" {
@@ -53,7 +53,7 @@ func TestAuthorizeScanEvidenceReviewReportRevoke(t *testing.T) {
 	require.ErrorContains(t, err, "session mismatch")
 	report, err := service.Review(t.Context(), "session-1", r.ID, evidence.VerdictPassed, "Compared the scanner output with the package inventory")
 	require.NoError(t, err)
-	require.Equal(t, "interactive-user", report.Verification.CheckerID)
+	require.Contains(t, report.Verification.CheckerID, "local-user-")
 	require.NotEqual(t, report.Finding.MakerID, report.Verification.CheckerID)
 	require.Len(t, report.Evidence, 1)
 	// Reopening the service preserves the task, evidence and reviewed report.

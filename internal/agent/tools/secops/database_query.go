@@ -74,7 +74,7 @@ func (dqt *DatabaseQueryTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (dqt *DatabaseQueryTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*DatabaseQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -117,7 +117,7 @@ func (dqt *DatabaseQueryTool) ExecuteContext(ctx context.Context, params interfa
 		return nil, err
 	}
 	p, ok := params.(*DatabaseQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

@@ -134,7 +134,7 @@ func TestAlertCheckTool_queryPrometheusAlerts(t *testing.T) {
 				Endpoint: ts.URL,
 			}
 
-			alerts := tool.queryPrometheusAlerts(params)
+			alerts := tool.queryPrometheusAlerts(context.Background(), params)
 			if len(alerts) != tc.wantCount {
 				t.Fatalf("expected %d alerts, got %d", tc.wantCount, len(alerts))
 			}
@@ -157,7 +157,7 @@ func TestAlertCheckTool_queryPrometheusAlerts(t *testing.T) {
 			System:   "prometheus",
 			Endpoint: "ht!tp://invalid url with space",
 		}
-		alerts := tool.queryPrometheusAlerts(params)
+		alerts := tool.queryPrometheusAlerts(context.Background(), params)
 		if alerts != nil {
 			t.Fatalf("expected nil alerts on bad URL, got %v", alerts)
 		}
@@ -169,7 +169,7 @@ func TestAlertCheckTool_queryPrometheusAlerts(t *testing.T) {
 func TestAlertCheckTool_queryPrometheusAlerts_EmptyEndpoint(t *testing.T) {
 	t.Setenv("SECOPS_PROMETHEUS_ENDPOINT", "")
 	tool := NewAlertCheckTool(nil)
-	alerts := tool.queryPrometheusAlerts(&AlertCheckParams{System: "prometheus"})
+	alerts := tool.queryPrometheusAlerts(context.Background(), &AlertCheckParams{System: "prometheus"})
 	if alerts != nil {
 		t.Fatalf("expected nil alerts for empty endpoint, got %v", alerts)
 	}
@@ -210,7 +210,7 @@ func TestAlertCheckTool_queryGrafanaAlerts(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryGrafanaAlerts(&AlertCheckParams{
+		alerts := tool.queryGrafanaAlerts(context.Background(), &AlertCheckParams{
 			System:   "grafana",
 			Endpoint: ts.URL,
 			APIToken: "gtoken",
@@ -243,7 +243,7 @@ func TestAlertCheckTool_queryGrafanaAlerts(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryGrafanaAlerts(&AlertCheckParams{
+		alerts := tool.queryGrafanaAlerts(context.Background(), &AlertCheckParams{
 			System:   "grafana",
 			Endpoint: ts.URL,
 		})
@@ -261,7 +261,7 @@ func TestAlertCheckTool_queryGrafanaAlerts(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryGrafanaAlerts(&AlertCheckParams{
+		alerts := tool.queryGrafanaAlerts(context.Background(), &AlertCheckParams{
 			System:   "grafana",
 			Endpoint: ts.URL,
 		})
@@ -275,7 +275,7 @@ func TestAlertCheckTool_queryGrafanaAlerts(t *testing.T) {
 func TestAlertCheckTool_queryGrafanaAlerts_EmptyEndpoint(t *testing.T) {
 	t.Setenv("SECOPS_GRAFANA_ENDPOINT", "")
 	tool := NewAlertCheckTool(nil)
-	alerts := tool.queryGrafanaAlerts(&AlertCheckParams{System: "grafana"})
+	alerts := tool.queryGrafanaAlerts(context.Background(), &AlertCheckParams{System: "grafana"})
 	if alerts != nil {
 		t.Fatalf("expected nil for empty endpoint, got %v", alerts)
 	}
@@ -322,7 +322,7 @@ func TestAlertCheckTool_queryDatadogAlerts(t *testing.T) {
 
 		t.Setenv("SECOPS_DATADOG_APP_KEY", "dd-app")
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryDatadogAlerts(&AlertCheckParams{
+		alerts := tool.queryDatadogAlerts(context.Background(), &AlertCheckParams{
 			System:   "datadog",
 			Endpoint: ts.URL,
 			APIToken: "dd-api",
@@ -342,7 +342,7 @@ func TestAlertCheckTool_queryDatadogAlerts(t *testing.T) {
 	t.Run("缺少 app key 时返回 nil", func(t *testing.T) {
 		t.Setenv("SECOPS_DATADOG_APP_KEY", "")
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryDatadogAlerts(&AlertCheckParams{
+		alerts := tool.queryDatadogAlerts(context.Background(), &AlertCheckParams{
 			System:   "datadog",
 			Endpoint: "http://localhost",
 			APIToken: "dd-api",
@@ -355,7 +355,7 @@ func TestAlertCheckTool_queryDatadogAlerts(t *testing.T) {
 	t.Run("缺少 api key 时返回 nil", func(t *testing.T) {
 		t.Setenv("SECOPS_DATADOG_APP_KEY", "dd-app")
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryDatadogAlerts(&AlertCheckParams{
+		alerts := tool.queryDatadogAlerts(context.Background(), &AlertCheckParams{
 			System:   "datadog",
 			Endpoint: "http://localhost",
 		})
@@ -373,7 +373,7 @@ func TestAlertCheckTool_queryDatadogAlerts(t *testing.T) {
 
 		t.Setenv("SECOPS_DATADOG_APP_KEY", "dd-app")
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryDatadogAlerts(&AlertCheckParams{
+		alerts := tool.queryDatadogAlerts(context.Background(), &AlertCheckParams{
 			System:   "datadog",
 			Endpoint: ts.URL,
 			APIToken: "dd-api",
@@ -422,7 +422,7 @@ func TestAlertCheckTool_queryPagerDutyAlerts(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryPagerDutyAlerts(&AlertCheckParams{
+		alerts := tool.queryPagerDutyAlerts(context.Background(), &AlertCheckParams{
 			System:   "pagerduty",
 			Endpoint: ts.URL,
 			APIToken: "pdtoken",
@@ -447,7 +447,7 @@ func TestAlertCheckTool_queryPagerDutyAlerts(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryPagerDutyAlerts(&AlertCheckParams{
+		alerts := tool.queryPagerDutyAlerts(context.Background(), &AlertCheckParams{
 			System:   "pagerduty",
 			Endpoint: ts.URL,
 			APIToken: "pdtoken",
@@ -465,7 +465,7 @@ func TestAlertCheckTool_queryPagerDutyAlerts(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		alerts := tool.queryPagerDutyAlerts(&AlertCheckParams{
+		alerts := tool.queryPagerDutyAlerts(context.Background(), &AlertCheckParams{
 			System:   "pagerduty",
 			Endpoint: ts.URL,
 			APIToken: "pdtoken",
@@ -480,7 +480,7 @@ func TestAlertCheckTool_queryPagerDutyAlerts(t *testing.T) {
 func TestAlertCheckTool_queryPagerDutyAlerts_NoToken(t *testing.T) {
 	t.Setenv("SECOPS_PAGERDUTY_TOKEN", "")
 	tool := NewAlertCheckTool(nil)
-	alerts := tool.queryPagerDutyAlerts(&AlertCheckParams{
+	alerts := tool.queryPagerDutyAlerts(context.Background(), &AlertCheckParams{
 		System:   "pagerduty",
 		Endpoint: "http://localhost",
 	})
@@ -508,7 +508,7 @@ func TestAlertCheckTool_queryGrafanaAlertsRemote(t *testing.T) {
 			return []byte(v2Payload), nil, nil
 		}
 
-		alerts := tool.queryGrafanaAlertsRemote(&AlertCheckParams{
+		alerts := tool.queryGrafanaAlertsRemote(context.Background(), &AlertCheckParams{
 			System:     "grafana",
 			Endpoint:   "http://127.0.0.1:3000",
 			APIToken:   "remote-token",
@@ -532,7 +532,7 @@ func TestAlertCheckTool_queryGrafanaAlertsRemote(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return nil, []byte("connection refused"), errRemoteFailure
 		}
-		alerts := tool.queryGrafanaAlertsRemote(&AlertCheckParams{
+		alerts := tool.queryGrafanaAlertsRemote(context.Background(), &AlertCheckParams{
 			System:     "grafana",
 			RemoteHost: "10.0.0.60",
 			RemoteUser: "ops",
@@ -548,7 +548,7 @@ func TestAlertCheckTool_queryGrafanaAlertsRemote(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return []byte(`not-json`), nil, nil
 		}
-		alerts := tool.queryGrafanaAlertsRemote(&AlertCheckParams{
+		alerts := tool.queryGrafanaAlertsRemote(context.Background(), &AlertCheckParams{
 			System:     "grafana",
 			RemoteHost: "10.0.0.60",
 			RemoteUser: "ops",
@@ -571,7 +571,7 @@ func TestAlertCheckTool_queryPrometheusAlertsRemote(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return []byte(payload), nil, nil
 		}
-		alerts := tool.queryPrometheusAlertsRemote(&AlertCheckParams{
+		alerts := tool.queryPrometheusAlertsRemote(context.Background(), &AlertCheckParams{
 			System:     "prometheus",
 			Endpoint:   "http://127.0.0.1:9090",
 			RemoteHost: "10.0.0.60",
@@ -591,7 +591,7 @@ func TestAlertCheckTool_queryPrometheusAlertsRemote(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return nil, []byte("ssh: connect to host"), errRemoteFailure
 		}
-		alerts := tool.queryPrometheusAlertsRemote(&AlertCheckParams{
+		alerts := tool.queryPrometheusAlertsRemote(context.Background(), &AlertCheckParams{
 			System:     "prometheus",
 			RemoteHost: "10.0.0.60",
 			RemoteUser: "ops",
@@ -615,7 +615,7 @@ func TestAlertCheckTool_runRemoteHTTPGet(t *testing.T) {
 			}
 			return []byte(`{"ok":true}`), nil, nil
 		}
-		out, err := tool.runRemoteHTTPGet(&AlertCheckParams{
+		out, err := tool.runRemoteHTTPGet(context.Background(), &AlertCheckParams{
 			RemoteHost: "10.0.0.60",
 			RemoteUser: "ops",
 		}, "http://127.0.0.1:9090/api/v1/alerts", map[string]string{"Authorization": "Bearer x"})
@@ -633,7 +633,7 @@ func TestAlertCheckTool_runRemoteHTTPGet(t *testing.T) {
 		tool.runCmd = func(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
 			return nil, []byte("curl: (7) connection refused"), errRemoteFailure
 		}
-		_, err := tool.runRemoteHTTPGet(&AlertCheckParams{
+		_, err := tool.runRemoteHTTPGet(context.Background(), &AlertCheckParams{
 			RemoteHost: "10.0.0.60",
 			RemoteUser: "ops",
 		}, "http://127.0.0.1:9090/api/v1/alerts", nil)
@@ -652,7 +652,7 @@ func TestAlertCheckTool_runRemoteHTTPGet(t *testing.T) {
 			// curl 部分输出后非零退出,stdout 已有内容时应保留。
 			return []byte(`{"partial":true}`), []byte("warning"), errRemoteFailure
 		}
-		out, err := tool.runRemoteHTTPGet(&AlertCheckParams{
+		out, err := tool.runRemoteHTTPGet(context.Background(), &AlertCheckParams{
 			RemoteHost: "10.0.0.60",
 			RemoteUser: "ops",
 		}, "http://127.0.0.1:9090/api/v1/alerts", nil)
@@ -667,7 +667,7 @@ func TestAlertCheckTool_runRemoteHTTPGet(t *testing.T) {
 	t.Run("缺少 remote host 时返回构造错误", func(t *testing.T) {
 		t.Parallel()
 		tool := NewAlertCheckTool(nil)
-		_, err := tool.runRemoteHTTPGet(&AlertCheckParams{}, "http://127.0.0.1:9090/api/v1/alerts", nil)
+		_, err := tool.runRemoteHTTPGet(context.Background(), &AlertCheckParams{}, "http://127.0.0.1:9090/api/v1/alerts", nil)
 		if err == nil {
 			t.Fatal("expected error when remote_host missing")
 		}
@@ -776,12 +776,16 @@ func TestAlertCheckTool_getDispatchersFallback(t *testing.T) {
 		wantMinLen int
 	}{
 		{"prometheus", func(t *AlertCheckTool) []AlertInfo {
-			return t.getPrometheusAlerts(&AlertCheckParams{System: "prometheus"})
+			return t.getPrometheusAlerts(context.Background(), &AlertCheckParams{System: "prometheus"})
 		}, 1},
-		{"grafana", func(t *AlertCheckTool) []AlertInfo { return t.getGrafanaAlerts(&AlertCheckParams{System: "grafana"}) }, 1},
-		{"datadog", func(t *AlertCheckTool) []AlertInfo { return t.getDatadogAlerts(&AlertCheckParams{System: "datadog"}) }, 1},
+		{"grafana", func(t *AlertCheckTool) []AlertInfo {
+			return t.getGrafanaAlerts(context.Background(), &AlertCheckParams{System: "grafana"})
+		}, 1},
+		{"datadog", func(t *AlertCheckTool) []AlertInfo {
+			return t.getDatadogAlerts(context.Background(), &AlertCheckParams{System: "datadog"})
+		}, 1},
 		{"pagerduty", func(t *AlertCheckTool) []AlertInfo {
-			return t.getPagerDutyAlerts(&AlertCheckParams{System: "pagerduty"})
+			return t.getPagerDutyAlerts(context.Background(), &AlertCheckParams{System: "pagerduty"})
 		}, 1},
 	}
 
@@ -820,7 +824,7 @@ func TestAlertCheckTool_performCheckLiveViaHTTP(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		result := tool.performCheck(&AlertCheckParams{System: "prometheus", Endpoint: ts.URL})
+		result := tool.performCheck(context.Background(), &AlertCheckParams{System: "prometheus", Endpoint: ts.URL})
 		if result.DataSource != "live" {
 			t.Fatalf("expected live data source, got %q", result.DataSource)
 		}
@@ -842,7 +846,7 @@ func TestAlertCheckTool_performCheckLiveViaHTTP(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		result := tool.performCheck(&AlertCheckParams{System: "grafana", Endpoint: ts.URL, APIToken: "t"})
+		result := tool.performCheck(context.Background(), &AlertCheckParams{System: "grafana", Endpoint: ts.URL, APIToken: "t"})
 		if result.DataSource != "live" {
 			t.Fatalf("expected live data source, got %q", result.DataSource)
 		}
@@ -860,7 +864,7 @@ func TestAlertCheckTool_performCheckLiveViaHTTP(t *testing.T) {
 		defer ts.Close()
 
 		tool := NewAlertCheckTool(nil)
-		result := tool.performCheck(&AlertCheckParams{System: "pagerduty", Endpoint: ts.URL, APIToken: "tok"})
+		result := tool.performCheck(context.Background(), &AlertCheckParams{System: "pagerduty", Endpoint: ts.URL, APIToken: "tok"})
 		if result.DataSource != "live" {
 			t.Fatalf("expected live data source, got %q", result.DataSource)
 		}
@@ -883,7 +887,7 @@ func TestAlertCheckTool_performCheckLiveViaHTTP_EnvScoped(t *testing.T) {
 		t.Setenv("SECOPS_DATADOG_APP_KEY", "app")
 
 		tool := NewAlertCheckTool(nil)
-		result := tool.performCheck(&AlertCheckParams{System: "datadog", Endpoint: ts.URL, APIToken: "api"})
+		result := tool.performCheck(context.Background(), &AlertCheckParams{System: "datadog", Endpoint: ts.URL, APIToken: "api"})
 		if result.DataSource != "live" {
 			t.Fatalf("expected live data source, got %q", result.DataSource)
 		}
@@ -895,7 +899,7 @@ func TestAlertCheckTool_performCheckLiveViaHTTP_EnvScoped(t *testing.T) {
 	t.Run("查询失败时回退到样本数据源", func(t *testing.T) {
 		t.Setenv("SECOPS_PROMETHEUS_ENDPOINT", "")
 		tool := NewAlertCheckTool(nil)
-		result := tool.performCheck(&AlertCheckParams{System: "prometheus"})
+		result := tool.performCheck(context.Background(), &AlertCheckParams{System: "prometheus"})
 		if result.DataSource != "fallback_sample" {
 			t.Fatalf("expected fallback_sample data source, got %q", result.DataSource)
 		}

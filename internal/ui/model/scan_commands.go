@@ -15,7 +15,9 @@ import (
 	"github.com/chenchunrun/SecOps/internal/workbench"
 )
 
-const scanHelp = "/scan list | authorize <directory> | run <directory> | revoke <directory> | show <id> | cancel <id> | review <id> passed|rejected <reason>"
+const scanHelp = "/scan new | list | authorize <directory> | run <directory> | revoke <directory> | show <id> | report <id> | cancel <id> | review <id> passed|rejected <reason>"
+
+type scanSessionCreatedMsg struct{ sessionID string }
 
 type scanPreparedMsg struct {
 	record scan.Record
@@ -24,8 +26,18 @@ type scanPreparedMsg struct {
 type scanViewMsg struct{ text string }
 
 func (m *UI) applyScanCommand(input string) tea.Cmd {
+	if strings.TrimSpace(input) == "new" {
+		sessions := m.com.App.Sessions
+		return func() tea.Msg {
+			s, err := sessions.Create(context.Background(), "Security scan")
+			if err != nil {
+				return util.NewErrorMsg(err)
+			}
+			return scanSessionCreatedMsg{sessionID: s.ID}
+		}
+	}
 	if !m.hasSession() || m.com.App.Scans == nil {
-		return util.ReportWarn("Open a session before using /scan")
+		return util.ReportWarn("Use /scan new to open a scan session first")
 	}
 	action, rest, _ := strings.Cut(strings.TrimSpace(input), " ")
 	rest = strings.TrimSpace(rest)
@@ -110,6 +122,18 @@ func (m *UI) applyScanCommand(input string) tea.Cmd {
 			text += "\n" + scanHelp
 			return scanViewMsg{text: text}
 		}
+	case "report":
+		return func() tea.Msg {
+			report, err := app.Scans.Report(context.Background(), sessionID, rest)
+			if err != nil {
+				return util.NewErrorMsg(err)
+			}
+			data, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return util.NewErrorMsg(err)
+			}
+			return scanViewMsg{text: "Reviewed report:\n" + string(data)}
+		}
 	case "review":
 		id, remaining, _ := strings.Cut(rest, " ")
 		verdict, reason, _ := strings.Cut(strings.TrimSpace(remaining), " ")
@@ -131,7 +155,7 @@ func (m *UI) handleScanPrepared(msg scanPreparedMsg) tea.Cmd {
 	}
 	app := m.com.App
 	return tea.Batch(util.ReportInfo("Scan started: "+msg.record.ID+"; /scan cancel "+msg.record.ID), func() tea.Msg {
-		record, err := app.RunScan(msg.record.SessionID, msg.record.ID)
+		record, err := app.RunScan(context.Background(), msg.record.SessionID, msg.record.ID)
 		if err != nil {
 			return util.NewErrorMsg(fmt.Errorf("scan %s: %w", record.ID, err))
 		}

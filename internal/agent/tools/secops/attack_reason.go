@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -78,7 +79,7 @@ func (art *AttackReasonTool) RequiredCapabilities() []string {
 // ValidateParams implements Tool.ValidateParams.
 func (art *AttackReasonTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*AttackReasonParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 	if p.IncidentID == "" &&
@@ -94,8 +95,24 @@ func (art *AttackReasonTool) ValidateParams(params interface{}) error {
 
 // Execute implements Tool.Execute.
 func (art *AttackReasonTool) Execute(params interface{}) (interface{}, error) {
+	return art.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (art *AttackReasonTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := art.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (art *AttackReasonTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*AttackReasonParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 	if err := art.ValidateParams(p); err != nil {

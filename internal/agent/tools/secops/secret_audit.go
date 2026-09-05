@@ -128,7 +128,7 @@ func (sat *SecretAuditTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (sat *SecretAuditTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*SecretAuditParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -165,8 +165,24 @@ func (sat *SecretAuditTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (sat *SecretAuditTool) Execute(params interface{}) (interface{}, error) {
+	return sat.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (sat *SecretAuditTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := sat.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (sat *SecretAuditTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*SecretAuditParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -174,7 +190,7 @@ func (sat *SecretAuditTool) Execute(params interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	return sat.performAudit(p), nil
+	return sat.performAudit(parentCtx, p), nil
 }
 
 // secretPatterns 定义密钥检测正则表达式
@@ -297,7 +313,7 @@ func redacted(original string, secretType string) string {
 }
 
 // performAudit walks params.TargetPath and scans every text file for secrets.
-func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAuditResult {
+func (sat *SecretAuditTool) performAudit(parentCtx context.Context, params *SecretAuditParams) *SecretAuditResult {
 	result := &SecretAuditResult{
 		Findings: make([]SecretFinding, 0),
 	}
@@ -310,7 +326,7 @@ func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAudit
 	}
 	minRank := severityRank[params.Severity]
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		sat.performRemoteAudit(params, result, severityRank, minRank)
+		sat.performRemoteAudit(parentCtx, params, result, severityRank, minRank)
 		for _, f := range result.Findings {
 			if f.Severity == "CRITICAL" || f.Severity == "HIGH" {
 				result.HighSeverity++
@@ -335,7 +351,13 @@ func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAudit
 	}
 
 	if info.IsDir() {
-		filepath.Walk(absPath, sat.makeWalker(absPath, result, severityRank, minRank))
+		walker := sat.makeWalker(absPath, result, severityRank, minRank)
+		filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
+			if parentCtx.Err() != nil {
+				return parentCtx.Err()
+			}
+			return walker(path, info, err)
+		})
 	} else {
 		sat.scanFile(absPath, absPath, result, severityRank, minRank)
 	}
@@ -350,7 +372,7 @@ func (sat *SecretAuditTool) performAudit(params *SecretAuditParams) *SecretAudit
 	return result
 }
 
-func (sat *SecretAuditTool) performRemoteAudit(
+func (sat *SecretAuditTool) performRemoteAudit(parentCtx context.Context,
 	params *SecretAuditParams,
 	result *SecretAuditResult,
 	severityRank map[string]int,
@@ -360,7 +382,7 @@ func (sat *SecretAuditTool) performRemoteAudit(
 	if target == "" {
 		return
 	}
-	pathsOut, err := sat.runRemoteCommand(params, "if [ -d "+shellQuoteSecret(target)+" ]; then find "+shellQuoteSecret(target)+" -type f 2>/dev/null; else printf '%s\\n' "+shellQuoteSecret(target)+"; fi")
+	pathsOut, err := sat.runRemoteCommand(parentCtx, params, "if [ -d "+shellQuoteSecret(target)+" ]; then find "+shellQuoteSecret(target)+" -type f 2>/dev/null; else printf '%s\\n' "+shellQuoteSecret(target)+"; fi")
 	if err != nil {
 		result.Findings = append(result.Findings, SecretFinding{
 			File:        target,
@@ -380,7 +402,7 @@ func (sat *SecretAuditTool) performRemoteAudit(
 		if skipSuffixes[ext] {
 			continue
 		}
-		content, cErr := sat.runRemoteCommand(params, "head -c "+fmt.Sprintf("%d", MaxFileSize+1)+" "+shellQuoteSecret(path)+" 2>/dev/null")
+		content, cErr := sat.runRemoteCommand(parentCtx, params, "head -c "+fmt.Sprintf("%d", MaxFileSize+1)+" "+shellQuoteSecret(path)+" 2>/dev/null")
 		if cErr != nil || len(content) == 0 || len(content) > MaxFileSize {
 			continue
 		}
@@ -392,7 +414,10 @@ func (sat *SecretAuditTool) performRemoteAudit(
 	}
 }
 
-func (sat *SecretAuditTool) runRemoteCommand(params *SecretAuditParams, remoteCmd string) ([]byte, error) {
+func (sat *SecretAuditTool) runRemoteCommand(parentCtx context.Context, params *SecretAuditParams, remoteCmd string) ([]byte, error) {
+	if err := parentCtx.Err(); err != nil {
+		return nil, err
+	}
 	if sat.runCmd == nil {
 		sat.runCmd = runSecretCommand
 	}
@@ -400,7 +425,7 @@ func (sat *SecretAuditTool) runRemoteCommand(params *SecretAuditParams, remoteCm
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 	stdout, stderr, cmdErr := sat.runCmd(ctx, "ssh", sshArgs...)
 	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {

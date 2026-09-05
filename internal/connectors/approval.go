@@ -22,11 +22,17 @@ type ApprovalStore interface {
 type StoredApprovalVerifier struct{ Store ApprovalStore }
 
 func (v StoredApprovalVerifier) VerifyApproval(ctx context.Context, request ApprovalRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if v.Store == nil || request.ApprovalID == "" || request.SessionID == "" {
 		return errors.New("approval store and scoped identity are required")
 	}
 	record, err := v.Store.GetApproval(ctx, request.ApprovalID)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	now := time.Now()

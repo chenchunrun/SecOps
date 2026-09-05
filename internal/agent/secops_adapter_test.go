@@ -864,7 +864,9 @@ func TestAdapterDecodeParamsUsesRegistry(t *testing.T) {
 		registry: capregistry.NewSecOpsRegistry(),
 	}
 
-	decoded, err := a.decodeParams(json.RawMessage(`{"path":"/var/log/auth.log"}`))
+	_, err := a.decodeParams(json.RawMessage(`{"path":"/var/log/auth.log"}`))
+	require.ErrorContains(t, err, "unknown field")
+	decoded, err := a.decodeParams(json.RawMessage(`{"source":"system"}`))
 	require.NoError(t, err)
 
 	_, ok := decoded.(*secops.LogAnalyzeParams)

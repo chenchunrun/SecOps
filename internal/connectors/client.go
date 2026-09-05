@@ -111,6 +111,10 @@ func NewClient(manifest Manifest, credentials CredentialProvider, transport Tran
 }
 
 func (c *Client) Execute(ctx context.Context, request ExecuteRequest) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	request.Payload = append([]byte(nil), request.Payload...)
 	operation, ok := c.manifest.Operation(request.Operation)
 	if !ok {
 		return Result{}, fmt.Errorf("connector operation %q is not declared", request.Operation)
@@ -158,6 +162,19 @@ func (c *Client) Execute(ctx context.Context, request ExecuteRequest) (Result, e
 		maxRetries = 0
 	}
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
+		// Credentials and auditing may take time. Revalidate immediately before a write.
+		if operation.SideEffect {
+			if err := c.approvals.VerifyApproval(ctx, ApprovalRequest{
+				ApprovalID: request.ApprovalID, SessionID: request.SessionID,
+				Connector: c.manifest.Name, Operation: operation.Name, Path: operation.Path,
+				PayloadHash: fmt.Sprintf("%x", sha256.Sum256(request.Payload)),
+			}); err != nil {
+				return Result{}, fmt.Errorf("revalidate connector approval: %w", err)
+			}
+		}
 		response, err = c.transport.Do(ctx, transportRequest)
 		if err == nil && response.StatusCode >= 200 && response.StatusCode < 300 {
 			body := []byte(strings.ReplaceAll(string(response.Body), credential.Token, "[REDACTED]"))

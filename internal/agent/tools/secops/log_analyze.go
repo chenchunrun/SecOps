@@ -173,7 +173,7 @@ func (lat *LogAnalyzeTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (lat *LogAnalyzeTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*LogAnalyzeParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -213,7 +213,7 @@ func (lat *LogAnalyzeTool) ExecuteContext(ctx context.Context, params interface{
 		return nil, err
 	}
 	p, ok := params.(*LogAnalyzeParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

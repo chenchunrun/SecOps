@@ -1092,7 +1092,7 @@ func TestComplianceCheckTool_CheckRule(t *testing.T) {
 	}
 
 	before := time.Now()
-	tool.checkRule(rule, false, nil)
+	tool.checkRule(context.Background(), rule, false, nil)
 	after := time.Now()
 
 	if rule.LastChecked.Before(before) || rule.LastChecked.After(after) {
@@ -1111,7 +1111,7 @@ func TestComplianceCheckTool_CheckRule_FullMode(t *testing.T) {
 	}
 
 	originalEvidence := rule.Evidence
-	tool.checkRule(rule, true, nil)
+	tool.checkRule(context.Background(), rule, true, nil)
 
 	// In full mode, evidence should be prefixed with "Detailed check: "
 	if rule.Evidence == "" {
@@ -1133,7 +1133,7 @@ func TestComplianceCheckTool_CheckRule_PassedStatus_NoEvidenceChange(t *testing.
 	}
 
 	originalEvidence := rule.Evidence
-	tool.checkRule(rule, true, nil)
+	tool.checkRule(context.Background(), rule, true, nil)
 
 	// Passed rules should not have evidence modified in full mode
 	if rule.Evidence != originalEvidence {
@@ -1153,7 +1153,7 @@ func TestComplianceCheckTool_RunComplianceCheck(t *testing.T) {
 		Full:       false,
 	}
 
-	result := tool.runComplianceCheck(params)
+	result := tool.runComplianceCheck(context.Background(), params)
 
 	if result.Framework != FrameworkCIS {
 		t.Errorf("expected framework CIS, got %v", result.Framework)
@@ -1193,7 +1193,7 @@ func TestComplianceCheckTool_RunComplianceCheck_WithRuleIDs(t *testing.T) {
 		RuleIDs:   []string{allRules[0].ID},
 	}
 
-	result := tool.runComplianceCheck(params)
+	result := tool.runComplianceCheck(context.Background(), params)
 
 	if result.TotalRules != 1 {
 		t.Errorf("expected 1 rule, got %d", result.TotalRules)
@@ -1223,7 +1223,7 @@ func TestComplianceCheckTool_RunComplianceCheck_CategoryFilter(t *testing.T) {
 		Categories: []string{category},
 	}
 
-	result := tool.runComplianceCheck(params)
+	result := tool.runComplianceCheck(context.Background(), params)
 
 	for _, rule := range result.Rules {
 		if rule.Category != category {

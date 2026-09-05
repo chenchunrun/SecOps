@@ -144,7 +144,7 @@ func (mqt *MonitoringQueryTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (mqt *MonitoringQueryTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*MonitoringQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -204,7 +204,7 @@ func (mqt *MonitoringQueryTool) ExecuteContext(ctx context.Context, params inter
 		return nil, err
 	}
 	p, ok := params.(*MonitoringQueryParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

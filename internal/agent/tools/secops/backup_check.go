@@ -69,7 +69,7 @@ func (bct *BackupCheckTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (bct *BackupCheckTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*BackupCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -108,7 +108,7 @@ func (bct *BackupCheckTool) ExecuteContext(ctx context.Context, params interface
 		return nil, err
 	}
 	p, ok := params.(*BackupCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

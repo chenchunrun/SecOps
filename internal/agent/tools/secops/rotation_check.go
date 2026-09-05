@@ -71,7 +71,7 @@ func (rct *RotationCheckTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (rct *RotationCheckTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*RotationCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -115,7 +115,7 @@ func (rct *RotationCheckTool) ExecuteContext(ctx context.Context, params interfa
 		return nil, err
 	}
 	p, ok := params.(*RotationCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

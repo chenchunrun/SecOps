@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -77,7 +78,7 @@ func TestConfigurationAudit_RemoteBranches(t *testing.T) {
 		params := auditRemoteParams()
 		for family, provider := range ruleProviders {
 			for _, rule := range provider(params) {
-				tool.auditRule(rule, params)
+				tool.auditRule(context.Background(), rule, params)
 				if rule.Status == "" {
 					t.Errorf("family %s rule %s: expected status set, got empty", family, rule.ID)
 				}
@@ -91,7 +92,7 @@ func TestConfigurationAudit_RemoteBranches(t *testing.T) {
 		params := auditRemoteParams()
 		for family, provider := range ruleProviders {
 			for _, rule := range provider(params) {
-				tool.auditRule(rule, params)
+				tool.auditRule(context.Background(), rule, params)
 				if rule.Status == "" {
 					t.Errorf("family %s rule %s: expected status set on failure, got empty", family, rule.ID)
 				}
@@ -103,21 +104,21 @@ func TestConfigurationAudit_RemoteBranches(t *testing.T) {
 func TestConfigurationAudit_RemoteReadHelpers(t *testing.T) {
 	t.Run("sshd config value found", func(t *testing.T) {
 		installFixedSSHStub(t, "no", false)
-		if v, ok := remoteReadSSHDConfigValue(auditRemoteParams(), "PermitRootLogin"); !ok || v != "no" {
+		if v, ok := remoteReadSSHDConfigValue(context.Background(), auditRemoteParams(), "PermitRootLogin"); !ok || v != "no" {
 			t.Errorf("expected no/true, got %q/%v", v, ok)
 		}
 	})
 
 	t.Run("sshd config value missing", func(t *testing.T) {
 		installFixedSSHStub(t, "", true)
-		if _, ok := remoteReadSSHDConfigValue(auditRemoteParams(), "PermitRootLogin"); ok {
+		if _, ok := remoteReadSSHDConfigValue(context.Background(), auditRemoteParams(), "PermitRootLogin"); ok {
 			t.Error("expected ok=false on remote failure")
 		}
 	})
 
 	t.Run("sudo policy lines returned", func(t *testing.T) {
 		installFixedSSHStub(t, "%admin ALL=(ALL) NOPASSWD: ALL\nDefaults log_output\n", false)
-		lines, ok := readRemoteSudoPolicyLines(auditRemoteParams())
+		lines, ok := readRemoteSudoPolicyLines(context.Background(), auditRemoteParams())
 		if !ok {
 			t.Fatal("expected ok=true for sudo policy lines")
 		}
@@ -128,16 +129,16 @@ func TestConfigurationAudit_RemoteReadHelpers(t *testing.T) {
 
 	t.Run("sudo policy missing", func(t *testing.T) {
 		installFixedSSHStub(t, "", true)
-		if _, ok := readRemoteSudoPolicyLines(auditRemoteParams()); ok {
+		if _, ok := readRemoteSudoPolicyLines(context.Background(), auditRemoteParams()); ok {
 			t.Error("expected ok=false on remote failure")
 		}
 	})
 
 	t.Run("runRemoteCommand nil params and no host", func(t *testing.T) {
-		if _, ok := runRemoteCommand(nil, "echo"); ok {
+		if _, ok := runRemoteCommand(context.Background(), nil, "echo"); ok {
 			t.Error("expected ok=false for nil params")
 		}
-		if _, ok := runRemoteCommand(&ConfigAuditParams{}, "echo"); ok {
+		if _, ok := runRemoteCommand(context.Background(), &ConfigAuditParams{}, "echo"); ok {
 			t.Error("expected ok=false when RemoteHost empty")
 		}
 	})

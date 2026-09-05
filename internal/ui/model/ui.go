@@ -892,6 +892,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ttl = DefaultStatusTTL
 		}
 		cmds = append(cmds, clearInfoMsgCmd(ttl))
+	case scanSessionCreatedMsg:
+		cmds = append(cmds, m.loadSession(msg.sessionID))
 	case scanPreparedMsg:
 		cmds = append(cmds, m.handleScanPrepared(msg))
 	case scanViewMsg:
@@ -1428,6 +1430,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionRunScanCommand:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.applyScanCommand(msg.Input))
 	case dialog.ActionSummarize:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before summarizing session..."))

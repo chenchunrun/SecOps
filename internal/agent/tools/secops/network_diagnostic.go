@@ -140,7 +140,7 @@ func (ndt *NetworkDiagnosticTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (ndt *NetworkDiagnosticTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*NetworkDiagnosticParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -189,7 +189,7 @@ func (ndt *NetworkDiagnosticTool) ExecuteContext(ctx context.Context, params int
 		return nil, err
 	}
 	p, ok := params.(*NetworkDiagnosticParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

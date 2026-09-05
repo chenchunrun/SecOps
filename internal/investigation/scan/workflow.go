@@ -8,13 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/chenchunrun/SecOps/internal/agent/tools/secops"
 	"github.com/chenchunrun/SecOps/internal/evidence"
+	"github.com/chenchunrun/SecOps/internal/skills"
 	"github.com/google/uuid"
 )
 
@@ -47,7 +49,8 @@ type Service struct {
 	mu        sync.Mutex
 	root      string
 	evidence  *evidence.FileStore
-	scanner   Scanner
+	runner    *skills.Runner
+	manifest  *skills.SkillManifest
 	authorize Authorize
 	audit     Audit
 	active    map[string]context.CancelFunc
@@ -60,7 +63,11 @@ func New(root string, store *evidence.FileStore, scanner Scanner, authorize Auth
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	return &Service{root: root, evidence: store, scanner: scanner, authorize: authorize, audit: audit, active: make(map[string]context.CancelFunc)}, nil
+	runner, manifest, err := newScanSkill(scanner)
+	if err != nil {
+		return nil, err
+	}
+	return &Service{root: root, evidence: store, runner: runner, manifest: manifest, authorize: authorize, audit: audit, active: make(map[string]context.CancelFunc)}, nil
 }
 
 // Target binds a grant to one canonical directory without host normalization.
@@ -171,8 +178,10 @@ func (s *Service) Run(ctx context.Context, sessionID, id string) (record Record,
 			}
 		}
 	}()
-	output, scanErr := s.scanner.ExecuteContext(runCtx, &secops.SecurityScanParams{
-		Scanner: secops.ScannerTrivy, Target: secops.TargetFilesystem, TargetPath: record.Directory, ScanType: "vuln",
+	output, scanErr := s.runner.Run(runCtx, *s.manifest, skills.RuntimeRequest{
+		Platform: runtime.GOOS, SignedScope: true,
+		GrantedCapabilities: map[string]bool{"security:scan": true},
+		Input:               map[string]interface{}{"task_id": id, "directory": record.Directory},
 	})
 	if scanErr != nil {
 		return record, scanErr
@@ -183,9 +192,9 @@ func (s *Service) Run(ctx context.Context, sessionID, id string) (record Record,
 	if err = s.authorize(record.SessionID, record.Subject, record.Scope); err != nil {
 		return record, err
 	}
-	result, ok := output.(*secops.ScanResult)
-	if !ok || result == nil {
-		return record, errors.New("scanner returned an invalid result")
+	result, err := decodeScanOutput(output.Output)
+	if err != nil {
+		return record, err
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -236,10 +245,15 @@ func (s *Service) Review(ctx context.Context, sessionID, id string, verdict evid
 	if strings.TrimSpace(reason) == "" || (verdict != evidence.VerdictPassed && verdict != evidence.VerdictRejected) {
 		return evidence.Report{}, errors.New("review requires passed/rejected and a reason")
 	}
+	reviewer, err := user.Current()
+	if err != nil || reviewer.Uid == "" {
+		return evidence.Report{}, errors.New("cannot resolve local reviewer identity")
+	}
 	if err := s.audit(sessionID, id, "scan_review_"+string(verdict), record.Directory); err != nil {
 		return evidence.Report{}, err
 	}
-	verification := evidence.Verification{FindingID: record.FindingID, TaskID: id, CheckerID: "interactive-user", Verdict: verdict, EvidenceIDs: []string{record.EvidenceID}, Reason: reason}
+	checkerID := fmt.Sprintf("local-user-%x", sha256.Sum256([]byte(reviewer.Uid)))
+	verification := evidence.Verification{FindingID: record.FindingID, TaskID: id, CheckerID: checkerID, Verdict: verdict, EvidenceIDs: []string{record.EvidenceID}, Reason: reason}
 	if err := s.evidence.VerifyFinding(ctx, verification); err != nil {
 		// Recover a report write failure without overwriting an existing decision.
 		if !errors.Is(err, evidence.ErrAlreadyExists) {

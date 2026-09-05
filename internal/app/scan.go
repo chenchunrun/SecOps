@@ -51,6 +51,12 @@ func (app *App) initScans(cfg *config.Config) error {
 	return nil
 }
 
-func (app *App) RunScan(sessionID, id string) (scan.Record, error) {
-	return app.Scans.Run(app.globalCtx, sessionID, id)
+func (app *App) RunScan(ctx context.Context, sessionID, id string) (scan.Record, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if app.globalCtx != nil {
+		stop := context.AfterFunc(app.globalCtx, cancel)
+		defer stop()
+	}
+	return app.Scans.Run(ctx, sessionID, id)
 }

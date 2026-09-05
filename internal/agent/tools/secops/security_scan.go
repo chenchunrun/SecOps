@@ -145,7 +145,7 @@ func (sst *SecurityScanTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (sst *SecurityScanTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*SecurityScanParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -201,7 +201,7 @@ func (sst *SecurityScanTool) ExecuteContext(ctx context.Context, params interfac
 		return nil, err
 	}
 	p, ok := params.(*SecurityScanParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

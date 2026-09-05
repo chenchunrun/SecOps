@@ -70,7 +70,7 @@ func (rst *ReplicationStatusTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (rst *ReplicationStatusTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*ReplicationStatusParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -107,7 +107,7 @@ func (rst *ReplicationStatusTool) ExecuteContext(ctx context.Context, params int
 		return nil, err
 	}
 	p, ok := params.(*ReplicationStatusParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

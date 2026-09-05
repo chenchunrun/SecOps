@@ -225,7 +225,7 @@ func TestDeploymentStatusTool_K8s从Kubectl实时获取健康状态(t *testing.T
 		},
 	})
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -270,7 +270,7 @@ func TestDeploymentStatusTool_K8s降级状态_副本不足(t *testing.T) {
 		},
 	})
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -292,7 +292,7 @@ func TestDeploymentStatusTool_K8s不健康状态_零可用副本(t *testing.T) {
 		},
 	})
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -313,7 +313,7 @@ func TestDeploymentStatusTool_K8sCanary策略触发金丝雀分析(t *testing.T)
 		},
 	})
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -342,7 +342,7 @@ func TestDeploymentStatusTool_K8s默认命名空间回退(t *testing.T) {
 		return []byte(`{}`), nil, nil
 	}
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res == nil {
@@ -366,7 +366,7 @@ func TestDeploymentStatusTool_K8s命令失败返回nil(t *testing.T) {
 		"kubectl": {err: errors.New("kubectl: connection refused")},
 	})
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -385,7 +385,7 @@ func TestDeploymentStatusTool_K8s空输出返回nil(t *testing.T) {
 		"kubectl": {stdout: ""},
 	})
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -404,7 +404,7 @@ func TestDeploymentStatusTool_K8s非法JSON返回nil(t *testing.T) {
 		"kubectl": {stdout: "not-json{"},
 	})
 
-	res := tool.getK8sDeploymentStatusFromKubectl(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatusFromKubectl(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -422,7 +422,7 @@ func TestDeploymentStatusTool_K8s回退样例(t *testing.T) {
 		return nil, []byte("not found"), errors.New("missing")
 	}
 
-	res := tool.getK8sDeploymentStatus(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatus(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -446,7 +446,7 @@ func TestDeploymentStatusTool_K8sCanaryStatus包装(t *testing.T) {
 		return nil, []byte("missing"), errors.New("missing")
 	}
 
-	res := tool.getK8sCanaryStatus(&DeploymentStatusParams{
+	res := tool.getK8sCanaryStatus(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -470,7 +470,7 @@ func TestDeploymentStatusTool_performCheck分发(t *testing.T) {
 	}
 
 	for _, platform := range []string{"kubernetes", "aws", "gcp", "azure"} {
-		res := tool.performCheck(&DeploymentStatusParams{
+		res := tool.performCheck(context.Background(), &DeploymentStatusParams{
 			Platform:   platform,
 			Deployment: "web-api",
 			Namespace:  "prod",
@@ -509,7 +509,7 @@ func TestDeploymentStatusTool_AWS从CLI实时获取(t *testing.T) {
 		"aws": {stdout: awsECSJSON},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "prod-cluster",
 	})
@@ -539,7 +539,7 @@ func TestDeploymentStatusTool_AWS降级_运行数少于期望(t *testing.T) {
 		"aws": {stdout: degradedJSON},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "prod-cluster",
 	})
@@ -560,7 +560,7 @@ func TestDeploymentStatusTool_AWS滚动发布进行中(t *testing.T) {
 		"aws": {stdout: inProgressJSON},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "prod-cluster",
 	})
@@ -584,7 +584,7 @@ func TestDeploymentStatusTool_AWS发布失败标记为不健康(t *testing.T) {
 		"aws": {stdout: failedJSON},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "prod-cluster",
 	})
@@ -601,7 +601,7 @@ func TestDeploymentStatusTool_AWS默认集群名(t *testing.T) {
 		return []byte(awsECSJSON), nil, nil
 	}
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res == nil {
@@ -622,7 +622,7 @@ func TestDeploymentStatusTool_AWS命令失败返回nil(t *testing.T) {
 		"aws": {err: errors.New("aws cli error")},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res != nil {
@@ -640,7 +640,7 @@ func TestDeploymentStatusTool_AWS无服务条目返回nil(t *testing.T) {
 		"aws": {stdout: `{"services": []}`},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res != nil {
@@ -658,7 +658,7 @@ func TestDeploymentStatusTool_AWS非法JSON返回nil(t *testing.T) {
 		"aws": {stdout: "not-json"},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res != nil {
@@ -676,7 +676,7 @@ func TestDeploymentStatusTool_AWS空输出返回nil(t *testing.T) {
 		"aws": {stdout: ""},
 	})
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res != nil {
@@ -690,7 +690,7 @@ func TestDeploymentStatusTool_AWS回退样例(t *testing.T) {
 		return nil, nil, errors.New("missing")
 	}
 
-	res := tool.getAWSDeploymentStatus(&DeploymentStatusParams{Deployment: "web-api"})
+	res := tool.getAWSDeploymentStatus(context.Background(), &DeploymentStatusParams{Deployment: "web-api"})
 	if res == nil || res.DataSource != "fallback_sample" {
 		t.Fatalf("期望回退样例，got %+v", res)
 	}
@@ -722,7 +722,7 @@ func TestDeploymentStatusTool_GCP从CLI实时获取(t *testing.T) {
 		"gcloud": {stdout: gcpCloudRunJSON},
 	})
 
-	res := tool.getGCPDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getGCPDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "us-central1",
 	})
@@ -755,7 +755,7 @@ func TestDeploymentStatusTool_GCP就绪False标记为降级(t *testing.T) {
 		"gcloud": {stdout: notReadyJSON},
 	})
 
-	res := tool.getGCPDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getGCPDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res == nil || res.Health == nil || res.Health.Status != "degraded" {
@@ -777,7 +777,7 @@ func TestDeploymentStatusTool_GCP无就绪条件标记为未知(t *testing.T) {
 		"gcloud": {stdout: noCondJSON},
 	})
 
-	res := tool.getGCPDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getGCPDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res == nil {
@@ -809,7 +809,7 @@ func TestDeploymentStatusTool_GCP无流量配置零副本(t *testing.T) {
 		"gcloud": {stdout: noTrafficJSON},
 	})
 
-	res := tool.getGCPDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getGCPDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 	})
 	if res == nil {
@@ -830,7 +830,7 @@ func TestDeploymentStatusTool_GCP命令失败返回nil(t *testing.T) {
 		"gcloud": {err: errors.New("gcloud auth error")},
 	})
 
-	res := tool.getGCPDeploymentStatusFromCLI(&DeploymentStatusParams{Deployment: "web-api"})
+	res := tool.getGCPDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{Deployment: "web-api"})
 	if res != nil {
 		t.Fatalf("命令失败应返回 nil，got %+v", res)
 	}
@@ -846,7 +846,7 @@ func TestDeploymentStatusTool_GCP非法JSON返回nil(t *testing.T) {
 		"gcloud": {stdout: "garbage"},
 	})
 
-	res := tool.getGCPDeploymentStatusFromCLI(&DeploymentStatusParams{Deployment: "web-api"})
+	res := tool.getGCPDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{Deployment: "web-api"})
 	if res != nil {
 		t.Fatalf("非法 JSON 应返回 nil，got %+v", res)
 	}
@@ -858,7 +858,7 @@ func TestDeploymentStatusTool_GCP回退样例(t *testing.T) {
 		return nil, nil, errors.New("missing")
 	}
 
-	res := tool.getGCPDDeploymentStatus(&DeploymentStatusParams{Deployment: "web-api"})
+	res := tool.getGCPDDeploymentStatus(context.Background(), &DeploymentStatusParams{Deployment: "web-api"})
 	if res == nil || res.DataSource != "fallback_sample" {
 		t.Fatalf("期望回退样例，got %+v", res)
 	}
@@ -882,7 +882,7 @@ func TestDeploymentStatusTool_Azure从CLI实时获取(t *testing.T) {
 		"az": {stdout: azureWebappJSON},
 	})
 
-	res := tool.getAzureDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAzureDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "rg-prod",
 	})
@@ -912,7 +912,7 @@ func TestDeploymentStatusTool_Azure非运行状态标记为降级(t *testing.T) 
 		"az": {stdout: stoppedJSON},
 	})
 
-	res := tool.getAzureDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAzureDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "rg-prod",
 	})
@@ -931,7 +931,7 @@ func TestDeploymentStatusTool_Azure空资源组返回nil(t *testing.T) {
 		"az": {stdout: azureWebappJSON},
 	})
 
-	res := tool.getAzureDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAzureDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "  ",
 	})
@@ -950,7 +950,7 @@ func TestDeploymentStatusTool_Azure命令失败返回nil(t *testing.T) {
 		"az": {err: errors.New("az login required")},
 	})
 
-	res := tool.getAzureDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAzureDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "rg-prod",
 	})
@@ -969,7 +969,7 @@ func TestDeploymentStatusTool_Azure非法JSON返回nil(t *testing.T) {
 		"az": {stdout: "{broken"},
 	})
 
-	res := tool.getAzureDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAzureDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "rg-prod",
 	})
@@ -984,7 +984,7 @@ func TestDeploymentStatusTool_Azure回退样例(t *testing.T) {
 		return nil, nil, errors.New("missing")
 	}
 
-	res := tool.getAzureDeploymentStatus(&DeploymentStatusParams{
+	res := tool.getAzureDeploymentStatus(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "rg-prod",
 	})
@@ -1003,7 +1003,7 @@ func TestDeploymentStatusTool_K8s滚动发布等待中(t *testing.T) {
 		},
 	})
 
-	rollout := tool.getK8sRolloutInfo(&DeploymentStatusParams{Deployment: "web-api"}, "prod", "RollingUpdate")
+	rollout := tool.getK8sRolloutInfo(context.Background(), &DeploymentStatusParams{Deployment: "web-api"}, "prod", "RollingUpdate")
 	if rollout == nil {
 		t.Fatal("期望非空 rollout")
 	}
@@ -1023,7 +1023,7 @@ func TestDeploymentStatusTool_K8s滚动发布命令错误兜底(t *testing.T) {
 		},
 	})
 
-	rollout := tool.getK8sRolloutInfo(&DeploymentStatusParams{Deployment: "web-api"}, "prod", "RollingUpdate")
+	rollout := tool.getK8sRolloutInfo(context.Background(), &DeploymentStatusParams{Deployment: "web-api"}, "prod", "RollingUpdate")
 	if rollout == nil || !rollout.InProgress {
 		t.Fatalf("命令错误应标记 InProgress=true，got %+v", rollout)
 	}
@@ -1040,7 +1040,7 @@ func TestDeploymentStatusTool_K8s滚动发布完成(t *testing.T) {
 		},
 	})
 
-	rollout := tool.getK8sRolloutInfo(&DeploymentStatusParams{Deployment: "web-api"}, "prod", "RollingUpdate")
+	rollout := tool.getK8sRolloutInfo(context.Background(), &DeploymentStatusParams{Deployment: "web-api"}, "prod", "RollingUpdate")
 	if rollout == nil {
 		t.Fatal("期望非空 rollout")
 	}
@@ -1062,7 +1062,7 @@ func TestDeploymentStatusTool_K8s事件获取失败返回nil(t *testing.T) {
 		},
 	})
 
-	events := tool.getK8sRecentEvents(&DeploymentStatusParams{Deployment: "web-api"}, "prod")
+	events := tool.getK8sRecentEvents(context.Background(), &DeploymentStatusParams{Deployment: "web-api"}, "prod")
 	if events != nil {
 		t.Fatalf("命令失败应返回 nil，got %+v", events)
 	}
@@ -1076,7 +1076,7 @@ func TestDeploymentStatusTool_K8s事件非法JSON返回nil(t *testing.T) {
 		},
 	})
 
-	events := tool.getK8sRecentEvents(&DeploymentStatusParams{Deployment: "web-api"}, "prod")
+	events := tool.getK8sRecentEvents(context.Background(), &DeploymentStatusParams{Deployment: "web-api"}, "prod")
 	if events != nil {
 		t.Fatalf("非法 JSON 应返回 nil，got %+v", events)
 	}
@@ -1091,7 +1091,7 @@ func TestDeploymentStatusTool_K8s事件空类型与时间戳回退(t *testing.T)
 		},
 	})
 
-	events := tool.getK8sRecentEvents(&DeploymentStatusParams{Deployment: "web-api"}, "prod")
+	events := tool.getK8sRecentEvents(context.Background(), &DeploymentStatusParams{Deployment: "web-api"}, "prod")
 	if len(events) != 1 {
 		t.Fatalf("期望 1 条事件，got %d", len(events))
 	}
@@ -1322,7 +1322,7 @@ func TestDeploymentStatusTool_远程执行走SSH通道(t *testing.T) {
 		return []byte(awsECSJSON), nil, nil
 	}
 
-	res := tool.getAWSDeploymentStatusFromCLI(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatusFromCLI(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "cluster",
 		RemoteHost: "10.0.0.5",
@@ -1347,7 +1347,7 @@ func TestDeploymentStatusTool_runCmdNil回退默认实现(t *testing.T) {
 	tool.runCmd = nil // 触发 commandRun 内部的 nil 回退
 
 	// 不存在的 binary 应返回错误而非 panic
-	stdout, _, err := tool.commandRun(&DeploymentStatusParams{Deployment: "x"}, "this-binary-does-not-exist-xyz", "arg")
+	stdout, _, err := tool.commandRun(context.Background(), &DeploymentStatusParams{Deployment: "x"}, "this-binary-does-not-exist-xyz", "arg")
 	if err == nil {
 		t.Error("期望不存在的 binary 返回错误")
 	}
@@ -1365,7 +1365,7 @@ func TestDeploymentStatusTool_commandOutput错误信息(t *testing.T) {
 		return nil, nil, errors.New("some-failure")
 	}
 
-	out, err := tool.commandOutput(&DeploymentStatusParams{}, "aws", "ecs", "x")
+	out, err := tool.commandOutput(context.Background(), &DeploymentStatusParams{}, "aws", "ecs", "x")
 	if err == nil {
 		t.Fatal("期望错误")
 	}
@@ -1392,7 +1392,7 @@ func TestDeploymentStatusTool_K8s上层走实时路径(t *testing.T) {
 		},
 	})
 
-	res := tool.getK8sDeploymentStatus(&DeploymentStatusParams{
+	res := tool.getK8sDeploymentStatus(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Namespace:  "prod",
 	})
@@ -1414,7 +1414,7 @@ func TestDeploymentStatusTool_AWS上层走实时路径(t *testing.T) {
 		"aws": {stdout: awsECSJSON},
 	})
 
-	res := tool.getAWSDeploymentStatus(&DeploymentStatusParams{
+	res := tool.getAWSDeploymentStatus(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "cluster",
 	})
@@ -1433,7 +1433,7 @@ func TestDeploymentStatusTool_GCP上层走实时路径(t *testing.T) {
 		"gcloud": {stdout: gcpCloudRunJSON},
 	})
 
-	res := tool.getGCPDDeploymentStatus(&DeploymentStatusParams{
+	res := tool.getGCPDDeploymentStatus(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "us-central1",
 	})
@@ -1452,7 +1452,7 @@ func TestDeploymentStatusTool_Azure上层走实时路径(t *testing.T) {
 		"az": {stdout: azureWebappJSON},
 	})
 
-	res := tool.getAzureDeploymentStatus(&DeploymentStatusParams{
+	res := tool.getAzureDeploymentStatus(context.Background(), &DeploymentStatusParams{
 		Deployment: "web-api",
 		Target:     "rg-prod",
 	})

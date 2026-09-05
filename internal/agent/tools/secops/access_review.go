@@ -81,7 +81,7 @@ func (art *AccessReviewTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (art *AccessReviewTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*AccessReviewParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -125,7 +125,7 @@ func (art *AccessReviewTool) ExecuteContext(ctx context.Context, params interfac
 		return nil, err
 	}
 	p, ok := params.(*AccessReviewParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 

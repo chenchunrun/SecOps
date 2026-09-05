@@ -89,7 +89,7 @@ type AlertCheckResult struct {
 // ValidateParams 实现 Tool.ValidateParams
 func (act *AlertCheckTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*AlertCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -124,8 +124,24 @@ func (act *AlertCheckTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (act *AlertCheckTool) Execute(params interface{}) (interface{}, error) {
+	return act.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (act *AlertCheckTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := act.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (act *AlertCheckTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*AlertCheckParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -133,11 +149,11 @@ func (act *AlertCheckTool) Execute(params interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	return act.performCheck(p), nil
+	return act.performCheck(parentCtx, p), nil
 }
 
 // performCheck 执行告警检查
-func (act *AlertCheckTool) performCheck(params *AlertCheckParams) *AlertCheckResult {
+func (act *AlertCheckTool) performCheck(parentCtx context.Context, params *AlertCheckParams) *AlertCheckResult {
 	result := &AlertCheckResult{
 		System: params.System,
 		Alerts: make([]AlertInfo, 0),
@@ -145,38 +161,38 @@ func (act *AlertCheckTool) performCheck(params *AlertCheckParams) *AlertCheckRes
 
 	switch params.System {
 	case "prometheus":
-		if alerts := act.queryPrometheusAlerts(params); len(alerts) > 0 {
+		if alerts := act.queryPrometheusAlerts(parentCtx, params); len(alerts) > 0 {
 			result.Alerts = alerts
 			result.DataSource = "live"
 		} else {
-			result.Alerts = act.getPrometheusAlerts(params)
+			result.Alerts = act.getPrometheusAlerts(parentCtx, params)
 			result.DataSource = "fallback_sample"
 			result.FallbackReason = "prometheus alerts unavailable; returned built-in sample alerts"
 		}
 	case "grafana":
-		if alerts := act.queryGrafanaAlerts(params); len(alerts) > 0 {
+		if alerts := act.queryGrafanaAlerts(parentCtx, params); len(alerts) > 0 {
 			result.Alerts = alerts
 			result.DataSource = "live"
 		} else {
-			result.Alerts = act.getGrafanaAlerts(params)
+			result.Alerts = act.getGrafanaAlerts(parentCtx, params)
 			result.DataSource = "fallback_sample"
 			result.FallbackReason = "grafana alerts unavailable; returned built-in sample alerts"
 		}
 	case "datadog":
-		if alerts := act.queryDatadogAlerts(params); len(alerts) > 0 {
+		if alerts := act.queryDatadogAlerts(parentCtx, params); len(alerts) > 0 {
 			result.Alerts = alerts
 			result.DataSource = "live"
 		} else {
-			result.Alerts = act.getDatadogAlerts(params)
+			result.Alerts = act.getDatadogAlerts(parentCtx, params)
 			result.DataSource = "fallback_sample"
 			result.FallbackReason = "datadog alerts unavailable; returned built-in sample alerts"
 		}
 	case "pagerduty":
-		if alerts := act.queryPagerDutyAlerts(params); len(alerts) > 0 {
+		if alerts := act.queryPagerDutyAlerts(parentCtx, params); len(alerts) > 0 {
 			result.Alerts = alerts
 			result.DataSource = "live"
 		} else {
-			result.Alerts = act.getPagerDutyAlerts(params)
+			result.Alerts = act.getPagerDutyAlerts(parentCtx, params)
 			result.DataSource = "fallback_sample"
 			result.FallbackReason = "pagerduty alerts unavailable; returned built-in sample alerts"
 		}
@@ -278,8 +294,8 @@ func alertMatchesFilter(a AlertInfo, needle string) bool {
 }
 
 // getPrometheusAlerts 获取 Prometheus 告警
-func (act *AlertCheckTool) getPrometheusAlerts(params *AlertCheckParams) []AlertInfo {
-	if alerts := act.queryPrometheusAlerts(params); len(alerts) > 0 {
+func (act *AlertCheckTool) getPrometheusAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
+	if alerts := act.queryPrometheusAlerts(parentCtx, params); len(alerts) > 0 {
 		return alerts
 	}
 	return []AlertInfo{
@@ -332,8 +348,8 @@ func (act *AlertCheckTool) getPrometheusAlerts(params *AlertCheckParams) []Alert
 }
 
 // getGrafanaAlerts 获取 Grafana 告警
-func (act *AlertCheckTool) getGrafanaAlerts(params *AlertCheckParams) []AlertInfo {
-	if alerts := act.queryGrafanaAlerts(params); len(alerts) > 0 {
+func (act *AlertCheckTool) getGrafanaAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
+	if alerts := act.queryGrafanaAlerts(parentCtx, params); len(alerts) > 0 {
 		return alerts
 	}
 	return []AlertInfo{
@@ -368,8 +384,8 @@ func (act *AlertCheckTool) getGrafanaAlerts(params *AlertCheckParams) []AlertInf
 }
 
 // getDatadogAlerts 获取 Datadog 告警
-func (act *AlertCheckTool) getDatadogAlerts(params *AlertCheckParams) []AlertInfo {
-	if alerts := act.queryDatadogAlerts(params); len(alerts) > 0 {
+func (act *AlertCheckTool) getDatadogAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
+	if alerts := act.queryDatadogAlerts(parentCtx, params); len(alerts) > 0 {
 		return alerts
 	}
 	return []AlertInfo{
@@ -404,8 +420,8 @@ func (act *AlertCheckTool) getDatadogAlerts(params *AlertCheckParams) []AlertInf
 }
 
 // getPagerDutyAlerts 获取 PagerDuty 告警
-func (act *AlertCheckTool) getPagerDutyAlerts(params *AlertCheckParams) []AlertInfo {
-	if alerts := act.queryPagerDutyAlerts(params); len(alerts) > 0 {
+func (act *AlertCheckTool) getPagerDutyAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
+	if alerts := act.queryPagerDutyAlerts(parentCtx, params); len(alerts) > 0 {
 		return alerts
 	}
 	return []AlertInfo{
@@ -453,9 +469,9 @@ func (act *AlertCheckTool) resolveToken(params *AlertCheckParams, key string) st
 	return strings.TrimSpace(os.Getenv(key))
 }
 
-func (act *AlertCheckTool) queryPrometheusAlerts(params *AlertCheckParams) []AlertInfo {
+func (act *AlertCheckTool) queryPrometheusAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		if alerts := act.queryPrometheusAlertsRemote(params); len(alerts) > 0 {
+		if alerts := act.queryPrometheusAlertsRemote(parentCtx, params); len(alerts) > 0 {
 			return alerts
 		}
 	}
@@ -463,7 +479,7 @@ func (act *AlertCheckTool) queryPrometheusAlerts(params *AlertCheckParams) []Ale
 	if base == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/v1/alerts", nil)
@@ -533,9 +549,9 @@ func (act *AlertCheckTool) queryPrometheusAlerts(params *AlertCheckParams) []Ale
 	return alerts
 }
 
-func (act *AlertCheckTool) queryGrafanaAlerts(params *AlertCheckParams) []AlertInfo {
+func (act *AlertCheckTool) queryGrafanaAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
 	if strings.TrimSpace(params.RemoteHost) != "" {
-		if alerts := act.queryGrafanaAlertsRemote(params); len(alerts) > 0 {
+		if alerts := act.queryGrafanaAlertsRemote(parentCtx, params); len(alerts) > 0 {
 			return alerts
 		}
 	}
@@ -550,7 +566,7 @@ func (act *AlertCheckTool) queryGrafanaAlerts(params *AlertCheckParams) []AlertI
 		"/api/alerts",
 	}
 	for _, path := range paths {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 		if err != nil {
 			cancel()
@@ -613,7 +629,7 @@ func (act *AlertCheckTool) queryGrafanaAlerts(params *AlertCheckParams) []AlertI
 	return nil
 }
 
-func (act *AlertCheckTool) queryDatadogAlerts(params *AlertCheckParams) []AlertInfo {
+func (act *AlertCheckTool) queryDatadogAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
 	base := act.resolveEndpoint(params, "SECOPS_DATADOG_ENDPOINT")
 	if base == "" {
 		base = "https://api.datadoghq.com"
@@ -627,7 +643,7 @@ func (act *AlertCheckTool) queryDatadogAlerts(params *AlertCheckParams) []AlertI
 	if q == "" {
 		q = "*"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/v1/monitor/search?query="+q, nil)
@@ -672,7 +688,7 @@ func (act *AlertCheckTool) queryDatadogAlerts(params *AlertCheckParams) []AlertI
 	return alerts
 }
 
-func (act *AlertCheckTool) queryPagerDutyAlerts(params *AlertCheckParams) []AlertInfo {
+func (act *AlertCheckTool) queryPagerDutyAlerts(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
 	base := act.resolveEndpoint(params, "SECOPS_PAGERDUTY_ENDPOINT")
 	if base == "" {
 		base = "https://api.pagerduty.com"
@@ -681,7 +697,7 @@ func (act *AlertCheckTool) queryPagerDutyAlerts(params *AlertCheckParams) []Aler
 	if token == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/incidents?limit=50", nil)
@@ -775,12 +791,12 @@ func defaultIfEmpty(v, fallback string) string {
 	return v
 }
 
-func (act *AlertCheckTool) queryPrometheusAlertsRemote(params *AlertCheckParams) []AlertInfo {
+func (act *AlertCheckTool) queryPrometheusAlertsRemote(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
 	base := act.resolveEndpoint(params, "SECOPS_PROMETHEUS_ENDPOINT")
 	if base == "" {
 		base = "http://127.0.0.1:9090"
 	}
-	payload, err := act.runRemoteHTTPGet(params, base+"/api/v1/alerts", nil)
+	payload, err := act.runRemoteHTTPGet(parentCtx, params, base+"/api/v1/alerts", nil)
 	if err != nil || len(payload) == 0 {
 		return nil
 	}
@@ -820,7 +836,7 @@ func (act *AlertCheckTool) queryPrometheusAlertsRemote(params *AlertCheckParams)
 	return alerts
 }
 
-func (act *AlertCheckTool) queryGrafanaAlertsRemote(params *AlertCheckParams) []AlertInfo {
+func (act *AlertCheckTool) queryGrafanaAlertsRemote(parentCtx context.Context, params *AlertCheckParams) []AlertInfo {
 	base := act.resolveEndpoint(params, "SECOPS_GRAFANA_ENDPOINT")
 	if base == "" {
 		base = "http://127.0.0.1:3000"
@@ -835,7 +851,7 @@ func (act *AlertCheckTool) queryGrafanaAlertsRemote(params *AlertCheckParams) []
 		"/api/alerts",
 	}
 	for _, p := range paths {
-		payload, err := act.runRemoteHTTPGet(params, base+p, headers)
+		payload, err := act.runRemoteHTTPGet(parentCtx, params, base+p, headers)
 		if err != nil || len(payload) == 0 {
 			continue
 		}
@@ -875,7 +891,10 @@ func (act *AlertCheckTool) queryGrafanaAlertsRemote(params *AlertCheckParams) []
 	return nil
 }
 
-func (act *AlertCheckTool) runRemoteHTTPGet(params *AlertCheckParams, urlStr string, headers map[string]string) ([]byte, error) {
+func (act *AlertCheckTool) runRemoteHTTPGet(parentCtx context.Context, params *AlertCheckParams, urlStr string, headers map[string]string) ([]byte, error) {
+	if err := parentCtx.Err(); err != nil {
+		return nil, err
+	}
 	if act.runCmd == nil {
 		act.runCmd = runAlertCommand
 	}
@@ -884,7 +903,7 @@ func (act *AlertCheckTool) runRemoteHTTPGet(params *AlertCheckParams, urlStr str
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 20*time.Second)
 	defer cancel()
 	stdout, stderr, cmdErr := act.runCmd(ctx, "ssh", sshArgs...)
 	if cmdErr != nil && len(strings.TrimSpace(string(stdout))) == 0 {

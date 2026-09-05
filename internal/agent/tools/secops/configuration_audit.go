@@ -108,7 +108,7 @@ func (cat *ConfigurationAuditTool) RequiredCapabilities() []string {
 // ValidateParams 实现 Tool.ValidateParams
 func (cat *ConfigurationAuditTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*ConfigAuditParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 
@@ -130,8 +130,24 @@ func (cat *ConfigurationAuditTool) ValidateParams(params interface{}) error {
 
 // Execute 实现 Tool.Execute
 func (cat *ConfigurationAuditTool) Execute(params interface{}) (interface{}, error) {
+	return cat.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (cat *ConfigurationAuditTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := cat.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (cat *ConfigurationAuditTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*ConfigAuditParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 
@@ -157,7 +173,7 @@ func (cat *ConfigurationAuditTool) Execute(params interface{}) (interface{}, err
 
 	// 审计每个规则
 	for _, rule := range result.Rules {
-		cat.auditRule(rule, p)
+		cat.auditRule(parentCtx, rule, p)
 
 		switch rule.Status {
 		case "pass":
@@ -376,12 +392,12 @@ func (cat *ConfigurationAuditTool) getSysctlRules(params *ConfigAuditParams) []*
 }
 
 // auditRule 审计单个规则
-func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *ConfigAuditParams) {
+func (cat *ConfigurationAuditTool) auditRule(parentCtx context.Context, rule *ConfigAuditRule, params *ConfigAuditParams) {
 	_ = params
 
 	switch rule.ID {
 	case "SSH-001":
-		v, ok := readSSHDConfigValueForParams(params, "PermitRootLogin")
+		v, ok := readSSHDConfigValueForParams(parentCtx, params, "PermitRootLogin")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -396,7 +412,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set PermitRootLogin no in sshd_config"
 		}
 	case "SSH-002":
-		v, ok := readSSHDConfigValueForParams(params, "PasswordAuthentication")
+		v, ok := readSSHDConfigValueForParams(parentCtx, params, "PasswordAuthentication")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -411,7 +427,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set PasswordAuthentication no in sshd_config"
 		}
 	case "SSH-003":
-		v, ok := readSSHDConfigValueForParams(params, "KexAlgorithms")
+		v, ok := readSSHDConfigValueForParams(parentCtx, params, "KexAlgorithms")
 		if !ok || strings.TrimSpace(v) == "" {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -424,7 +440,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Status = "pass"
 		}
 	case "SUDO-001":
-		v, ok := hasSudoLogOutputForParams(params)
+		v, ok := hasSudoLogOutputForParams(parentCtx, params)
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -439,7 +455,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Enable sudo log_output in sudoers or sudoers.d"
 		}
 	case "SUDO-002":
-		v, ok := hasSudoNoPasswordForParams(params)
+		v, ok := hasSudoNoPasswordForParams(parentCtx, params)
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -454,7 +470,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.CurrentValue = "none"
 		}
 	case "FW-001":
-		enabled, current := firewallEnabledForParams(params)
+		enabled, current := firewallEnabledForParams(parentCtx, params)
 		rule.CurrentValue = current
 		if strings.EqualFold(current, "unknown") {
 			rule.Status = "warning"
@@ -467,7 +483,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Enable host firewall (ufw/firewalld/iptables policy)"
 		}
 	case "FW-002":
-		ok, current := defaultInboundDropForParams(params)
+		ok, current := defaultInboundDropForParams(parentCtx, params)
 		rule.CurrentValue = current
 		if strings.EqualFold(current, "unknown") {
 			rule.Status = "warning"
@@ -480,7 +496,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set default inbound policy to DROP/deny"
 		}
 	case "FP-001", "FP-002":
-		mode, ok := readFileModeForParams(params, rule.Parameter)
+		mode, ok := readFileModeForParams(parentCtx, params, rule.Parameter)
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "missing"
@@ -494,7 +510,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = fmt.Sprintf("Set %s permissions to %s", rule.Parameter, rule.RecommendedValue)
 		}
 	case "KER-001":
-		v, ok := readSysctlValueForParams(params, "kernel.randomize_va_space")
+		v, ok := readSysctlValueForParams(parentCtx, params, "kernel.randomize_va_space")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -508,7 +524,7 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 			rule.Remediation = "Set kernel.randomize_va_space=2"
 		}
 	case "SYS-001":
-		v, ok := readSysctlValueForParams(params, "net.ipv4.ip_forward")
+		v, ok := readSysctlValueForParams(parentCtx, params, "net.ipv4.ip_forward")
 		if !ok {
 			rule.Status = "warning"
 			rule.CurrentValue = "unknown"
@@ -524,18 +540,18 @@ func (cat *ConfigurationAuditTool) auditRule(rule *ConfigAuditRule, params *Conf
 	}
 }
 
-func readSSHDConfigValueForParams(params *ConfigAuditParams, key string) (string, bool) {
+func readSSHDConfigValueForParams(parentCtx context.Context, params *ConfigAuditParams, key string) (string, bool) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
 		return readSSHDConfigValue(key)
 	}
-	return remoteReadSSHDConfigValue(params, key)
+	return remoteReadSSHDConfigValue(parentCtx, params, key)
 }
 
-func hasSudoLogOutputForParams(params *ConfigAuditParams) (bool, bool) {
+func hasSudoLogOutputForParams(parentCtx context.Context, params *ConfigAuditParams) (bool, bool) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
 		return hasSudoLogOutput()
 	}
-	lines, ok := readRemoteSudoPolicyLines(params)
+	lines, ok := readRemoteSudoPolicyLines(parentCtx, params)
 	if !ok {
 		return false, false
 	}
@@ -547,11 +563,11 @@ func hasSudoLogOutputForParams(params *ConfigAuditParams) (bool, bool) {
 	return false, true
 }
 
-func hasSudoNoPasswordForParams(params *ConfigAuditParams) (bool, bool) {
+func hasSudoNoPasswordForParams(parentCtx context.Context, params *ConfigAuditParams) (bool, bool) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
 		return hasSudoNoPassword()
 	}
-	lines, ok := readRemoteSudoPolicyLines(params)
+	lines, ok := readRemoteSudoPolicyLines(parentCtx, params)
 	if !ok {
 		return false, false
 	}
@@ -563,12 +579,12 @@ func hasSudoNoPasswordForParams(params *ConfigAuditParams) (bool, bool) {
 	return false, true
 }
 
-func firewallEnabledForParams(params *ConfigAuditParams) (bool, string) {
+func firewallEnabledForParams(parentCtx context.Context, params *ConfigAuditParams) (bool, string) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
-		return firewallEnabled()
+		return firewallEnabled(parentCtx)
 	}
 
-	if out, ok := runRemoteCommand(params, "ufw status"); ok {
+	if out, ok := runRemoteCommand(parentCtx, params, "ufw status"); ok {
 		s := strings.ToLower(out)
 		if strings.Contains(s, "status: active") {
 			return true, "ufw:active"
@@ -577,14 +593,14 @@ func firewallEnabledForParams(params *ConfigAuditParams) (bool, string) {
 			return false, "ufw:inactive"
 		}
 	}
-	if out, ok := runRemoteCommand(params, "firewall-cmd --state"); ok {
+	if out, ok := runRemoteCommand(parentCtx, params, "firewall-cmd --state"); ok {
 		s := strings.TrimSpace(strings.ToLower(out))
 		if s == "running" {
 			return true, "firewalld:running"
 		}
 		return false, "firewalld:" + s
 	}
-	if out, ok := runRemoteCommand(params, "iptables -S"); ok {
+	if out, ok := runRemoteCommand(parentCtx, params, "iptables -S"); ok {
 		if strings.Contains(out, "-P INPUT DROP") || strings.Contains(out, "-P INPUT REJECT") {
 			return true, "iptables:default_restrictive"
 		}
@@ -596,11 +612,11 @@ func firewallEnabledForParams(params *ConfigAuditParams) (bool, string) {
 	return false, "unknown"
 }
 
-func defaultInboundDropForParams(params *ConfigAuditParams) (bool, string) {
+func defaultInboundDropForParams(parentCtx context.Context, params *ConfigAuditParams) (bool, string) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
-		return defaultInboundDrop()
+		return defaultInboundDrop(parentCtx)
 	}
-	if out, ok := runRemoteCommand(params, "ufw status verbose"); ok {
+	if out, ok := runRemoteCommand(parentCtx, params, "ufw status verbose"); ok {
 		s := strings.ToLower(out)
 		if strings.Contains(s, "default: deny (incoming)") {
 			return true, "ufw:deny"
@@ -609,7 +625,7 @@ func defaultInboundDropForParams(params *ConfigAuditParams) (bool, string) {
 			return false, "ufw:allow"
 		}
 	}
-	if out, ok := runRemoteCommand(params, "iptables -S"); ok {
+	if out, ok := runRemoteCommand(parentCtx, params, "iptables -S"); ok {
 		if strings.Contains(out, "-P INPUT DROP") || strings.Contains(out, "-P INPUT REJECT") {
 			return true, "iptables:drop"
 		}
@@ -620,11 +636,11 @@ func defaultInboundDropForParams(params *ConfigAuditParams) (bool, string) {
 	return false, "unknown"
 }
 
-func readFileModeForParams(params *ConfigAuditParams, path string) (string, bool) {
+func readFileModeForParams(parentCtx context.Context, params *ConfigAuditParams, path string) (string, bool) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
 		return readFileMode(path)
 	}
-	out, ok := runRemoteCommand(params, "stat -c '%a' "+auditShellQuote(path))
+	out, ok := runRemoteCommand(parentCtx, params, "stat -c '%a' "+auditShellQuote(path))
 	if !ok {
 		return "", false
 	}
@@ -635,18 +651,18 @@ func readFileModeForParams(params *ConfigAuditParams, path string) (string, bool
 	return mode, true
 }
 
-func readSysctlValueForParams(params *ConfigAuditParams, key string) (string, bool) {
+func readSysctlValueForParams(parentCtx context.Context, params *ConfigAuditParams, key string) (string, bool) {
 	if params == nil || strings.TrimSpace(params.RemoteHost) == "" {
-		return readSysctlValue(key)
+		return readSysctlValue(parentCtx, key)
 	}
 	procPath := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
-	if out, ok := runRemoteCommand(params, "cat "+auditShellQuote(procPath)); ok {
+	if out, ok := runRemoteCommand(parentCtx, params, "cat "+auditShellQuote(procPath)); ok {
 		v := strings.TrimSpace(out)
 		if v != "" {
 			return v, true
 		}
 	}
-	out, ok := runRemoteCommand(params, "sysctl -n "+auditShellQuote(key))
+	out, ok := runRemoteCommand(parentCtx, params, "sysctl -n "+auditShellQuote(key))
 	if !ok {
 		return "", false
 	}
@@ -654,7 +670,7 @@ func readSysctlValueForParams(params *ConfigAuditParams, key string) (string, bo
 	return v, v != ""
 }
 
-func remoteReadSSHDConfigValue(params *ConfigAuditParams, key string) (string, bool) {
+func remoteReadSSHDConfigValue(parentCtx context.Context, params *ConfigAuditParams, key string) (string, bool) {
 	paths := []string{
 		"/etc/ssh/sshd_config",
 		"/usr/local/etc/ssh/sshd_config",
@@ -662,7 +678,7 @@ func remoteReadSSHDConfigValue(params *ConfigAuditParams, key string) (string, b
 	lowerKey := strings.ToLower(strings.TrimSpace(key))
 	for _, path := range paths {
 		cmd := "awk 'tolower($1)==\"" + lowerKey + "\" {for (i=2; i<=NF; i++) printf $i (i==NF?\"\":\" \"); print \"\"}' " + auditShellQuote(path) + " | tail -n 1"
-		if out, ok := runRemoteCommand(params, cmd); ok {
+		if out, ok := runRemoteCommand(parentCtx, params, cmd); ok {
 			v := strings.TrimSpace(out)
 			if v != "" {
 				return v, true
@@ -672,9 +688,9 @@ func remoteReadSSHDConfigValue(params *ConfigAuditParams, key string) (string, b
 	return "", false
 }
 
-func readRemoteSudoPolicyLines(params *ConfigAuditParams) ([]string, bool) {
+func readRemoteSudoPolicyLines(parentCtx context.Context, params *ConfigAuditParams) ([]string, bool) {
 	cmd := "cat /etc/sudoers /etc/sudoers.d/* 2>/dev/null | sed -e 's/#.*$//' -e '/^\\s*$/d'"
-	out, ok := runRemoteCommand(params, cmd)
+	out, ok := runRemoteCommand(parentCtx, params, cmd)
 	if !ok {
 		return nil, false
 	}
@@ -689,7 +705,10 @@ func readRemoteSudoPolicyLines(params *ConfigAuditParams) ([]string, bool) {
 	return lines, len(lines) > 0
 }
 
-func runRemoteCommand(params *ConfigAuditParams, remoteCommand string) (string, bool) {
+func runRemoteCommand(parentCtx context.Context, params *ConfigAuditParams, remoteCommand string) (string, bool) {
+	if err := parentCtx.Err(); err != nil {
+		return "", false
+	}
 	if params == nil {
 		return "", false
 	}
@@ -711,7 +730,7 @@ func runRemoteCommand(params *ConfigAuditParams, remoteCommand string) (string, 
 	}
 	args = append(args, target, "sh", "-lc", remoteCommand)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 15*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "ssh", args...).CombinedOutput()
 	if err != nil {
@@ -881,8 +900,8 @@ func readSudoPolicyLines() ([]string, bool) {
 	return lines, found
 }
 
-func firewallEnabled() (bool, string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func firewallEnabled(parentCtx context.Context) (bool, string) {
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	if out, err := exec.CommandContext(ctx, "ufw", "status").CombinedOutput(); err == nil {
@@ -895,7 +914,7 @@ func firewallEnabled() (bool, string) {
 		}
 	}
 
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, "firewall-cmd", "--state").CombinedOutput(); err == nil {
 		s := strings.TrimSpace(strings.ToLower(string(out)))
@@ -905,7 +924,7 @@ func firewallEnabled() (bool, string) {
 		return false, "firewalld:" + s
 	}
 
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, "iptables", "-S").CombinedOutput(); err == nil {
 		s := string(out)
@@ -921,8 +940,8 @@ func firewallEnabled() (bool, string) {
 	return false, "unknown"
 }
 
-func defaultInboundDrop() (bool, string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func defaultInboundDrop(parentCtx context.Context) (bool, string) {
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	if out, err := exec.CommandContext(ctx, "ufw", "status", "verbose").CombinedOutput(); err == nil {
@@ -935,7 +954,7 @@ func defaultInboundDrop() (bool, string) {
 		}
 	}
 
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, "iptables", "-S").CombinedOutput(); err == nil {
 		s := string(out)
@@ -959,13 +978,13 @@ func readFileMode(path string) (string, bool) {
 	return fmt.Sprintf("%04o", mode), true
 }
 
-func readSysctlValue(key string) (string, bool) {
+func readSysctlValue(parentCtx context.Context, key string) (string, bool) {
 	procPath := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
 	if data, err := os.ReadFile(procPath); err == nil {
 		return strings.TrimSpace(string(data)), true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sysctl", "-n", key)

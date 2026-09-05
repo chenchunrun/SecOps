@@ -21,22 +21,22 @@ func TestConfigurationAudit_auditRule_本地分支覆盖(t *testing.T) {
 	tool := NewConfigurationAuditTool(nil)
 	rules := tool.getSSHRules(&ConfigAuditParams{})
 	for _, r := range rules {
-		tool.auditRule(r, &ConfigAuditParams{})
+		tool.auditRule(context.Background(), r, &ConfigAuditParams{})
 		if r.Status == "" {
 			t.Fatalf("rule %s 状态未设置", r.ID)
 		}
 	}
 	for _, r := range tool.getSudoRules(&ConfigAuditParams{}) {
-		tool.auditRule(r, &ConfigAuditParams{})
+		tool.auditRule(context.Background(), r, &ConfigAuditParams{})
 	}
 	for _, r := range tool.getFirewallRules(&ConfigAuditParams{}) {
-		tool.auditRule(r, &ConfigAuditParams{})
+		tool.auditRule(context.Background(), r, &ConfigAuditParams{})
 	}
 	for _, r := range tool.getKernelRules(&ConfigAuditParams{}) {
-		tool.auditRule(r, &ConfigAuditParams{})
+		tool.auditRule(context.Background(), r, &ConfigAuditParams{})
 	}
 	for _, r := range tool.getSysctlRules(&ConfigAuditParams{}) {
-		tool.auditRule(r, &ConfigAuditParams{})
+		tool.auditRule(context.Background(), r, &ConfigAuditParams{})
 	}
 }
 
@@ -59,7 +59,7 @@ func TestConfigurationAudit_本地辅助读取函数(t *testing.T) {
 	})
 
 	t.Run("readSysctlValue", func(t *testing.T) {
-		_, _ = readSysctlValue("kernel.randomize_va_space")
+		_, _ = readSysctlValue(context.Background(), "kernel.randomize_va_space")
 	})
 
 	t.Run("hasSudoLogOutput/hasSudoNoPassword", func(t *testing.T) {
@@ -68,8 +68,8 @@ func TestConfigurationAudit_本地辅助读取函数(t *testing.T) {
 	})
 
 	t.Run("firewallEnabled/defaultInboundDrop", func(t *testing.T) {
-		_, _ = firewallEnabled()
-		_, _ = defaultInboundDrop()
+		_, _ = firewallEnabled(context.Background())
+		_, _ = defaultInboundDrop(context.Background())
 	})
 }
 
@@ -105,10 +105,10 @@ func TestConfigurationAudit_规则集访问器(t *testing.T) {
 // =====================================================================
 
 func TestConfigurationAudit_runRemoteCommand_边界(t *testing.T) {
-	if _, ok := runRemoteCommand(nil, "echo hi"); ok {
+	if _, ok := runRemoteCommand(context.Background(), nil, "echo hi"); ok {
 		t.Fatal("期望 nil params 返回 false")
 	}
-	if _, ok := runRemoteCommand(&ConfigAuditParams{}, "echo hi"); ok {
+	if _, ok := runRemoteCommand(context.Background(), &ConfigAuditParams{}, "echo hi"); ok {
 		t.Fatal("期望空 RemoteHost 返回 false")
 	}
 }
@@ -346,7 +346,7 @@ func TestComplianceCheck_evalCISFilesystem_远程分支(t *testing.T) {
 				return []byte(tc.statOut), nil
 			}
 			rule := &ComplianceRule{ID: "cis_1_1"}
-			tool.evalCISFilesystem(rule, &ComplianceCheckParams{RemoteHost: "10.0.0.60"})
+			tool.evalCISFilesystem(context.Background(), rule, &ComplianceCheckParams{RemoteHost: "10.0.0.60"})
 			if rule.Status != tc.want {
 				t.Fatalf("status = %v, want %v (evidence=%s)", rule.Status, tc.want, rule.Evidence)
 			}
@@ -375,7 +375,7 @@ func TestComplianceCheck_evalCISIPForward_远程分支(t *testing.T) {
 				return []byte(tc.out), nil
 			}
 			rule := &ComplianceRule{ID: "cis_3_1"}
-			tool.evalCISIPForward(rule, &ComplianceCheckParams{RemoteHost: "10.0.0.61"})
+			tool.evalCISIPForward(context.Background(), rule, &ComplianceCheckParams{RemoteHost: "10.0.0.61"})
 			if rule.Status != tc.want {
 				t.Fatalf("status = %v, want %v (evidence=%s)", rule.Status, tc.want, rule.Evidence)
 			}

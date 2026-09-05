@@ -44,5 +44,38 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: secops-coverage
-          path: coverage-secops.out
+          path: |
+            coverage-secops.out
+            coverage-secops-guarded.out
           retention-days: 30
+
+  real-scanner-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install checksum-pinned Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          trivy_dir="$(mktemp -d)"
+          cd "$trivy_dir"
+          curl --fail --location --retry 3 --max-time 180 \
+            https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz \
+            --output trivy.tar.gz
+          printf '%s  %s\n' '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a' 'trivy.tar.gz' | sha256sum --check
+          tar -xzf trivy.tar.gz trivy
+          echo "$trivy_dir" >> "$GITHUB_PATH"
+      - name: Verify scanner and TUI command lifecycle
+        env:
+          SECOPS_TEST_TRIVY: '1'
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2
+        run: >-
+          go test -mod=readonly ./internal/agent/tools/secops ./internal/ui/model
+          -run 'TestRealTrivyCompatibility|TestRealTrivyScanCommandsEndToEnd'
+          -count=1 -v

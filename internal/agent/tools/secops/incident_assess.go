@@ -1,6 +1,7 @@
 package secops
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -64,7 +65,7 @@ func (iat *IncidentAssessTool) RequiredCapabilities() []string {
 // ValidateParams implements Tool.ValidateParams.
 func (iat *IncidentAssessTool) ValidateParams(params interface{}) error {
 	p, ok := params.(*IncidentAssessParams)
-	if !ok {
+	if !ok || p == nil {
 		return ErrInvalidParams
 	}
 	return iat.attackReason.ValidateParams(&AttackReasonParams{
@@ -80,15 +81,31 @@ func (iat *IncidentAssessTool) ValidateParams(params interface{}) error {
 
 // Execute implements Tool.Execute.
 func (iat *IncidentAssessTool) Execute(params interface{}) (interface{}, error) {
+	return iat.ExecuteContext(context.Background(), params)
+}
+
+// ExecuteContext rejects canceled work and propagates cancellation to collection.
+func (iat *IncidentAssessTool) ExecuteContext(ctx context.Context, params interface{}) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result, err := iat.executeContext(ctx, params)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return result, err
+}
+
+func (iat *IncidentAssessTool) executeContext(parentCtx context.Context, params interface{}) (interface{}, error) {
 	p, ok := params.(*IncidentAssessParams)
-	if !ok {
+	if !ok || p == nil {
 		return nil, ErrInvalidParams
 	}
 	if err := iat.ValidateParams(p); err != nil {
 		return nil, err
 	}
 
-	raw, err := iat.attackReason.Execute(&AttackReasonParams{
+	raw, err := iat.attackReason.ExecuteContext(parentCtx, &AttackReasonParams{
 		IncidentID:         p.IncidentID,
 		Platform:           p.Platform,
 		Events:             p.Events,
