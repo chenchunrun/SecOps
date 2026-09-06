@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/csync"
@@ -111,15 +112,24 @@ func RunTool(ctx context.Context, cfg *config.ConfigStore, name, toolName string
 // RefreshTools gets the updated list of tools from the MCP and updates the
 // global state.
 func RefreshTools(ctx context.Context, cfg *config.ConfigStore, name string) {
+	requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	unlock, err := lockClient(requestCtx, name)
+	if err != nil {
+		return
+	}
+	defer unlock()
 	session, ok := sessions.Get(name)
 	if !ok {
 		slog.Warn("Refresh tools: no session", "name", name)
 		return
 	}
 
-	tools, err := getTools(ctx, session)
+	tools, err := getTools(requestCtx, session)
 	if err != nil {
-		updateState(name, StateError, err, nil, Counts{})
+		if ctx.Err() == nil {
+			failSession(name, session, err)
+		}
 		return
 	}
 

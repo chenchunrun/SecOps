@@ -364,6 +364,11 @@
     },
     "MCPConfig": {
       "properties": {
+        "sessionless": {
+          "type": "boolean",
+          "description": "Disable the standalone SSE notification stream for HTTP MCP servers",
+          "default": false
+        },
         "command": {
           "type": "string",
           "description": "Command to execute for stdio MCP servers",

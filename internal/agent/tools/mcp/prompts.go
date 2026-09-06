@@ -4,6 +4,7 @@ import (
 	"context"
 	"iter"
 	"log/slog"
+	"time"
 
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/csync"
@@ -48,15 +49,24 @@ func GetPromptMessages(ctx context.Context, cfg *config.ConfigStore, clientName,
 // RefreshPrompts gets the updated list of prompts from the MCP and updates the
 // global state.
 func RefreshPrompts(ctx context.Context, name string) {
+	requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	unlock, err := lockClient(requestCtx, name)
+	if err != nil {
+		return
+	}
+	defer unlock()
 	session, ok := sessions.Get(name)
 	if !ok {
 		slog.Warn("Refresh prompts: no session", "name", name)
 		return
 	}
 
-	prompts, err := getPrompts(ctx, session)
+	prompts, err := getPrompts(requestCtx, session)
 	if err != nil {
-		updateState(name, StateError, err, nil, Counts{})
+		if ctx.Err() == nil {
+			failSession(name, session, err)
+		}
 		return
 	}
 

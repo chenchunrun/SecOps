@@ -13,10 +13,12 @@ import (
 	"github.com/chenchunrun/SecOps/internal/orchestrator"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/question"
 	"github.com/chenchunrun/SecOps/internal/session"
 )
 
 type AgentCoordinatorDeps struct {
+	Questions          *question.Service
 	Config             *config.ConfigStore
 	Sessions           session.Service
 	Messages           message.Service
@@ -40,6 +42,7 @@ func NewAgentCoordinator(ctx context.Context, deps AgentCoordinatorDeps) (agent.
 		deps.FileTracker,
 		deps.LSPManager,
 		deps.AgentNotifications,
+		deps.Questions,
 	)
 	if err != nil {
 		return nil, err

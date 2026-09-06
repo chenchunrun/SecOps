@@ -39,6 +39,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/question"
 	"github.com/chenchunrun/SecOps/internal/security"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/shell"
@@ -60,6 +61,7 @@ type App struct {
 	Messages    message.Service
 	History     history.Service
 	Permissions permission.Service
+	Questions   *question.Service
 	// SecOpsPermissions owns runtime capability grants shared by every agent.
 	SecOpsPermissions permission.SecOpsService
 	FileTracker       filetracker.Service
@@ -103,6 +105,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 		Messages:          messages,
 		History:           files,
 		Permissions:       bootstrap.NewPermissionService(store),
+		Questions:         question.New(),
 		SecOpsPermissions: secOpsPermissions,
 		FileTracker:       filetracker.NewService(q),
 		LSPManager:        lsp.NewManager(store),
@@ -161,7 +164,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore) (*App, er
 	// Check for updates in the background.
 	go app.checkForUpdates(ctx)
 
-	go mcp.Initialize(ctx, app.Permissions, store)
+	mcp.StartInitialize(ctx, app.Permissions, store)
 
 	// cleanup database upon app shutdown
 	app.cleanupFuncs = append(
@@ -523,6 +526,9 @@ func (app *App) setupEvents() {
 	setupSubscriber(ctx, app.serviceEventsWG, "sessions", app.Sessions.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "messages", app.Messages.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "permissions", app.Permissions.Subscribe, app.events)
+	if app.Questions != nil {
+		setupSubscriber(ctx, app.serviceEventsWG, "questions", app.Questions.Subscribe, app.events)
+	}
 	setupSubscriber(ctx, app.serviceEventsWG, "permissions-notifications", app.Permissions.SubscribeNotifications, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "history", app.History.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "agent-notifications", app.agentNotifications.Subscribe, app.events)
@@ -596,6 +602,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		Sessions:           app.Sessions,
 		Messages:           app.Messages,
 		Permissions:        app.Permissions,
+		Questions:          app.Questions,
 		SecOpsPermissions:  app.SecOpsPermissions,
 		History:            app.History,
 		FileTracker:        app.FileTracker,

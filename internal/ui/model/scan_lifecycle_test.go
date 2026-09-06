@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,9 +20,11 @@ import (
 	"github.com/chenchunrun/SecOps/internal/evidence"
 	"github.com/chenchunrun/SecOps/internal/investigation/scan"
 	"github.com/chenchunrun/SecOps/internal/permission"
+	"github.com/chenchunrun/SecOps/internal/question"
 	"github.com/chenchunrun/SecOps/internal/security"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/ui/common"
+	"github.com/chenchunrun/SecOps/internal/ui/dialog"
 	"github.com/chenchunrun/SecOps/internal/ui/util"
 	"github.com/stretchr/testify/require"
 )
@@ -45,6 +48,8 @@ func (scanTestScanner) ExecuteContext(_ context.Context, input interface{}) (int
 
 func TestScanCommandsEndToEnd(t *testing.T) { verifyScanCommands(t, scanTestScanner{}) }
 
+func TestScanFormsEndToEnd(t *testing.T) { verifyScanFlow(t, scanTestScanner{}, true) }
+
 func TestRealTrivyScanCommandsEndToEnd(t *testing.T) {
 	if os.Getenv("SECOPS_TEST_TRIVY") != "1" {
 		t.Skip("set SECOPS_TEST_TRIVY=1 and put trivy on PATH")
@@ -54,6 +59,10 @@ func TestRealTrivyScanCommandsEndToEnd(t *testing.T) {
 
 // Verify the actual slash commands and scan-start callback without an LLM.
 func verifyScanCommands(t *testing.T, scanner scan.Scanner) {
+	verifyScanFlow(t, scanner, false)
+}
+
+func verifyScanFlow(t *testing.T, scanner scan.Scanner, forms bool) {
 	t.Helper()
 	root := t.TempDir()
 	target := filepath.Join(root, "project with spaces")
@@ -83,14 +92,36 @@ func verifyScanCommands(t *testing.T, scanner scan.Scanner) {
 	require.NoError(t, err)
 	defer service.Close()
 	application := &app.App{Sessions: scanTestSessions{}, Scans: service, SecOpsPermissions: permissions, AgentCoordinator: scanTestCoordinator{}, ComputerRuntime: &bootstrap.ComputerRuntime{EvidenceStore: store}}
-	ui := &UI{com: &common.Common{App: application}}
+	ui := &UI{com: &common.Common{App: application}, dialog: dialog.NewOverlay()}
+	command := func(input string) tea.Cmd {
+		if !forms {
+			return ui.applyScanCommand(input)
+		}
+		action, rest, _ := strings.Cut(input, " ")
+		answers := question.Answers{}
+		switch action {
+		case "authorize", "run", "revoke":
+			answers["directory"] = []string{rest}
+		case "review":
+			id, tail, _ := strings.Cut(rest, " ")
+			verdict, reason, _ := strings.Cut(tail, " ")
+			answers = question.Answers{"id": {id}, "verdict": {verdict}, "reason": {reason}}
+		case "report":
+			answers["id"] = []string{rest}
+		default:
+			return ui.applyScanCommand(input)
+		}
+		require.Nil(t, ui.openScanForm(action))
+		r := ui.scanForm.request
+		return ui.handleQuestionResponse(dialog.ActionQuestionResponse{ID: r.ID, SessionID: r.SessionID, Answers: answers})
+	}
 	created := ui.applyScanCommand("new")().(scanSessionCreatedMsg)
 	require.Equal(t, "ui-scan", created.sessionID)
 	ui.session = &session.Session{ID: created.sessionID}
-	denied := ui.applyScanCommand("run " + target)().(scanPreparedMsg)
+	denied := command("run " + target)().(scanPreparedMsg)
 	require.Error(t, denied.err)
-	requireScanInfo(t, ui.applyScanCommand("authorize "+target)())
-	prepared := ui.applyScanCommand("run " + target)().(scanPreparedMsg)
+	requireScanInfo(t, command("authorize "+target)())
+	prepared := command("run " + target)().(scanPreparedMsg)
 	require.NoError(t, prepared.err)
 	batch := ui.handleScanPrepared(prepared)().(tea.BatchMsg)
 	for _, command := range batch {
@@ -101,10 +132,10 @@ func verifyScanCommands(t *testing.T, scanner scan.Scanner) {
 	require.Contains(t, before.text, "awaiting_review")
 	_, err = service.Report(t.Context(), "ui-scan", id)
 	require.Error(t, err)
-	requireScanInfo(t, ui.applyScanCommand("review "+id+" passed Compared scanner output against dependency inventory")())
+	requireScanInfo(t, command("review "+id+" passed Compared scanner output against dependency inventory")())
 	after := ui.applyScanCommand("show " + id)().(scanViewMsg)
 	require.Contains(t, after.text, "Reviewed report:")
-	onlyReport := ui.applyScanCommand("report " + id)().(scanViewMsg)
+	onlyReport := command("report " + id)().(scanViewMsg)
 	require.Contains(t, onlyReport.text, "Reviewed report:")
 	require.NotContains(t, onlyReport.text, "Scanner evidence:")
 	report, err := service.Report(t.Context(), "ui-scan", id)
@@ -119,8 +150,8 @@ func verifyScanCommands(t *testing.T, scanner scan.Scanner) {
 		require.Positive(t, result.TotalVulnerabilities)
 		t.Logf("Stored and reviewed %d real Trivy findings", result.TotalVulnerabilities)
 	}
-	requireScanInfo(t, ui.applyScanCommand("revoke "+target)())
-	denied = ui.applyScanCommand("run " + target)().(scanPreparedMsg)
+	requireScanInfo(t, command("revoke "+target)())
+	denied = command("run " + target)().(scanPreparedMsg)
 	require.Error(t, denied.err)
 	t.Logf("Validated TUI command lifecycle for scan %s", id)
 }
