@@ -171,6 +171,7 @@ const (
 )
 
 type MCPConfig struct {
+	Sessionless   bool              `json:"sessionless,omitempty" jsonschema:"description=Disable the standalone SSE notification stream for HTTP MCP servers,default=false"`
 	Command       string            `json:"command,omitempty" jsonschema:"description=Command to execute for stdio MCP servers,example=npx"`
 	Env           map[string]string `json:"env,omitempty" jsonschema:"description=Environment variables to set for the MCP server"`
 	Args          []string          `json:"args,omitempty" jsonschema:"description=Arguments to pass to the MCP server command"`

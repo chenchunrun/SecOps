@@ -363,6 +363,7 @@ using `$(echo $VAR)` syntax.
     "github": {
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp/",
+      "sessionless": true,
       "timeout": 120,
       "disabled": false,
       "disabled_tools": ["create_issue", "create_pull_request"],
@@ -382,6 +383,19 @@ using `$(echo $VAR)` syntax.
   }
 }
 ```
+
+For HTTP servers that do not provide a standalone notification stream, set
+`sessionless: true`. This disables background SSE GET requests and preflight
+ping probes, not HTTP
+authentication or SecOps permission checks. It is not supported for `stdio` or
+`sse` transports, and disables server-initiated notifications on that connection.
+
+The MCP `timeout` also bounds initial discovery of tools, prompts, and resources.
+The application waits at most 15 seconds at the initialization gate before
+continuing with available tools; slower servers can finish in the background.
+Startup diagnostics capture at most 4 KiB from the original stdio process's
+stderr, with best-effort credential redaction and escaped control characters.
+Failed commands are not executed a second time to collect diagnostics.
 
 ### Ignoring Files
 

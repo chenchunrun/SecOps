@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"log/slog"
+	"time"
 
 	"github.com/chenchunrun/SecOps/internal/config"
 	"github.com/chenchunrun/SecOps/internal/csync"
@@ -29,6 +31,16 @@ func ListResources(ctx context.Context, cfg *config.ConfigStore, name string) ([
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := lockClient(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if current, ok := sessions.Get(name); !ok || current != session {
+		return nil, fmt.Errorf("mcp session changed while listing resources")
+	}
+	ctx, cancel := context.WithTimeout(ctx, mcpTimeout(cfg.Config().MCP[name]))
+	defer cancel()
 
 	resources, err := getResources(ctx, session)
 	if err != nil {
@@ -58,15 +70,24 @@ func ReadResource(ctx context.Context, cfg *config.ConfigStore, name, uri string
 // RefreshResources gets the updated list of resources from the MCP and updates the
 // global state.
 func RefreshResources(ctx context.Context, name string) {
+	requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	unlock, err := lockClient(requestCtx, name)
+	if err != nil {
+		return
+	}
+	defer unlock()
 	session, ok := sessions.Get(name)
 	if !ok {
 		slog.Warn("Refresh resources: no session", "name", name)
 		return
 	}
 
-	resources, err := getResources(ctx, session)
+	resources, err := getResources(requestCtx, session)
 	if err != nil {
-		updateState(name, StateError, err, nil, Counts{})
+		if ctx.Err() == nil {
+			failSession(name, session, err)
+		}
 		return
 	}
 

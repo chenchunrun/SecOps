@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -56,6 +57,7 @@ const (
 
 // Permissions represents a dialog for permission requests.
 type Permissions struct {
+	acceptAfter  time.Time
 	com          *common.Common
 	windowWidth  int // Terminal window dimensions.
 	windowHeight int
@@ -198,6 +200,7 @@ func NewPermissions(com *common.Common, perm permission.PermissionRequest, opts 
 	}
 
 	p := &Permissions{
+		acceptAfter:    time.Now().Add(350 * time.Millisecond),
 		com:            com,
 		permission:     perm,
 		selectedOption: 0,
@@ -229,6 +232,10 @@ func (*Permissions) ID() string {
 func (p *Permissions) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
+		// Ignore buffered approval/navigation keys, but always allow denial.
+		if time.Now().Before(p.acceptAfter) && !key.Matches(msg, p.keyMap.Close, p.keyMap.Deny) {
+			return nil
+		}
 		switch {
 		case key.Matches(msg, p.keyMap.Close):
 			// Escape denies the permission request.
