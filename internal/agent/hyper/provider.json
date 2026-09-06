@@ -3,7 +3,7 @@
   "id": "hyper",
   "api_endpoint": "https://hyper.charm.land/api/v1/fantasy",
   "type": "hyper",
-  "default_large_model_id": "qwen3.7-plus",
+  "default_large_model_id": "qwen3.8-max",
   "default_small_model_id": "deepseek-v4-flash-0731",
   "models": [
     {
@@ -26,23 +26,20 @@
     {
       "id": "deepseek-v4-flash-0731",
       "name": "DeepSeek V4 Flash 0731",
-      "cost_per_1m_in": 0.479072,
-      "cost_per_1m_out": 1.437216,
+      "cost_per_1m_in": 0.44,
+      "cost_per_1m_out": 1.32,
       "cost_per_1m_in_cached": 0,
-      "cost_per_1m_out_cached": 0.0152432,
-      "context_window": 1048576,
+      "cost_per_1m_out_cached": 0.044,
+      "context_window": 1000000,
       "default_max_tokens": 384000,
       "can_reason": true,
       "reasoning_levels": [
         "none",
-        "minimal",
         "low",
-        "medium",
         "high",
-        "xhigh",
         "max"
       ],
-      "default_reasoning_effort": "medium",
+      "default_reasoning_effort": "high",
       "supports_attachments": false
     },
     {
@@ -74,8 +71,9 @@
       "can_reason": true,
       "reasoning_levels": [
         "none",
+        "low",
         "high",
-        "xhigh"
+        "max"
       ],
       "default_reasoning_effort": "high",
       "supports_attachments": false
@@ -83,9 +81,9 @@
     {
       "id": "gemma-4-26b-a4b-it",
       "name": "Gemma 4 26B A4B",
-      "cost_per_1m_in": 0.11,
-      "cost_per_1m_out": 0.408,
-      "cost_per_1m_in_cached": 0.055,
+      "cost_per_1m_in": 0.106,
+      "cost_per_1m_out": 0.368,
+      "cost_per_1m_in_cached": 0.053,
       "cost_per_1m_out_cached": 0,
       "context_window": 256000,
       "default_max_tokens": 25600,
@@ -95,9 +93,9 @@
     {
       "id": "glm-5",
       "name": "GLM-5",
-      "cost_per_1m_in": 0.91,
-      "cost_per_1m_out": 2.934,
-      "cost_per_1m_in_cached": 0.455,
+      "cost_per_1m_in": 0.86,
+      "cost_per_1m_out": 2.784,
+      "cost_per_1m_in_cached": 0.43,
       "cost_per_1m_out_cached": 0,
       "context_window": 202752,
       "default_max_tokens": 20275,
@@ -107,9 +105,9 @@
     {
       "id": "glm-5.1",
       "name": "GLM-5.1",
-      "cost_per_1m_in": 1.36,
-      "cost_per_1m_out": 4.4,
-      "cost_per_1m_in_cached": 0.68,
+      "cost_per_1m_in": 1.262,
+      "cost_per_1m_out": 4.132,
+      "cost_per_1m_in_cached": 0.631,
       "cost_per_1m_out_cached": 0,
       "context_window": 202750,
       "default_max_tokens": 3276,
@@ -123,11 +121,46 @@
       "cost_per_1m_out": 4.79072,
       "cost_per_1m_in_cached": 0,
       "cost_per_1m_out_cached": 0.152432,
-      "context_window": 1048576,
+      "context_window": 1000000,
       "default_max_tokens": 32768,
       "can_reason": true,
       "reasoning_levels": [
-        "none",
+        "high",
+        "xhigh"
+      ],
+      "default_reasoning_effort": "high",
+      "supports_attachments": false
+    },
+    {
+      "id": "glm-5.3",
+      "name": "GLM 5.3",
+      "cost_per_1m_in": 1.52432,
+      "cost_per_1m_out": 4.79072,
+      "cost_per_1m_in_cached": 0,
+      "cost_per_1m_out_cached": 0.283088,
+      "context_window": 1048576,
+      "default_max_tokens": 262144,
+      "can_reason": true,
+      "reasoning_levels": [
+        "low",
+        "high",
+        "max"
+      ],
+      "default_reasoning_effort": "high",
+      "supports_attachments": false
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "GLM 5.3 Flash",
+      "cost_per_1m_in": 0.16332,
+      "cost_per_1m_out": 0.5444,
+      "cost_per_1m_in_cached": 0,
+      "cost_per_1m_out_cached": 0.031575200000000005,
+      "context_window": 1048576,
+      "default_max_tokens": 131072,
+      "can_reason": true,
+      "reasoning_levels": [
+        "low",
         "high",
         "max"
       ],
@@ -141,23 +174,48 @@
       "cost_per_1m_out": 0.7,
       "cost_per_1m_in_cached": 0.094,
       "cost_per_1m_out_cached": 0,
-      "context_window": 131072,
+      "context_window": 128072,
       "default_max_tokens": 13107,
       "can_reason": true,
       "reasoning_levels": [
+        "none",
+        "minimal",
         "low",
         "medium",
-        "high"
+        "high",
+        "xhigh",
+        "max"
       ],
       "default_reasoning_effort": "medium",
       "supports_attachments": false
     },
     {
+      "id": "inkling",
+      "name": "Inkling",
+      "cost_per_1m_in": 1.0888,
+      "cost_per_1m_out": 4.40964,
+      "cost_per_1m_in_cached": 0,
+      "cost_per_1m_out_cached": 0.185096,
+      "context_window": 1048576,
+      "default_max_tokens": 32768,
+      "can_reason": true,
+      "reasoning_levels": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "default_reasoning_effort": "medium",
+      "supports_attachments": true
+    },
+    {
       "id": "kimi-k2.5",
       "name": "Kimi K2.5",
-      "cost_per_1m_in": 0.5444,
-      "cost_per_1m_out": 2.855,
-      "cost_per_1m_in_cached": 0.2722,
+      "cost_per_1m_in": 0.5144,
+      "cost_per_1m_out": 2.755,
+      "cost_per_1m_in_cached": 0.2572,
       "cost_per_1m_out_cached": 0,
       "context_window": 262144,
       "default_max_tokens": 26214,
@@ -174,6 +232,12 @@
       "context_window": 262000,
       "default_max_tokens": 26214,
       "can_reason": true,
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_effort": "medium",
       "supports_attachments": true
     },
     {
@@ -183,10 +247,22 @@
       "cost_per_1m_out": 4.3552,
       "cost_per_1m_in_cached": 0,
       "cost_per_1m_out_cached": 0.206872,
-      "context_window": 256000,
+      "context_window": 262000,
       "default_max_tokens": 16000,
-      "can_reason": false,
+      "can_reason": true,
       "supports_attachments": true
+    },
+    {
+      "id": "kimi-k2-thinking",
+      "name": "Kimi K2 Thinking",
+      "cost_per_1m_in": 0.6,
+      "cost_per_1m_out": 2.5,
+      "cost_per_1m_in_cached": 0.3,
+      "cost_per_1m_out_cached": 0,
+      "context_window": 262144,
+      "default_max_tokens": 26214,
+      "can_reason": true,
+      "supports_attachments": false
     },
     {
       "id": "kimi-k3",
@@ -209,9 +285,9 @@
     {
       "id": "llama-3.3-70b-instruct",
       "name": "Llama 3.3 70B Instruct",
-      "cost_per_1m_in": 0.638,
-      "cost_per_1m_out": 0.768,
-      "cost_per_1m_in_cached": 0.319,
+      "cost_per_1m_in": 0.6066,
+      "cost_per_1m_out": 1.0386,
+      "cost_per_1m_in_cached": 0.3033,
       "cost_per_1m_out_cached": 0,
       "context_window": 128000,
       "default_max_tokens": 12800,
@@ -233,9 +309,9 @@
     {
       "id": "minimax-m2.7",
       "name": "MiniMax M2.7",
-      "cost_per_1m_in": 0.408,
-      "cost_per_1m_out": 1.512,
-      "cost_per_1m_in_cached": 0.204,
+      "cost_per_1m_in": 0.484,
+      "cost_per_1m_out": 1.852,
+      "cost_per_1m_in_cached": 0.242,
       "cost_per_1m_out_cached": 0,
       "context_window": 262100,
       "default_max_tokens": 6553,
@@ -329,6 +405,42 @@
       "cost_per_1m_out_cached": 0.24,
       "context_window": 1000000,
       "default_max_tokens": 64000,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "qwen3.8-2.4t-a95b",
+      "name": "Qwen3.8-2.4T-A95B",
+      "cost_per_1m_in": 2,
+      "cost_per_1m_out": 6,
+      "cost_per_1m_in_cached": 0,
+      "cost_per_1m_out_cached": 0.25,
+      "context_window": 1000000,
+      "default_max_tokens": 128000,
+      "can_reason": false,
+      "supports_attachments": false
+    },
+    {
+      "id": "qwen3.8-27b",
+      "name": "Qwen3.8-27B",
+      "cost_per_1m_in": 0.5,
+      "cost_per_1m_out": 3,
+      "cost_per_1m_in_cached": 0,
+      "cost_per_1m_out_cached": 0.1,
+      "context_window": 1000000,
+      "default_max_tokens": 128000,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "qwen3.8-flash",
+      "name": "Qwen3.8-Flash",
+      "cost_per_1m_in": 0.15,
+      "cost_per_1m_out": 0.47,
+      "cost_per_1m_in_cached": 0,
+      "cost_per_1m_out_cached": 0.016,
+      "context_window": 1000000,
+      "default_max_tokens": 128000,
       "can_reason": true,
       "supports_attachments": true
     },
