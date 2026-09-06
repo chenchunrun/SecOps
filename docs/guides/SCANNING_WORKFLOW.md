@@ -4,6 +4,33 @@ The interactive `/scan` workflow currently supports **local directories with
 Trivy vulnerability scanning**. Install Trivy on the host first. The workflow
 is unavailable when a non-local sandbox backend is configured.
 
+### Guided forms
+
+Open **Guided Security Scan** in the command palette, or enter `/scan form`.
+If no session is open, a scan session is created first. Select the role you
+intend to use (for example `/sec`) before opening an authorization form.
+Choose authorize, run, show, review, report, revoke, list, or cancel. You can also open a
+specific form with `/scan form authorize`, `/scan form run`, or
+`/scan form review`.
+
+Use Tab/Shift+Tab to change fields, arrow keys and Space/Enter to choose an
+option, and normal typing or paste for text. No choice is preselected.
+Ctrl+S opens the answer summary; scroll with arrow keys or PgUp/PgDn and
+press Enter to submit, or Tab to edit. Esc cancels without submitting.
+
+Forms reuse the same permission and evidence workflow as the commands below.
+Changing the active session or role invalidates a pending scan form. Inspect
+the stored evidence with `/scan show <id>` before submitting a review. Review
+identity is still resolved from the local OS user, not supplied by the form.
+
+The separate agent `question` tool supports text, single-choice, and
+multiple-choice fields in the TUI. Its answers are data only, not scan grants
+or independent review records. Questions are cancelable and time out after five
+minutes; noninteractive mode returns an unavailable error rather than waiting.
+Do not enter credentials in these forms. This first version is keyboard-driven.
+
+### Explicit commands
+
 1. Run `/scan new` (or open an existing session), then select `/sec`.
 2. Run `/scan authorize /absolute/project/path` to grant that directory for
    30 minutes to the active role and session.

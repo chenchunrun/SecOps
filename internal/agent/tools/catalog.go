@@ -13,6 +13,7 @@ func FixedBuiltInToolNames() []string {
 	names = append(names, AgenticFetchToolName)
 	names = append(names, searchToolNames()...)
 	names = append(names, runtimeToolNames()...)
+	names = append(names, QuestionToolName)
 	names = append(names, mcpToolNames()...)
 	names = append(names, "todo")
 	return names
@@ -31,6 +32,7 @@ func ReadOnlyBuiltInToolNames() []string {
 // names available to the SecOps-focused agent profiles.
 func SecOpsRuntimeSupportToolNames() []string {
 	names := []string{
+		QuestionToolName,
 		BashToolName,
 		GlobToolName,
 		GrepToolName,

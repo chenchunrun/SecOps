@@ -597,6 +597,7 @@ func fixedBuiltInToolNames() []string {
 		"ls",
 		"sourcegraph",
 		"todos",
+		"question",
 		"todo",
 		"view",
 		"write",
@@ -615,6 +616,7 @@ func readOnlyToolNames() []string {
 // to the SecOps-focused agent profiles before SecOps registry names are added.
 func secOpsRuntimeSupportToolNames() []string {
 	return []string{
+		"question",
 		"bash",
 		"glob",
 		"grep",

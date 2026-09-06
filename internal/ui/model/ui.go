@@ -41,6 +41,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/message"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/question"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"github.com/chenchunrun/SecOps/internal/skills"
 	"github.com/chenchunrun/SecOps/internal/ui/anim"
@@ -133,9 +134,11 @@ type (
 
 // UI represents the main user interface model.
 type UI struct {
-	com          *common.Common
-	session      *session.Session
-	sessionFiles []SessionFile
+	scanForm        *scanFormBinding
+	scanFormSession string
+	com             *common.Common
+	session         *session.Session
+	sessionFiles    []SessionFile
 
 	// keeps track of read files while we don't have a session id
 	sessionFileReads []string
@@ -364,6 +367,9 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 
 // Init initializes the UI model.
 func (m *UI) Init() tea.Cmd {
+	if m.com.App.Questions != nil {
+		m.com.App.Questions.Enable()
+	}
 	cmds := []tea.Cmd{tea.RequestBackgroundColor}
 	if m.state == uiOnboarding {
 		if cmd := m.openModelsDialog(); cmd != nil {
@@ -491,6 +497,10 @@ func (m *UI) loadMCPrompts() tea.Msg {
 
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if binding := m.scanForm; binding != nil && (!m.hasSession() || m.session.ID != binding.request.SessionID || activeCapabilitySubject(m.com.App.AgentCoordinator.ActiveAgentID()) != binding.subject) {
+		m.dialog.CloseDialog("question-" + binding.request.ID)
+		m.scanForm = nil
+	}
 	var cmds []tea.Cmd
 	if m.hasSession() && m.isAgentBusy() {
 		queueSize := m.com.App.AgentCoordinator.QueuedPrompts(m.session.ID)
@@ -531,6 +541,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
+		if m.scanFormSession == msg.session.ID {
+			m.scanFormSession = ""
+			cmds = append(cmds, m.openScanForm(""))
+		}
 		m.sessionFiles = msg.files
 		cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
 		msgs, err := m.com.App.Messages.List(context.Background(), m.session.ID)
@@ -893,7 +907,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, clearInfoMsgCmd(ttl))
 	case scanSessionCreatedMsg:
+		if msg.openForm {
+			m.scanFormSession = msg.sessionID
+		}
 		cmds = append(cmds, m.loadSession(msg.sessionID))
+	case pubsub.Event[question.Request]:
+		m.handleQuestion(msg.Payload)
+	case dialog.ActionQuestionResponse:
+		cmds = append(cmds, m.handleQuestionResponse(msg))
 	case scanPreparedMsg:
 		cmds = append(cmds, m.handleScanPrepared(msg))
 	case scanViewMsg:

@@ -38,6 +38,7 @@ import (
 	"github.com/chenchunrun/SecOps/internal/oauth/copilot"
 	"github.com/chenchunrun/SecOps/internal/permission"
 	"github.com/chenchunrun/SecOps/internal/pubsub"
+	"github.com/chenchunrun/SecOps/internal/question"
 	"github.com/chenchunrun/SecOps/internal/session"
 	"golang.org/x/sync/errgroup"
 
@@ -90,6 +91,7 @@ type coordinator struct {
 	sessions          session.Service
 	messages          message.Service
 	permissions       permission.Service
+	questions         *question.Service
 	secopsPermissions permission.SecOpsService
 	history           history.Service
 	filetracker       filetracker.Service
@@ -138,6 +140,7 @@ func NewCoordinator(
 	filetracker filetracker.Service,
 	lspManager *lsp.Manager,
 	notify pubsub.Publisher[notify.Notification],
+	questions ...*question.Service,
 ) (Coordinator, error) {
 	c := &coordinator{
 		cfg:               cfg,
@@ -155,6 +158,9 @@ func NewCoordinator(
 		},
 	}
 
+	if len(questions) > 0 {
+		c.questions = questions[0]
+	}
 	agentID := c.activeAgentID()
 	agentCfg, ok := cfg.Config().Agents[agentID]
 	if !ok {
@@ -755,6 +761,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 	// builders so their constructors stay centralized in internal/agent/tools.
 	allTools = append(allTools, tools.BuildBashToolSet(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelName, c.cfg.Config().Remote)...)
 	allTools = append(allTools, tools.BuildRuntimeToolSet(c.lspManager, c.permissions, c.filetracker, c.sessions, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths)...)
+	allTools = append(allTools, tools.BuildInteractionToolSet(c.questions)...)
 	allTools = append(allTools, tools.BuildRemoteToolSet(c.permissions, c.cfg.WorkingDir(), nil)...)
 	allTools = append(allTools, tools.BuildSearchToolSet(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Grep, c.cfg.Config().Tools.Ls)...)
 	allTools = append(allTools, tools.BuildEditToolSet(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir())...)

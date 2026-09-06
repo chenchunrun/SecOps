@@ -15,9 +15,12 @@ import (
 	"github.com/chenchunrun/SecOps/internal/workbench"
 )
 
-const scanHelp = "/scan new | list | authorize <directory> | run <directory> | revoke <directory> | show <id> | report <id> | cancel <id> | review <id> passed|rejected <reason>"
+const scanHelp = "/scan form (guided) | new | list | authorize <directory> | run <directory> | revoke <directory> | show <id> | report <id> | cancel <id> | review <id> passed|rejected <reason>"
 
-type scanSessionCreatedMsg struct{ sessionID string }
+type scanSessionCreatedMsg struct {
+	sessionID string
+	openForm  bool
+}
 
 type scanPreparedMsg struct {
 	record scan.Record
@@ -26,6 +29,9 @@ type scanPreparedMsg struct {
 type scanViewMsg struct{ text string }
 
 func (m *UI) applyScanCommand(input string) tea.Cmd {
+	if action, rest, _ := strings.Cut(strings.TrimSpace(input), " "); action == "form" {
+		return m.openScanForm(strings.TrimSpace(rest))
+	}
 	if strings.TrimSpace(input) == "new" {
 		sessions := m.com.App.Sessions
 		return func() tea.Msg {
