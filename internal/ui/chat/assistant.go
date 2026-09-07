@@ -34,6 +34,8 @@ type AssistantMessageItem struct {
 	thinkingExpanded  bool
 	thinkingBoxHeight int // Tracks the rendered thinking box height for click detection.
 	showThinking      bool
+	thinkingMarkdown  markdownSectionCache
+	bodyMarkdown      markdownSectionCache
 }
 
 // NewAssistantMessageItem creates a new AssistantMessageItem.
@@ -162,10 +164,15 @@ func (a *AssistantMessageItem) renderMessageContent(width int) string {
 
 // renderThinking renders the thinking/reasoning content with footer.
 func (a *AssistantMessageItem) renderThinking(thinking string, width int) string {
-	renderer := common.PlainMarkdownRenderer(a.sty, width)
-	rendered, err := renderer.Render(thinking)
-	if err != nil {
-		rendered = thinking
+	livePreview := a.message.IsThinking() && !a.thinkingExpanded && len(thinking) > liveThinkingPreviewBytes
+	var rendered string
+	if livePreview {
+		// Partial Markdown can start inside a code fence or table. Display a
+		// bounded plain-text tail while streaming; expansion renders the original.
+		rendered = ansi.Hardwrap(liveThinkingTail(thinking), max(1, width), true)
+		a.thinkingMarkdown = markdownSectionCache{}
+	} else {
+		rendered = a.thinkingMarkdown.render(a.sty, thinking, width, true)
 	}
 	rendered = strings.TrimSpace(rendered)
 
@@ -174,15 +181,21 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 
 	isTruncated := totalLines > maxCollapsedThinkingHeight
 	if !a.thinkingExpanded && isTruncated {
-		lines = lines[totalLines-maxCollapsedThinkingHeight:]
+		rendered = strings.Join(lines[totalLines-maxCollapsedThinkingHeight:], "\n")
+	}
+	if !a.thinkingExpanded && (isTruncated || livePreview) {
+		hintText := fmt.Sprintf(assistantMessageTruncateFormat, totalLines-maxCollapsedThinkingHeight)
+		if livePreview {
+			hintText = "… live plain-text preview [click or space to expand full reasoning]"
+		}
 		hint := a.sty.Chat.Message.ThinkingTruncationHint.Render(
-			fmt.Sprintf(assistantMessageTruncateFormat, totalLines-maxCollapsedThinkingHeight),
+			hintText,
 		)
-		lines = append([]string{hint, ""}, lines...)
+		rendered = hint + "\n\n" + rendered
 	}
 
 	thinkingStyle := a.sty.Chat.Message.ThinkingBox.Width(width)
-	result := thinkingStyle.Render(strings.Join(lines, "\n"))
+	result := thinkingStyle.Render(rendered)
 	a.thinkingBoxHeight = lipgloss.Height(result)
 
 	var footer string
@@ -204,11 +217,7 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 
 // renderMarkdown renders content as markdown.
 func (a *AssistantMessageItem) renderMarkdown(content string, width int) string {
-	renderer := common.MarkdownRenderer(a.sty, width)
-	result, err := renderer.Render(content)
-	if err != nil {
-		return content
-	}
+	result := a.bodyMarkdown.render(a.sty, content, width, false)
 	return strings.TrimSuffix(result, "\n")
 }
 

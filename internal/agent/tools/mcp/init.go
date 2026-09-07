@@ -509,6 +509,14 @@ func createSession(ctx context.Context, name string, m config.MCPConfig, resolve
 }
 
 func createTransport(ctx context.Context, m config.MCPConfig, resolver config.VariableResolver) (mcp.Transport, error) {
+	var oauthHandler *browserOAuth
+	if m.OAuth != nil {
+		var err error
+		oauthHandler, err = newBrowserOAuth(m)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if m.Sessionless && m.Type != config.MCPHttp {
 		return nil, fmt.Errorf("sessionless requires an http MCP transport")
 	}
@@ -537,7 +545,14 @@ func createTransport(ctx context.Context, m config.MCPConfig, resolver config.Va
 				headers: m.ResolvedHeaders(),
 			},
 		}
+		if oauthHandler != nil {
+			client.CheckRedirect = oauthHandler.client.CheckRedirect
+			// Reuse the validated resource origin, without permitting issuer requests.
+			u, _ := oauthURL(m.URL)
+			client.Transport = oauthOriginTransport{origins: []string{u.Scheme + "://" + u.Host}, base: &headerRoundTripper{headers: m.ResolvedHeaders()}}
+		}
 		return &mcp.StreamableClientTransport{
+			OAuthHandler:         optionalOAuthHandler(oauthHandler),
 			DisableStandaloneSSE: m.Sessionless,
 			Endpoint:             m.URL,
 			HTTPClient:           client,
@@ -572,5 +587,8 @@ func (rt headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 func mcpTimeout(m config.MCPConfig) time.Duration {
+	if m.OAuth != nil && m.Timeout == 0 {
+		return 5 * time.Minute
+	}
 	return time.Duration(cmp.Or(m.Timeout, 15)) * time.Second
 }

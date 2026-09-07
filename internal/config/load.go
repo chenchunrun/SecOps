@@ -259,6 +259,9 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, _ VariableR
 	for _, p := range knownProviders {
 		knownProviderNames[string(p.ID)] = true
 		config, configExists := c.Providers.Get(string(p.ID))
+		if config.ModelDiscovery != nil && !config.Disable {
+			return fmt.Errorf("model discovery requires a custom provider ID, not a built-in provider")
+		}
 		// if the user configured a known provider we need to allow it to override a couple of parameters
 		if configExists {
 			if config.BaseURL != "" {
@@ -424,6 +427,17 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, _ VariableR
 			slog.Warn("Skipping custom provider due to missing API endpoint", "provider", id)
 			c.Providers.Del(id)
 			continue
+		}
+		if providerConfig.ModelDiscovery != nil {
+			models, err := discoverModels(context.Background(), providerConfig, resolver)
+			if err != nil {
+				if len(providerConfig.Models) == 0 {
+					return fmt.Errorf("discover custom provider models: %w", err)
+				}
+				slog.Warn("Model discovery failed; keeping configured models", "provider", id, "error", err)
+			} else {
+				providerConfig.Models = models
+			}
 		}
 		if len(providerConfig.Models) == 0 {
 			slog.Warn("Skipping custom provider because the provider has no models", "provider", id)
