@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // 这些测试专门覆盖 resource_monitor.go 中覆盖率较低的纯解析函数与远程 SSH 采集路径。
@@ -684,11 +686,28 @@ func TestSampleNetwork_非Linux返回零(t *testing.T) {
 }
 
 func TestSampleCPUUsage_无CPUStat环境返回零(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("requires an environment without /proc/stat")
+	}
 	// readCPUStat 失败 → 直接 (0,0)，不睡眠。interval 极小避免拖慢。
 	usage, iowait := sampleCPUUsage(context.Background(), time.Millisecond)
 	if usage != 0 || iowait != 0 {
 		t.Errorf("无CPU stat 环境 sampleCPUUsage 应为 (0,0), got (%v,%v)", usage, iowait)
 	}
+}
+
+func TestSampleCPUUsage_LinuxPercentages(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux /proc/stat")
+	}
+	_, ok := readCPUStat()
+	require.True(t, ok, "Linux test environment must expose CPU statistics")
+	// Actual host load is nondeterministic; zero is valid but not required.
+	usage, iowait := sampleCPUUsage(t.Context(), 10*time.Millisecond)
+	require.GreaterOrEqual(t, usage, 0.0)
+	require.LessOrEqual(t, usage, 100.0)
+	require.GreaterOrEqual(t, iowait, 0.0)
+	require.LessOrEqual(t, iowait, 100.0)
 }
 
 // --- Execute / ValidateParams 远程分支补充覆盖 -----------------------------
