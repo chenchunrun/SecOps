@@ -364,6 +364,10 @@
     },
     "MCPConfig": {
       "properties": {
+        "oauth": {
+          "$ref": "#/$defs/MCPOAuthConfig",
+          "description": "Opt-in browser OAuth for HTTP MCP servers; tokens stay in memory"
+        },
         "sessionless": {
           "type": "boolean",
           "description": "Disable the standalone SSE notification stream for HTTP MCP servers",
@@ -447,6 +451,31 @@
         "type"
       ]
     },
+    "MCPOAuthConfig": {
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "description": "Trusted HTTPS OAuth issuer"
+        },
+        "client_id": {
+          "type": "string",
+          "description": "Preregistered public client ID supporting loopback redirects"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Explicit scopes requested during browser authorization"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "issuer",
+        "client_id"
+      ]
+    },
     "MCPs": {
       "additionalProperties": {
         "$ref": "#/$defs/MCPConfig"
@@ -511,6 +540,26 @@
         "default_max_tokens",
         "can_reason",
         "supports_attachments"
+      ]
+    },
+    "ModelDiscoveryConfig": {
+      "properties": {
+        "context_window": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Context window for discovered models; verify against the server"
+        },
+        "default_max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Output token limit for discovered models; must be below context_window"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "context_window",
+        "default_max_tokens"
       ]
     },
     "ModelOptions": {
@@ -712,6 +761,10 @@
     },
     "ProviderConfig": {
       "properties": {
+        "model_discovery": {
+          "$ref": "#/$defs/ModelDiscoveryConfig",
+          "description": "Opt-in model discovery for custom OpenAI-compatible providers"
+        },
         "id": {
           "type": "string",
           "description": "Unique identifier for the provider",

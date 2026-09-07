@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/x/exp/slice"
-	"github.com/chenchunrun/SecOps/internal/security/redact"
 	"mvdan.cc/sh/moreinterp/coreutils"
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/interp"
@@ -408,9 +407,9 @@ func (s *Shell) execCommon(ctx context.Context, command string, stdout, stderr i
 		if runner != nil {
 			s.updateShellFromRunner(runner)
 		}
-		// Redact embedded credentials before logging the command so secrets passed
-		// inline (tokens, DSNs, keys) do not land in the persistent log.
-		s.logger.InfoPersist("command finished", "command", redact.String(command), "err", err)
+		// Commands and interpreter errors can contain arbitrary credentials that
+		// pattern redaction cannot reliably identify. Persist only the outcome.
+		s.logger.InfoPersist("Command finished", "succeeded", err == nil)
 	}()
 
 	line, err := syntax.NewParser().Parse(strings.NewReader(command), "")

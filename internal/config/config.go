@@ -94,6 +94,7 @@ type SelectedModel struct {
 }
 
 type ProviderConfig struct {
+	ModelDiscovery *ModelDiscoveryConfig `json:"model_discovery,omitempty" jsonschema:"description=Opt-in model discovery for custom OpenAI-compatible providers"`
 	// The provider's id.
 	ID string `json:"id,omitempty" jsonschema:"description=Unique identifier for the provider,example=openai"`
 	// The provider's name, used for display purposes.
@@ -126,6 +127,12 @@ type ProviderConfig struct {
 
 	// The provider models
 	Models []catwalk.Model `json:"models,omitempty" jsonschema:"description=List of models available from this provider"`
+}
+
+// ModelDiscoveryConfig supplies limits not advertised by model-list APIs.
+type ModelDiscoveryConfig struct {
+	ContextWindow    int64 `json:"context_window" jsonschema:"required,minimum=1,description=Context window for discovered models; verify against the server"`
+	DefaultMaxTokens int64 `json:"default_max_tokens" jsonschema:"required,minimum=1,description=Output token limit for discovered models; must be below context_window"`
 }
 
 // ToProvider converts the [ProviderConfig] to a [catwalk.Provider].
@@ -171,6 +178,7 @@ const (
 )
 
 type MCPConfig struct {
+	OAuth         *MCPOAuthConfig   `json:"oauth,omitempty" jsonschema:"description=Opt-in browser OAuth for HTTP MCP servers; tokens stay in memory"`
 	Sessionless   bool              `json:"sessionless,omitempty" jsonschema:"description=Disable the standalone SSE notification stream for HTTP MCP servers,default=false"`
 	Command       string            `json:"command,omitempty" jsonschema:"description=Command to execute for stdio MCP servers,example=npx"`
 	Env           map[string]string `json:"env,omitempty" jsonschema:"description=Environment variables to set for the MCP server"`
@@ -183,6 +191,13 @@ type MCPConfig struct {
 
 	// TODO: maybe make it possible to get the value from the env
 	Headers map[string]string `json:"headers,omitempty" jsonschema:"description=HTTP headers for HTTP/SSE MCP servers"`
+}
+
+// MCPOAuthConfig binds a public OAuth client to an explicitly trusted issuer.
+type MCPOAuthConfig struct {
+	Issuer   string   `json:"issuer" jsonschema:"required,description=Trusted HTTPS OAuth issuer"`
+	ClientID string   `json:"client_id" jsonschema:"required,description=Preregistered public client ID supporting loopback redirects"`
+	Scopes   []string `json:"scopes,omitempty" jsonschema:"description=Explicit scopes requested during browser authorization"`
 }
 
 type LSPConfig struct {
