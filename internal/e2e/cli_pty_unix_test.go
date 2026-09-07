@@ -143,22 +143,16 @@ func runInteractivePTY(t *testing.T, backgroundResponse string) (string, int32, 
 	go func() {
 		defer close(readDone)
 		buffer := make([]byte, 4096)
-		stream := make([]byte, 0, 8192)
-		searchFrom := 0
+		responder := terminalQueryResponder{background: backgroundResponse}
 		for {
 			n, readErr := terminal.Read(buffer)
 			if n > 0 {
 				chunk := append([]byte(nil), buffer[:n]...)
 				_, _ = transcript.Write(chunk)
-				stream = append(stream, chunk...)
-				for {
-					index := bytes.Index(stream[searchFrom:], []byte(terminalBackgroundQuery))
-					if index < 0 {
-						break
-					}
-					searchFrom += index + len(terminalBackgroundQuery)
-					queryCount.Add(1)
-					_, _ = terminal.Write([]byte(backgroundResponse))
+				responses, backgrounds := responder.feed(chunk)
+				queryCount.Add(backgrounds)
+				if responses != "" {
+					_, _ = io.WriteString(terminal, responses)
 				}
 			}
 			if readErr != nil {
@@ -218,6 +212,8 @@ func isolatedCommand(t *testing.T, ctx context.Context, args ...string) *exec.Cm
 		"CRUSH_GLOBAL_CONFIG=" + configDir,
 		"CRUSH_GLOBAL_DATA=" + dataDir,
 		"CRUSH_DISABLE_METRICS=true",
+		// Startup coverage must not depend on the public model catalog service.
+		"CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1",
 		"DO_NOT_TRACK=1",
 	}
 	return cmd
